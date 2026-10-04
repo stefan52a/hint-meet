@@ -40,6 +40,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,6 +100,10 @@ def md_table(rows: list[list[str]]) -> str:
 
 
 # ---------- converters ----------
+
+def no_tick(done: int, total: int, unit: str) -> None:
+    """Voortgang binnen een bestand (pagina's, slides); standaard doet het niets."""
+
 
 def ocr_image(img, what: str) -> str:
     """OCR op een PIL-afbeelding (Nederlands + Engels); fouten worden RuntimeError."""
@@ -182,7 +187,7 @@ def iter_shapes(shapes):
             yield from iter_shapes(shape.shapes)
 
 
-def conv_pptx(path: Path, ocr: bool = False) -> str:
+def conv_pptx(path: Path, ocr: bool = False, tick=no_tick) -> str:
     from io import BytesIO
 
     from PIL import Image, UnidentifiedImageError
@@ -190,7 +195,9 @@ def conv_pptx(path: Path, ocr: bool = False) -> str:
 
     prs = Presentation(str(path))
     parts: list[str] = []
+    n_slides = len(prs.slides)
     for i, slide in enumerate(prs.slides, 1):
+        tick(i - 1, n_slides, "slide")
         title = ""
         body: list[str] = []
         for shape in slide.shapes:
@@ -227,12 +234,13 @@ def conv_pptx(path: Path, ocr: bool = False) -> str:
     return "\n\n".join(parts)
 
 
-def conv_pdf(path: Path, ocr: bool = False) -> str:
+def conv_pdf(path: Path, ocr: bool = False, tick=no_tick) -> str:
     import pymupdf as fitz
 
     doc = fitz.open(str(path))
     parts: list[str] = []
     for i, page in enumerate(doc, 1):
+        tick(i - 1, doc.page_count, "pagina")
         text = page.get_text("text").strip()
         if not text and ocr:
             from PIL import Image
@@ -244,7 +252,7 @@ def conv_pdf(path: Path, ocr: bool = False) -> str:
     return "\n\n".join(parts)
 
 
-def conv_image(path: Path, ocr: bool = False) -> str:
+def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
     from PIL import Image, ImageSequence
     if not ocr:
         raise RuntimeError("afbeeldingen worden alleen met OCR gelezen")
@@ -253,7 +261,11 @@ def conv_image(path: Path, ocr: bool = False) -> str:
     if len(frames) == 1:
         return ocr_image(frames[0], "afbeelding")
     # meerpagina-TIFF (scans): elke pagina apart
-    return "\n\n".join(f"## Pagina {i}\n\n{ocr_image(f, f'pagina {i}')}" for i, f in enumerate(frames, 1))
+    parts = []
+    for i, frame in enumerate(frames, 1):
+        tick(i - 1, len(frames), "pagina")
+        parts.append(f"## Pagina {i}\n\n{ocr_image(frame, f'pagina {i}')}")
+    return "\n\n".join(parts)
 
 
 def conv_html(path: Path) -> str:
@@ -297,11 +309,11 @@ def readable_chars(body: str) -> int:
 
 # ---------- hoofdloop ----------
 
-def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str) -> tuple[str, int]:
+def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str, tick=no_tick) -> tuple[str, int]:
     """Zet src om naar dst; geeft de sha1 van het geschreven bestand en het aantal leesbare tekens."""
     ext = src.suffix.lower()
     fn = CONVERTERS[ext]
-    body = fn(src, ocr) if ext in OCR_EXTS else fn(src)
+    body = fn(src, ocr, tick) if ext in OCR_EXTS else fn(src)
     body = clean(body)
     front = {
         "source": str(src),
@@ -416,6 +428,14 @@ def main(argv: list[str] | None = None) -> int:
         return run(a)
 
 
+def fmt_duration(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    if seconds < 90 * 60:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} u"
+
+
 class Progress:
     """Voortgangsregel die zichzelf overschrijft, alleen in een terminal.
 
@@ -430,13 +450,29 @@ class Progress:
         self.width = len(str(total))
 
     def update(self, i: int, name: str) -> None:
+        self.i, self.name = i, name
+        self.started = time.monotonic()
+        self._render("")
+
+    def tick(self, done: int, total: int, unit: str) -> None:
+        """Pagina's of slides binnen het huidige bestand, met een schatting van de resterende tijd."""
+        if total <= 1:
+            return
+        tail = f" · {unit} {done + 1}/{total}"
+        if done:
+            left = (time.monotonic() - self.started) / done * (total - done)
+            if left >= 5:
+                tail += f" · nog ~{fmt_duration(left)}"
+        self._render(tail)
+
+    def _render(self, tail: str) -> None:
         if not self.tty:
             return
         cols = shutil.get_terminal_size((80, 20)).columns - 1
-        line = f"[{i:>{self.width}}/{self.total}] {name}"
-        if len(line) > cols:
-            line = line[:cols - 1] + "…"
-        sys.stderr.write("\r\033[K" + line)
+        head = f"[{self.i:>{self.width}}/{self.total}] "
+        room = cols - len(head) - len(tail)
+        name = self.name if len(self.name) <= room else self.name[:max(room - 1, 0)] + "…"
+        sys.stderr.write("\r\033[K" + (head + name + tail)[:cols])
         sys.stderr.flush()
 
     def clear(self) -> None:
@@ -513,7 +549,7 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
                 if entry.get("chars", LOW_TEXT) < LOW_TEXT:
                     low_text.append((rel, entry["chars"]))  # blijft melden tot de bron beter is
                 continue
-            shadow_sha1, chars = convert_one(src, dst, a.ocr, src_sha1)
+            shadow_sha1, chars = convert_one(src, dst, a.ocr, src_sha1, tick=progress.tick)
         except Exception as e:  # noqa: BLE001
             stats["fail"] += 1
             if owned_and_unchanged(dst, entry):

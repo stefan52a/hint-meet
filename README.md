@@ -95,7 +95,7 @@ python tools/kb_prep.py ~/Documents/Fabrikam --project fabrikam    # → ~/KB_md
 python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/anders/ (geen submap)
 ```
 
-`KB_ROOT` komt uit de omgeving, of uit de eerste `.env` in de werkmap of een map daarboven. kb_prep print bij de start de bron- en doelmap. In een terminal toont het één voortgangsregel (`[ 7/18] bestand`) en alleen meldingen als eigen regel; naar een pipe of logbestand blijft elke regel staan.
+`KB_ROOT` komt uit de omgeving, of uit de eerste `.env` in de werkmap of een map daarboven. kb_prep print bij de start de bron- en doelmap. In een terminal toont het één voortgangsregel (`[ 7/18] bestand · pagina 23/80 · nog ~2 min`; pagina's bij PDF en TIFF, slides bij presentaties) en alleen meldingen als eigen regel; naar een pipe of logbestand blijft elke regel staan.
 
 | Optie       | Wat                                                                                       |
 |-------------|-------------------------------------------------------------------------------------------|

@@ -302,10 +302,10 @@ def test_manifest_saved_after_each_conversion(tmp_path, monkeypatch):
     src, out = make_kb(tmp_path, {"a.txt": "x", "b.txt": "y"})
     real = kb_prep.convert_one
 
-    def crash_on_b(s, d, ocr, sha):
+    def crash_on_b(s, d, ocr, sha, **kw):
         if s.name == "b.txt":
             raise KeyboardInterrupt
-        return real(s, d, ocr, sha)
+        return real(s, d, ocr, sha, **kw)
 
     monkeypatch.setattr(kb_prep, "convert_one", crash_on_b)
     with pytest.raises(KeyboardInterrupt):
@@ -705,10 +705,46 @@ def test_progress_line_cleared_on_interrupt(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "stderr", tty)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
 
-    def boom(*_a):
+    def boom(*_a, **_k):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(kb_prep, "convert_one", boom)
     with pytest.raises(KeyboardInterrupt):
         main([str(src), str(out)])
     assert tty.buf[-1] == "\r\033[K"
+
+
+def test_page_progress_and_estimate(tmp_path, monkeypatch, capsys):
+    fitz = pytest.importorskip("pymupdf")
+    src, out = make_kb(tmp_path, {})
+    doc = fitz.open()
+    for i in range(4):
+        doc.new_page().insert_text((72, 72), f"pagina {i} met genoeg tekst om niet als leeg gemeld te worden")
+    doc.save(str(src / "groot.pdf"))
+    clock = iter(range(0, 1000, 10))  # elke aanroep 10 s later
+    monkeypatch.setattr(kb_prep.time, "monotonic", lambda: next(clock))
+    tty = FakeTTY()
+    monkeypatch.setattr(sys, "stderr", tty)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert main([str(src), str(out)]) == 0
+    frames = tty.text.split("\r\033[K")
+    assert "[1/1] groot.pdf · pagina 1/4" in frames
+    assert any(f.startswith("[1/1] groot.pdf · pagina 3/4 · nog ~") for f in frames)
+
+
+def test_long_name_is_shortened_but_page_counter_kept(monkeypatch):
+    tty = FakeTTY()
+    monkeypatch.setattr(sys, "stderr", tty)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(kb_prep.shutil, "get_terminal_size", lambda *_: os.terminal_size((50, 20)))
+    p = kb_prep.Progress(375)
+    p.update(7, "01-woning-en-installatie/AFSCHRIFT akte Splitsing blok C Florence.pdf")
+    p.tick(22, 80, "pagina")
+    last = tty.text.split("\r\033[K")[-1]
+    assert len(last) <= 49 and last.endswith("pagina 23/80") and "…" in last
+
+
+def test_fmt_duration():
+    assert kb_prep.fmt_duration(40) == "40 s"
+    assert kb_prep.fmt_duration(300) == "5 min"
+    assert kb_prep.fmt_duration(3 * 3600) == "3.0 u"
