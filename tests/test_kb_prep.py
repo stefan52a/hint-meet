@@ -672,6 +672,7 @@ def test_progress_overwrites_one_line_in_terminal(tmp_path, monkeypatch, capsys)
     src, out = make_kb(tmp_path, {"a.txt": "x" * 100, "b.txt": "y" * 100, "leeg.txt": ""})
     tty = FakeTTY()
     monkeypatch.setattr(sys, "stderr", tty)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert main([str(src), str(out)]) == 0
     printed = capsys.readouterr().out
     assert "[1/3] a.txt" in tty.text and "[3/3] leeg.txt" in tty.text
@@ -687,3 +688,27 @@ def test_no_progress_line_outside_terminal(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "✓ a.txt" in captured.out
     assert "\r" not in captured.out + captured.err
+
+
+def test_redirected_stdout_keeps_success_lines(tmp_path, monkeypatch, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100})
+    tty = FakeTTY()
+    monkeypatch.setattr(sys, "stderr", tty)  # stderr naar terminal, stdout naar bestand
+    main([str(src), str(out)])
+    assert "✓ a.txt" in capsys.readouterr().out
+    assert tty.text == ""
+
+
+def test_progress_line_cleared_on_interrupt(tmp_path, monkeypatch):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    tty = FakeTTY()
+    monkeypatch.setattr(sys, "stderr", tty)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    def boom(*_a):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(kb_prep, "convert_one", boom)
+    with pytest.raises(KeyboardInterrupt):
+        main([str(src), str(out)])
+    assert tty.buf[-1] == "\r\033[K"

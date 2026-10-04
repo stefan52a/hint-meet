@@ -425,7 +425,8 @@ class Progress:
 
     def __init__(self, total: int):
         self.total = total
-        self.tty = sys.stderr.isatty()
+        # beide naar de terminal: wie stdout naar een logbestand stuurt, wil daar ook de ✓-regels
+        self.tty = sys.stderr.isatty() and sys.stdout.isatty()
         self.width = len(str(total))
 
     def update(self, i: int, name: str) -> None:
@@ -475,6 +476,13 @@ def run(a: argparse.Namespace) -> int:
         todo.append(src)
 
     progress = Progress(len(todo))
+    try:
+        return convert_all(a, todo, manifest, progress, stats, low_text, expected, failures)
+    finally:
+        progress.clear()  # ook bij Ctrl-C of een crash geen halve voortgangsregel laten staan
+
+
+def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures) -> int:
     for i, src in enumerate(todo, 1):
         ext = src.suffix.lower()
         rel = src.relative_to(a.src)
