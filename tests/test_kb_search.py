@@ -1,3 +1,6 @@
+import zlib
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -14,7 +17,7 @@ class FakeEmbedder:
     def _vec(self, text):
         v = np.zeros(256, dtype=np.float32)
         for t in tokenize(text):
-            v[hash(t) % 256] += 1
+            v[zlib.crc32(t.encode()) % 256] += 1  # hash() verschilt per proces
         n = np.linalg.norm(v)
         return v / n if n else v
 
@@ -35,6 +38,7 @@ def write(root, rel, text):
 def test_tokenize_normalises_amounts():
     assert "600000" in tokenize("€ 600.000")
     assert "600000" in tokenize("zo'n 600k")
+    assert "1500" in tokenize("1,5k")
     assert "0.31" in tokenize("0,31% marktaandeel")
     assert "37d" in tokenize("artikel 37d")
     assert "de" not in tokenize("de agio")
@@ -97,3 +101,26 @@ def test_search_docs_is_unique_and_ordered(tmp_path):
 def test_empty_kb(tmp_path):
     kb = KB(tmp_path, FakeEmbedder())
     assert kb.search("iets") == [] and kb.search_docs("iets") == []
+
+
+def test_search_docs_fills_k_even_with_one_long_document(tmp_path):
+    write(tmp_path, "lang.md", "# Lang\n\n" + "\n\n".join(f"## deel {i}\n\nagio agio agio" for i in range(60)))
+    for name in "abcdef":
+        write(tmp_path, f"{name}.md", f"# {name}\n\nagio en nog wat")
+    docs = KB(tmp_path, FakeEmbedder()).search_docs("agio", k=5)
+    assert len(docs) == 5 and docs[0] == "lang.md"
+
+
+MODEL = Path("~/.cache/hint-meet/models/intfloat--multilingual-e5-large/.download-compleet").expanduser()
+
+
+@pytest.mark.skipif(not MODEL.exists(), reason="e5-model niet gedownload")
+def test_real_model_ranks_by_meaning(tmp_path):
+    from hint_meet.kb import OnnxEmbedder
+    emb = OnnxEmbedder()
+    q = emb.query("krijgt de inbrenger aandelen of een lening?")
+    p = emb.passages(["De koopprijs wordt volledig in agio omgezet; er is geen lening.",
+                      "De servers draaien bij Hetzner en DigitalOcean."])
+    assert p.shape == (2, 1024)
+    assert np.allclose(np.linalg.norm(p, axis=1), 1, atol=1e-4)
+    assert p[0] @ q > p[1] @ q

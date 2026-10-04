@@ -25,6 +25,9 @@ CACHE_DIR = ".hint-meet-cache"
 DEFAULT_MODEL = "intfloat/multilingual-e5-large"
 CHUNK_CHARS = 1200
 RRF_K = 60
+# Ophogen als de tekst die naar het model gaat verandert (chunking, voorvoegsels, pooling):
+# dan worden gecachte embeddings niet meer gebruikt.
+EMBED_VERSION = 1
 
 STOPWORDS = set("""
 de het een en van in op te dat die is voor met aan er niet zijn om ook als bij of door naar uit
@@ -134,7 +137,8 @@ def load_chunks(root: Path) -> list[Chunk]:
 def tokenize(text: str) -> list[str]:
     text = text.lower()
     text = re.sub(r"(?<=\d)[.](?=\d{3}\b)", "", text)          # 600.000 → 600000
-    text = re.sub(r"(\d+)\s*k\b", lambda m: m.group(1) + "000", text)  # 600k → 600000
+    text = re.sub(r"(\d+(?:[.,]\d+)?)\s*k\b",                   # 600k → 600000, 1,5k → 1500
+                  lambda m: f"{float(m.group(1).replace(',', '.')) * 1000:g}", text)
     text = re.sub(r"(?<=\d),(?=\d)", ".", text)                # 0,31 → 0.31
     return [t for t in re.findall(r"[a-z0-9à-ÿ]+(?:\.[0-9]+)?", text) if t not in STOPWORDS]
 
@@ -178,10 +182,12 @@ class OnnxEmbedder:
         self.name = model
         self.batch = batch
         self.e5 = "e5" in model.lower()
-        local = MODEL_DIR / model.split("/")[-1]
-        if not (local / "model.onnx").exists():
+        local = MODEL_DIR / model.replace("/", "--")
+        done = local / ".download-compleet"
+        if not done.exists():  # ook na een afgebroken download opnieuw proberen
             from huggingface_hub import snapshot_download
             snapshot_download(ONNX_REPOS.get(model, model), local_dir=local)
+            done.touch()
         self.tokenizer = Tokenizer.from_file(str(local / "tokenizer.json"))
         self.tokenizer.enable_truncation(512)
         self.tokenizer.enable_padding()
@@ -232,7 +238,7 @@ class KB:
         if not self.chunks:
             return np.zeros((0, 1), dtype=np.float32)
         slug = re.sub(r"[^A-Za-z0-9]+", "-", getattr(self.embedder, "name", "model"))
-        cache = self.root / CACHE_DIR / f"embeddings-{slug}.npz"
+        cache = self.root / CACHE_DIR / f"embeddings-{slug}-v{EMBED_VERSION}.npz"
         known: dict[str, np.ndarray] = {}
         if cache.exists():
             data = np.load(cache)
@@ -243,7 +249,7 @@ class KB:
                 known[c.key] = v
             keys = [c.key for c in self.chunks]  # alleen huidige stukjes bewaren
             cache.parent.mkdir(exist_ok=True)
-            tmp = cache.with_suffix(".tmp.npz")
+            tmp = cache.with_name(f".{cache.stem}.{os.getpid()}.tmp.npz")  # eigen bestand per proces
             np.savez(tmp, keys=np.array(keys), vecs=np.stack([known[k] for k in keys]))
             os.replace(tmp, cache)
         return np.stack([known[c.key] for c in self.chunks])
@@ -265,7 +271,8 @@ class KB:
     def search_docs(self, query: str, k: int = 5) -> list[str]:
         """Unieke documenten in volgorde van hun beste stukje."""
         seen: list[str] = []
-        for hit in self.search(query, k=k * 6):
+        n = len(self.chunks)
+        for hit in self.search(query, k=n, pool=n):  # volledige ranglijst: lange stukken mogen niet alles vullen
             if hit.chunk.ref not in seen:
                 seen.append(hit.chunk.ref)
             if len(seen) == k:
