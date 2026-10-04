@@ -584,3 +584,55 @@ def test_new_converter_version_reconverts(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     main([str(src), str(out)])
     assert "1 omgezet" in capsys.readouterr().out
+
+
+def test_multipage_tiff_reads_every_page(tmp_path, fake_ocr):
+    from PIL import Image
+    src, out = make_kb(tmp_path, {})
+    pages = [Image.new("RGB", (100 + i, 100), "white") for i in range(3)]
+    pages[0].save(src / "scan.tif", save_all=True, append_images=pages[1:])
+    assert main([str(src), str(out)]) == 0
+    text = (out / ("scan.tif" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert [f"## Pagina {i}" in text for i in (1, 2, 3)] == [True] * 3
+    assert len(fake_ocr.calls) == 3
+
+
+def test_grouped_picture_and_titled_scan_are_ocred(tmp_path, fake_ocr):
+    pptx = pytest.importorskip("pptx")
+    from pptx.util import Inches
+    src, out = make_kb(tmp_path, {})
+    img = tmp_path / "scan.png"
+    png(img)
+    prs = pptx.Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[5])  # alleen titel
+    slide.shapes.title.text = "Bijlage"
+    group = slide.shapes.add_group_shape()
+    group.shapes.add_picture(str(img), Inches(1), Inches(1))
+    prs.save(str(src / "deck.pptx"))
+    assert main([str(src), str(out)]) == 0
+    text = (out / ("deck.pptx" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "## Slide 1: Bijlage" in text and "Belscript" in text
+
+
+def test_low_text_keeps_being_reported_when_skipped(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"leeg.txt": ""})
+    main([str(src), str(out)])
+    capsys.readouterr()
+    main([str(src), str(out)])
+    printed = capsys.readouterr().out
+    assert "1 overgeslagen" in printed and "1 met weinig tekst" in printed
+
+
+def test_ocr_uses_timeout(tmp_path, monkeypatch):
+    from PIL import Image
+    seen = {}
+
+    class Fake:
+        @staticmethod
+        def image_to_string(img, **kw):
+            seen.update(kw)
+            return ""
+
+    monkeypatch.setitem(sys.modules, "pytesseract", Fake)
+    kb_prep.ocr_image(Image.new("RGB", (10, 10)), "test")
+    assert seen["timeout"] == kb_prep.OCR_TIMEOUT

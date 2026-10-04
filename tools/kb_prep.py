@@ -48,8 +48,9 @@ SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm"
              ".txt", ".md", ".json", ".rtf"} | IMAGE_EXTS
 OCR_EXTS = {".pdf", ".pptx"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
 # Ophogen als de conversie zelf verbetert: bestaande schaduwbestanden worden dan opnieuw gemaakt.
-CONVERTER_VERSION = 2
-LOW_TEXT = 50  # minder leesbare tekens dan dit: waarschuwen
+CONVERTER_VERSION = 3
+LOW_TEXT = 50
+OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
 PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
 SHADOW_SUFFIX = ".kb-hint-meet.md"
 INDEX_NAME = "_index.json"
@@ -110,7 +111,7 @@ def ocr_image(img, what: str) -> str:
             img.alpha_composite(rgba)
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
-        return pytesseract.image_to_string(img, lang="nld+eng").strip()
+        return pytesseract.image_to_string(img, lang="nld+eng", timeout=OCR_TIMEOUT).strip()
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"OCR mislukt op {what}: {e}") from e
 
@@ -172,6 +173,14 @@ def conv_csv(path: Path) -> str:
     return md_table(rows[:2000])
 
 
+def iter_shapes(shapes):
+    """Alle shapes, ook die binnen groepen."""
+    for shape in shapes:
+        yield shape
+        if hasattr(shape, "shapes"):  # groepsshape
+            yield from iter_shapes(shape.shapes)
+
+
 def conv_pptx(path: Path, ocr: bool = False) -> str:
     from io import BytesIO
 
@@ -195,9 +204,9 @@ def conv_pptx(path: Path, ocr: bool = False) -> str:
             if getattr(shape, "has_table", False) and shape.has_table:
                 rows = [[c.text for c in r.cells] for r in shape.table.rows]
                 body.append(md_table(rows))
-        if not title and not body and ocr:
-            # slide zonder tekst, vaak één grote afbeelding (bv. een NotebookLM-export)
-            for shape in slide.shapes:
+        if ocr and readable_chars("\n".join([title, *body])) < LOW_TEXT:
+            # slide (vrijwel) zonder tekst: vaak één grote afbeelding (NotebookLM-export, scan met titel)
+            for shape in iter_shapes(slide.shapes):
                 if not hasattr(shape, "image"):
                     continue
                 try:
@@ -235,11 +244,15 @@ def conv_pdf(path: Path, ocr: bool = False) -> str:
 
 
 def conv_image(path: Path, ocr: bool = False) -> str:
-    from PIL import Image
+    from PIL import Image, ImageSequence
     if not ocr:
         raise RuntimeError("afbeeldingen worden alleen met OCR gelezen")
     with Image.open(path) as img:
-        return ocr_image(img, "afbeelding")
+        frames = [f.copy() for f in ImageSequence.Iterator(img)]
+    if len(frames) == 1:
+        return ocr_image(frames[0], "afbeelding")
+    # meerpagina-TIFF (scans): elke pagina apart
+    return "\n\n".join(f"## Pagina {i}\n\n{ocr_image(f, f'pagina {i}')}" for i, f in enumerate(frames, 1))
 
 
 def conv_html(path: Path) -> str:
@@ -446,6 +459,8 @@ def run(a: argparse.Namespace) -> int:
                     and entry.get("converter") == CONVERTER_VERSION
                     and (ext not in OCR_EXTS or entry.get("ocr") == a.ocr)):
                 stats["skip"] += 1
+                if entry.get("chars", LOW_TEXT) < LOW_TEXT:
+                    low_text.append((rel, entry["chars"]))  # blijft melden tot de bron beter is
                 continue
             shadow_sha1, chars = convert_one(src, dst, a.ocr, src_sha1)
         except Exception as e:  # noqa: BLE001
@@ -463,6 +478,7 @@ def run(a: argparse.Namespace) -> int:
             "shadow_sha1": shadow_sha1,
             "ocr": a.ocr,
             "converter": CONVERTER_VERSION,
+            "chars": chars,
             "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         }
         save_manifest(a.out, manifest, a.src)  # direct vastleggen, zodat een crash geen eigen output verweesd achterlaat
