@@ -466,7 +466,7 @@ def run(a: argparse.Namespace) -> int:
         except Exception as e:  # noqa: BLE001
             stats["fail"] += 1
             if owned_and_unchanged(dst, entry):
-                dst.unlink()  # geen verouderde versie in de index laten staan
+                dst.unlink()  # geen verouderde versie in de KB laten staan
             manifest.pop(key, None)
             save_manifest(a.out, manifest, a.src)
             failures.append((rel, f"{type(e).__name__}: {e}"))
