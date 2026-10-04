@@ -1,22 +1,27 @@
-# Drempels voor de Jev-gate. Kalibreren met: hint-meet replay <opname.wav>
-model: jev-latest        # pin een geteste versie zodra die er is
-window_turns: 3          # alleen de laatste 2-3 beurten naar Jev
+# Instellingen voor de pijplijn: zoeken → gate → advies.
+# Kalibreren met: hint-meet replay data/eval/acme-gesprek.txt
+window_turns: 3            # zoveel laatste beurten gaan naar gate en advies
 
 gate:
-  intervene_min: 0.6     # Noul "moet ik ingrijpen?" ja-kans
-  urgency_min: 2         # Score 0-4
+  provider: claude         # claude (tot M3) | jev | laya
+  model: claude-haiku-4-5  # voor provider claude
+  intervene_min: 0.6       # kans "nu een hint tonen" waarboven het advies wordt gemaakt
+  urgency_min: 1           # 0-4
 
-moments:                 # Choice: wat voor moment is dit
+moments:                   # Choice: wat voor moment is dit
   - vraag_aan_mij
-  - bezwaar
-  - toezegging
   - onjuiste_bewering
   - risico
+  - toezegging
   - smalltalk
+  - overig
 
 kb:
-  rerank_min: 0.7        # Noul per passage, alleen hierboven door naar Claude
-  top_k: 5
+  query_turns: 2           # zoveel laatste beurten vormen de zoekvraag
+  gate_passages: 3         # zoveel passages ziet de gate
+  advise_passages: 6       # zoveel passages ziet het advies
 
 advise:
+  model: claude-opus-5-5
+  effort: low              # snelheid boven diepgang; het advies is kort
   max_sentences: 3
