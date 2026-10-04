@@ -47,6 +47,14 @@ hint-meet/
 ├── docs/
 │   └── gesprek-meeting-copilot-jev.md
 └── tests/
+    └── test_kb_prep.py
+```
+
+## Tests
+
+```bash
+pip install -e ".[kb-prep,dev]"
+pytest
 ```
 
 ## Installatie
@@ -63,12 +71,17 @@ cp .env.example .env        # vul keys en paden in
 
 `kb_prep.py` zet een map met documenten om naar Markdown, met dezelfde mappenstructuur, YAML-frontmatter per bestand en een `_index.json` voor de retriever.
 
+Elk schaduwbestand heet `<naam>.<ext>.kb-hint-meet.md` (bijvoorbeeld `offerte.pdf.kb-hint-meet.md`). Aan die suffix herkent het script zijn eigen output. Daardoor:
+
+- mag de doelmap ook binnen de bronmap liggen, of dezelfde map zijn: schaduwbestanden worden nooit opnieuw ingelezen;
+- verdwijnt de schaduw automatisch als je het bronbestand verwijdert, terwijl je eigen `.md`-bestanden altijd blijven staan.
+
 ```bash
 python tools/kb_prep.py ~/KB ~/KB_md
 python tools/kb_prep.py ~/KB ~/KB_md --ocr --force
 ```
 
-Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Bestanden waarvan de `.md` al actueel is worden overgeslagen. `--ocr` vereist `pytesseract` en `tesseract`.
+Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Bestanden waarvan de schaduw al actueel is worden overgeslagen. `--ocr` vereist `pytesseract` en `tesseract`; als OCR mislukt, telt het bestand als mislukt en komt het niet in de index.
 
 ## Providers
 

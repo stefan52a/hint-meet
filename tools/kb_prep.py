@@ -3,7 +3,10 @@
 kb_prep.py : zet een kennisbank-map om naar Markdown.
 
 Ondersteund: .docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf (via textutil op macOS)
-Resultaat: dezelfde mappenstructuur onder <out>/, elk bestand als <naam>.md met YAML-frontmatter.
+Resultaat: dezelfde mappenstructuur onder <out>/, elk bestand als <naam>.<ext>.kb-hint-meet.md
+met YAML-frontmatter. Aan die suffix herkent het script zijn eigen schaduwbestanden: ze worden nooit
+als bron gelezen, en alleen zij worden opgeruimd als de bron verdwenen is. <out> mag dus ook binnen
+<bron> liggen of gelijk zijn aan <bron>.
 
 Gebruik:
     python kb_prep.py <bron-map> <doel-map> [--force] [--ocr]
@@ -28,6 +31,8 @@ from pathlib import Path
 
 SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm",
              ".txt", ".md", ".json", ".rtf"}
+SHADOW_SUFFIX = ".kb-hint-meet.md"
+INDEX_NAME = "_index.json"
 
 # ---------- hulpfuncties ----------
 
@@ -162,7 +167,7 @@ def conv_pdf(path: Path, ocr: bool = False) -> str:
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 text = pytesseract.image_to_string(img, lang="nld+eng").strip()
             except Exception as e:  # noqa: BLE001
-                text = f"_(OCR mislukt: {e})_"
+                raise RuntimeError(f"OCR mislukt op pagina {i}: {e}") from e
         if text:
             parts.append(f"## Pagina {i}\n\n{text}")
     return "\n\n".join(parts)
@@ -222,29 +227,42 @@ def convert_one(src: Path, dst: Path, ocr: bool) -> str:
     return "ok"
 
 
-def main() -> int:
+def is_own_output(path: Path, out: Path) -> bool:
+    return path.name.endswith(SHADOW_SUFFIX) or path == out / INDEX_NAME
+
+
+def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
+    rel = src.relative_to(src_root)
+    return out / rel.parent / (rel.name + SHADOW_SUFFIX)
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Zet een KB-map om naar Markdown.")
     ap.add_argument("src", type=Path)
     ap.add_argument("out", type=Path)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--ocr", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    a.src, a.out = a.src.expanduser().resolve(), a.out.expanduser().resolve()
 
     if not a.src.is_dir():
         print(f"Bronmap niet gevonden: {a.src}", file=sys.stderr)
         return 2
+    a.out.mkdir(parents=True, exist_ok=True)
 
-    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0}
+    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0}
+    expected: set[Path] = set()
     failures: list[tuple[Path, str]] = []
     for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
-        if src.name.startswith(("~$", ".")):
+        if src.name.startswith(("~$", ".")) or is_own_output(src, a.out):
             continue
         ext = src.suffix.lower()
         if ext not in SUPPORTED:
             stats["unsupported"] += 1
             continue
         rel = src.relative_to(a.src)
-        dst = a.out / rel.with_suffix(rel.suffix + ".md")
+        dst = shadow_path(a.src, a.out, src)
+        expected.add(dst)
         if dst.exists() and not a.force and dst.stat().st_mtime >= src.stat().st_mtime:
             stats["skip"] += 1
             continue
@@ -257,16 +275,24 @@ def main() -> int:
             failures.append((rel, f"{type(e).__name__}: {e}"))
             print(f"  ✗ {rel}: {e}", file=sys.stderr)
 
+    # schaduwbestanden van verwijderde of niet meer ondersteunde bronnen opruimen
+    for md in a.out.rglob("*" + SHADOW_SUFFIX):
+        if md not in expected:
+            md.unlink()
+            stats["removed"] += 1
+            print(f"  - {md.relative_to(a.out)} (bron weg)")
+
     # index voor de retriever
     index = []
-    for md in sorted(a.out.rglob("*.md")):
+    for md in sorted(a.out.rglob("*" + SHADOW_SUFFIX)):
         head = md.read_text(encoding="utf-8", errors="replace")[:2000]
         m = re.search(r'^source: "(.*)"$', head, re.M)
         index.append({"md": str(md.relative_to(a.out)), "source": m.group(1) if m else None})
-    (a.out / "_index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    (a.out / INDEX_NAME).write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
-          f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund. Index: {a.out / '_index.json'}")
+          f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd. "
+          f"Index: {a.out / INDEX_NAME}")
     if failures:
         print("\nMislukt:")
         for rel, err in failures:
