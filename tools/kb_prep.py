@@ -3,7 +3,7 @@
 kb_prep.py : zet een kennisbank-map om naar Markdown.
 
 Ondersteund: .docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf (via textutil op macOS),
-             en met OCR ook .png .jpg .jpeg .tif .tiff .webp
+             .eml (kop, tekst en bijlagen), en met OCR ook .png .jpg .jpeg .tif .tiff .webp
 Resultaat: dezelfde mappenstructuur onder <out>/, elk bestand als <naam>.<ext>.kb-hint-meet.md
 met YAML-frontmatter. Aan die suffix herkent het script zijn eigen schaduwbestanden: ze worden nooit
 als bron gelezen. <out> mag dus ook binnen <bron> liggen of gelijk zijn aan <bron>.
@@ -23,6 +23,8 @@ Gebruik:
 
     --force   zet alles opnieuw om, ook als de bron niet veranderd is, en overschrijf eigen
               schaduwbestanden die na conversie zijn aangepast (vreemde bestanden nooit)
+    .kbignore in de root van de bronmap sluit bestanden uit (gitignore-syntax, bv. tmp/ of *.log);
+              al bestaande schaduwbestanden daarvan worden opgeruimd
     --no-ocr  geen OCR; standaard leest OCR PDF-pagina's zonder tekstlaag (scans) uit,
               wat pytesseract + tesseract (met taal nld) vereist
 
@@ -47,19 +49,21 @@ from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm",
-             ".txt", ".md", ".json", ".rtf"} | IMAGE_EXTS
-OCR_EXTS = {".pdf", ".pptx", ".docx"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
+             ".txt", ".md", ".json", ".rtf", ".eml"} | IMAGE_EXTS
+OCR_EXTS = {".pdf", ".pptx", ".docx", ".eml"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
 # Ophogen als de conversie zelf verbetert: bestaande schaduwbestanden worden dan opnieuw gemaakt.
 CONVERTER_VERSION = 3
 # Per bestandstype hoger dan de basis, zodat een verbetering alleen dat type opnieuw doet.
 # 4: docx zonder stijl, OCR in docx met alleen afbeeldingen, foto's zonder tekst.
 # 5 (afbeeldingen): korte OCR-tekst van foto's bewaren, gemarkeerd als onzeker.
-TYPE_VERSION = {".docx": 4, **{ext: 5 for ext in IMAGE_EXTS}}
+# 4 (eml): ingebedde afbeeldingen overslaan.
+TYPE_VERSION = {".docx": 4, ".eml": 4, **{ext: 5 for ext in IMAGE_EXTS}}
 PHOTO_NOTE = "## Foto zonder (veel) herkenbare tekst"  # kop: telt niet mee als tekst
 
 
 def converter_version(ext: str) -> int:
     return max(CONVERTER_VERSION, TYPE_VERSION.get(ext, 0))
+IGNORE_FILE = ".kbignore"  # gitignore-syntax, in de root van de bronmap
 LOW_TEXT = 50
 OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
 PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
@@ -305,6 +309,59 @@ def conv_html(path: Path) -> str:
     return markdownify(html, heading_style="ATX", strip=["script", "style"])
 
 
+def render_email(msg, ocr: bool, tick, depth: int = 0) -> str:
+    """Kopregels, tekst (plain of html) en bijlagen van een e-mailbericht als Markdown."""
+    import tempfile
+    from markdownify import markdownify
+
+    h = "#" * min(depth + 2, 6)
+    head = []
+    for label, field in (("Van", "from"), ("Aan", "to"), ("Cc", "cc"), ("Datum", "date"), ("Onderwerp", "subject")):
+        if msg[field]:
+            head.append(f"- **{label}:** {msg[field]}")
+    parts = ["\n".join(head)]
+
+    body = msg.get_body(preferencelist=("plain", "html"))
+    if body is not None:
+        text = body.get_content()
+        if body.get_content_subtype() == "html":
+            text = markdownify(text, heading_style="ATX", strip=["script", "style", "img"])
+        parts.append(text.strip())
+
+    for att in msg.iter_attachments():
+        if att.get_content_maintype() == "image" and att.get_content_disposition() != "attachment":
+            continue  # ingebedde afbeelding in de html (logo, handtekening), geen echte bijlage
+        if att.get_content_type() == "message/rfc822":
+            inner = att.get_payload()[0] if att.is_multipart() else att.get_content()
+            parts.append(f"{h} Doorgestuurd bericht\n\n" + render_email(inner, ocr, tick, depth + 1))
+            continue
+        name = att.get_filename() or "bijlage"
+        ext = Path(name).suffix.lower()
+        if ext not in CONVERTERS or ext == ".eml" or (ext in IMAGE_EXTS and not ocr):
+            parts.append(f"{h} Bijlage: {name}\n\n_(niet gelezen: bestandstype)_")
+            continue
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                f = Path(tmp) / ("bijlage" + ext)
+                f.write_bytes(att.get_payload(decode=True) or b"")
+                fn = CONVERTERS[ext]
+                text = fn(f, ocr, tick) if ext in OCR_EXTS else fn(f)
+            parts.append(f"{h} Bijlage: {name}\n\n{text.strip()}")
+        except Exception as e:  # noqa: BLE001
+            # een kapotte bijlage mag de mail zelf niet uit de KB houden
+            parts.append(f"{h} Bijlage: {name}\n\n_(niet gelezen: {type(e).__name__}: {e})_")
+    return "\n\n".join(p for p in parts if p)
+
+
+def conv_eml(path: Path, ocr: bool = False, tick=no_tick) -> str:
+    from email import policy
+    from email.parser import BytesParser
+
+    with path.open("rb") as f:
+        msg = BytesParser(policy=policy.default).parse(f)
+    return render_email(msg, ocr, tick)
+
+
 def conv_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -328,7 +385,7 @@ def conv_rtf(path: Path) -> str:
 CONVERTERS = {
     ".docx": conv_docx, ".xlsx": conv_xlsx, ".xlsm": conv_xlsx, ".csv": conv_csv,
     ".pptx": conv_pptx, ".pdf": conv_pdf, ".html": conv_html, ".htm": conv_html,
-    ".txt": conv_text, ".md": conv_text, ".json": conv_json, ".rtf": conv_rtf,
+    ".txt": conv_text, ".md": conv_text, ".json": conv_json, ".rtf": conv_rtf, ".eml": conv_eml,
     **{ext: conv_image for ext in IMAGE_EXTS},
 }
 
@@ -524,6 +581,15 @@ class Progress:
         print(msg, file=sys.stderr if err else sys.stdout)
 
 
+def load_ignore(src_root: Path):
+    """Patronen uit <bron>/.kbignore (gitignore-syntax), of None als er geen bestand is."""
+    path = src_root / IGNORE_FILE
+    if not path.exists():
+        return None
+    import pathspec
+    return pathspec.GitIgnoreSpec.from_lines(path.read_text(encoding="utf-8").splitlines())
+
+
 def run(a: argparse.Namespace) -> int:
     print(f"Bron: {a.src}\nDoel: {a.out}")
     manifest = load_manifest(a.out)
@@ -533,13 +599,18 @@ def run(a: argparse.Namespace) -> int:
         print(f"{a.out} hoort bij bronmap {bound}, niet bij {a.src}. Kies een ander project met "
               f"--project, of gebruik --force om deze KB aan de nieuwe bronmap te koppelen.", file=sys.stderr)
         return 2
-    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0, "photos": 0}
+    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0, "photos": 0,
+             "ignored": 0}
     low_text: list[tuple[Path, int]] = []
     expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
     todo: list[Path] = []
+    ignore = load_ignore(a.src)
     for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
         if src.name.startswith(("~$", ".")) or is_own_output(src, a.out) or src == a.out / LOCK_NAME:
+            continue
+        if ignore and ignore.match_file(src.relative_to(a.src).as_posix()):
+            stats["ignored"] += 1
             continue
         ext = src.suffix.lower()
         if ext not in SUPPORTED or (ext in IMAGE_EXTS and not a.ocr):
@@ -639,6 +710,7 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
           f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
           f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst"
           + (f", {stats['photos']} foto's met weinig of geen tekst" if stats["photos"] else "")
+          + (f", {stats['ignored']} genegeerd via {IGNORE_FILE}" if stats["ignored"] else "")
           + ".")
     if low_text:
         print(f"\nWeinig tekst (< {LOW_TEXT} tekens), staat wel in de KB maar controleer de bron:")

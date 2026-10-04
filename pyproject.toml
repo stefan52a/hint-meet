@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 kb-prep = ["python-docx", "openpyxl", "python-pptx", "pymupdf", "markdownify",
-           "pytesseract", "pillow"]
+           "pytesseract", "pillow", "pathspec"]
 ocr = ["pytesseract", "pillow"]  # zit nu ook in kb-prep; blijft voor oudere installatie-instructies
 dev = ["pytest"]
 

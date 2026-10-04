@@ -864,3 +864,123 @@ def test_blank_photo_has_note_only(tmp_path, monkeypatch):
     main([str(src), str(out)])
     shadow = (out / ("vloer.jpg" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
     assert shadow.rstrip().endswith(kb_prep.PHOTO_NOTE)
+
+
+# e-mail
+
+def write_eml(path: Path, *, html=False, attachments=(), forwarded=None):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["From"] = "Contoso <particulieren@contoso.nl>"
+    msg["To"] = "stefan@example.com"
+    msg["Date"] = "Fri, 20 Feb 2026 11:36:53 +0000"
+    msg["Subject"] = "Bevestiging onderhoudsabonnement"
+    if html:
+        msg.set_content("<html><body><h1>Offerte</h1><p>Wij bevestigen <b>S300713739</b>.</p>"
+                        "<img src='cid:logo'></body></html>", subtype="html")
+    else:
+        msg.set_content("Beste Stefan,\n\nHierbij de bevestiging van uw abonnement.")
+    for name, data, maintype, subtype in attachments:
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
+    if forwarded is not None:
+        msg.add_attachment(forwarded)
+    path.write_bytes(bytes(msg))
+
+
+def test_eml_headers_and_plain_body(tmp_path):
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "bevestiging.eml")
+    assert main([str(src), str(out)]) == 0
+    text = (out / ("bevestiging.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "- **Van:** Contoso <particulieren@contoso.nl>" in text
+    assert "- **Onderwerp:** Bevestiging onderhoudsabonnement" in text
+    assert "bevestiging van uw abonnement" in text
+
+
+def test_eml_html_body_becomes_markdown(tmp_path):
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "offerte.eml", html=True)
+    main([str(src), str(out)])
+    text = (out / ("offerte.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "# Offerte" in text and "**S300713739**" in text and "<p>" not in text
+
+
+def test_eml_attachments_are_converted_or_listed(tmp_path):
+    fitz = pytest.importorskip("pymupdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Algemene voorwaarden onderhoudsabonnement")
+    pdf = doc.tobytes()
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "mail.eml", attachments=[
+        ("voorwaarden.pdf", pdf, "application", "pdf"),
+        ("notitie.txt", "Kenmerk 3-225596".encode(), "text", "plain"),
+        ("archief.zip", b"PK", "application", "zip"),
+        ("kapot.pdf", b"geen pdf", "application", "pdf"),
+    ])
+    assert main([str(src), str(out)]) == 0  # kapotte bijlage laat de mail niet mislukken
+    text = (out / ("mail.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "## Bijlage: voorwaarden.pdf" in text and "Algemene voorwaarden" in text
+    assert "## Bijlage: notitie.txt" in text and "3-225596" in text
+    assert "## Bijlage: archief.zip\n\n_(niet gelezen: bestandstype)_" in text
+    assert "## Bijlage: kapot.pdf\n\n_(niet gelezen:" in text
+
+
+def test_eml_forwarded_message(tmp_path):
+    from email.message import EmailMessage
+    inner = EmailMessage()
+    inner["From"] = "werkvoorbereiding@contoso.nl"
+    inner["Subject"] = "Offerte S300713739"
+    inner.set_content("De oorspronkelijke offerte.")
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "fw.eml", forwarded=inner)
+    main([str(src), str(out)])
+    text = (out / ("fw.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "## Doorgestuurd bericht" in text and "De oorspronkelijke offerte." in text
+
+
+# .kbignore
+
+def test_kbignore_excludes_and_cleans_up(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100, "debug.log.txt": "y" * 100})
+    (src / "tmp").mkdir()
+    (src / "tmp" / "render.txt").write_text("z" * 100, encoding="utf-8")
+    (src / "tmp" / "bewaar.txt").write_text("w" * 100, encoding="utf-8")
+    main([str(src), str(out)])
+    assert len(shadows(out)) == 4
+
+    (src / ".kbignore").write_text("# tussenbestanden\ntmp/\n!tmp/bewaar.txt\n*.log.txt\n", encoding="utf-8")
+    capsys.readouterr()
+    assert main([str(src), str(out)]) == 0
+    printed = capsys.readouterr().out
+    # ! werkt ook binnen een uitgesloten map (vriendelijker dan git zelf)
+    assert shadows(out) == ["a.txt" + SHADOW_SUFFIX, "tmp/bewaar.txt" + SHADOW_SUFFIX]
+    assert "2 opgeruimd" in printed and "2 genegeerd via .kbignore" in printed
+
+
+def test_kbignore_negation_inside_file_pattern(tmp_path):
+    src, out = make_kb(tmp_path, {"a.log.txt": "x" * 100, "keep.log.txt": "y" * 100})
+    (src / ".kbignore").write_text("*.log.txt\n!keep.log.txt\n", encoding="utf-8")
+    main([str(src), str(out)])
+    assert shadows(out) == ["keep.log.txt" + SHADOW_SUFFIX]
+
+
+def test_no_kbignore_means_nothing_ignored(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100})
+    main([str(src), str(out)])
+    assert "genegeerd" not in capsys.readouterr().out
+
+
+def test_eml_inline_images_are_skipped(tmp_path):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = "RE: Offerte"
+    msg.set_content("Zie offerte.")
+    msg.add_alternative("<p>Zie offerte.</p><img src='cid:logo'>", subtype="html")
+    msg.get_payload()[1].add_related(b"GIF89a", maintype="image", subtype="gif", cid="<logo>",
+                                     filename="image001.gif")
+    msg.add_attachment(b"%PDF-kapot", maintype="application", subtype="pdf", filename="offerte.pdf")
+    src, out = make_kb(tmp_path, {})
+    (src / "re.eml").write_bytes(bytes(msg))
+    main([str(src), str(out)])
+    text = (out / ("re.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "image001.gif" not in text and "## Bijlage: offerte.pdf" in text
