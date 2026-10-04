@@ -50,7 +50,10 @@ class Pipeline:
             return step
 
         t = time.perf_counter()
-        step.advice = self.advisor.advise(window, result.moment, hits, on_text=on_text)
+        # vlak na een getoonde hint is de kans op een herhaling groot: dan pas tonen als hij af en
+        # gecontroleerd is, zodat er niets verschijnt dat daarna weer wordt ingetrokken
+        stream_to = on_text if index - self.last_index > 1 else None
+        step.advice = self.advisor.advise(window, result.moment, hits, on_text=stream_to)
         ms["advies"] = (time.perf_counter() - t) * 1000
         if getattr(step.advice, "first_ms", None) is not None:
             ms["advies_eerste"] = step.advice.first_ms

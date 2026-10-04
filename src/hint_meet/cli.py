@@ -202,7 +202,11 @@ def live_cmd(a) -> int:
     transcriber = Transcriber(kb_terms(kb.chunks))
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
     if a.wav:
-        wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
+        try:
+            wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
         sources, until = [wav], (lambda: wav.finished)
     else:
         sources = [DeviceSource(a.mic, a.me)]
@@ -219,6 +223,9 @@ def live_cmd(a) -> int:
 
     def on_event(ev):
         st, u = ev.step, ev.utterance
+        if st is None:
+            print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {'(achterstand) ' if ev.stale else ''}{u.speaker}: {u.text}")
+            return
         lat = ev.wait_ms + ev.asr_ms + st.ms.get("zoeken", 0) + st.ms.get("gate", 0)
         if st.advice is not None:
             sys.stdout.write("\r\033[K")
@@ -230,16 +237,23 @@ def live_cmd(a) -> int:
         print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
 
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text)
-    try:
-        session.run(until=until)
-    except KeyboardInterrupt:
-        print("\nGestopt.")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
-    session.save_transcript(out)
+    try:
+        if session.run(until=until):
+            print("\nGestopt.")
+    finally:
+        session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
+    if session.overflows:
+        print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
+    stale = sum(1 for e in session.events if e.stale)
+    if stale:
+        print(f"Let op: {stale} uitspraken zonder advies wegens achterstand van meer dan "
+              f"{LiveSession.STALE_MS / 1000:.0f} s.")
     if session.events:
         waits = [e.wait_ms for e in session.events]
         firsts = [e.wait_ms + e.asr_ms + e.step.ms.get("zoeken", 0) + e.step.ms.get("gate", 0)
-                  + e.step.ms["advies_eerste"] for e in session.events if e.step.shown and "advies_eerste" in e.step.ms]
+                  + e.step.ms["advies_eerste"] for e in session.events
+                  if e.step and e.step.shown and "advies_eerste" in e.step.ms]
         print(f"\n{len(session.events)} uitspraken · wachtrij mediaan {statistics.median(waits):.0f} ms, max {max(waits):.0f} ms"
               + (f" · na einde-detectie tot eerste woorden: mediaan {statistics.median(firsts):.0f} ms, max {max(firsts):.0f} ms" if firsts else ""))
     print(f"Transcript: {out}")

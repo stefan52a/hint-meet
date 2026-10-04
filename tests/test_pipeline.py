@@ -270,3 +270,22 @@ def test_advisor_passes_thinking_setting():
     assert client.kwargs["thinking"] == {"type": "between_tools"}
     ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")])
     assert "thinking" not in client.kwargs
+
+
+def test_no_streaming_right_after_a_shown_hint():
+    u = parse(TRANSCRIPT)
+
+    class Streams(FakeAdvisor):
+        def __init__(self, advice):
+            super().__init__(advice)
+            self.streamed = []
+
+        def advise(self, window, moment, hits, on_text=None):
+            self.streamed.append(on_text is not None)
+            return super().advise(window, moment, hits, on_text)
+
+    adv = Streams(Advice("Rente 3%.", ["rente.md"]))
+    replay_steps = Pipeline(FakeKB(), ScriptedGate([0.9, 0.9, 0.1, 0.9]), adv, CONFIG)
+    for i in range(len(u)):
+        replay_steps.step(u, i, on_text=lambda t: None)
+    assert adv.streamed == [True, False, True]  # beurt 1 vlak na een hint: niet streamen

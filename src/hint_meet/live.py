@@ -30,18 +30,24 @@ class Block:
 
 
 class DeviceSource:
-    """Eén audioapparaat (microfoon of BlackHole) via sounddevice, kanaal 1, op 16 kHz."""
+    """Eén audioapparaat (microfoon of BlackHole) via sounddevice, op 16 kHz; stereo wordt gemengd."""
 
-    def __init__(self, device: str, label: str):
+    def __init__(self, device: str | None, label: str):
         import sounddevice as sd
         self.sd, self.device, self.label = sd, device, label
         self.stream = None
+        self.overflows = 0       # blokken die het apparaat liet vallen omdat wij te traag lazen
 
     def start(self, q: queue.Queue):
-        def callback(indata, frames, time_info, status):
-            q.put(Block(self.label, indata[:, 0].copy(), time.monotonic()))
+        info = self.sd.query_devices(self.device, "input")
+        channels = max(1, min(2, int(info["max_input_channels"])))
 
-        self.stream = self.sd.InputStream(device=self.device, channels=1, samplerate=RATE,
+        def callback(indata, frames, time_info, status):
+            if status.input_overflow:
+                self.overflows += 1
+            q.put(Block(self.label, indata.mean(axis=1).astype(np.float32), time.monotonic()))
+
+        self.stream = self.sd.InputStream(device=self.device, channels=channels, samplerate=RATE,
                                           blocksize=FRAME, dtype="float32", callback=callback)
         self.stream.start()
 
@@ -56,29 +62,37 @@ class WavSource:
 
     def __init__(self, path: Path, labels: list[str], speed: float = 1.0):
         self.data, self.labels, self.speed = read_wav(path), labels, speed
+        if self.data.shape[1] != len(labels):
+            raise ValueError(f"{path}: {self.data.shape[1]} kanalen, maar {len(labels)} sprekers opgegeven")
+        if not (speed > 0 and np.isfinite(speed)):
+            raise ValueError(f"afspeelsnelheid moet positief zijn, niet {speed}")
         self.thread = None
         self.done = threading.Event()
+        self.overflows = 0
 
     def start(self, q: queue.Queue):
         def run():
-            t0 = time.monotonic()
-            for i in range(0, len(self.data) - FRAME + 1, FRAME):
-                target = t0 + (i / RATE) / self.speed
-                delay = target - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
-                now = time.monotonic()
-                for ch, label in enumerate(self.labels):
-                    q.put(Block(label, self.data[i:i + FRAME, ch].copy(), now))
-                if self.done.is_set():
-                    return
-            self.done.set()
+            try:
+                t0 = time.monotonic()
+                for i in range(0, len(self.data) - FRAME + 1, FRAME):
+                    if self.done.is_set():
+                        return
+                    delay = t0 + (i / RATE) / self.speed - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
+                    now = time.monotonic()
+                    for ch, label in enumerate(self.labels):
+                        q.put(Block(label, self.data[i:i + FRAME, ch].copy(), now))
+            finally:
+                self.done.set()  # ook bij een fout: de sessie mag niet eeuwig blijven wachten
 
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
 
     def stop(self):
         self.done.set()
+        if self.thread:
+            self.thread.join(timeout=2)
 
     @property
     def finished(self) -> bool:
@@ -91,9 +105,12 @@ class LiveEvent:
     step: object
     wait_ms: float       # tijd dat de klare uitspraak op de werker wachtte
     asr_ms: float
+    stale: bool = False  # te ver achter: wel getranscribeerd, geen advies meer
 
 
 class LiveSession:
+    STALE_MS = 8000      # loopt de verwerking verder achter dan dit, dan geen advies meer
+
     def __init__(self, sources, transcriber, pipeline, on_event=None, on_text=None):
         self.sources, self.transcriber, self.pipeline = sources, transcriber, pipeline
         self.on_event, self.on_text = on_event, on_text
@@ -109,13 +126,15 @@ class LiveSession:
             self.segmenters[label] = Segmenter(label, vad=SileroVAD())
         return self.segmenters[label]
 
-    def run(self, until=None):
-        """Draait tot until() waar is, stop() wordt aangeroepen of Ctrl-C."""
+    def run(self, until=None) -> bool:
+        """Draait tot until() waar is, stop() wordt aangeroepen of Ctrl-C. Geeft True bij Ctrl-C.
+        De laatste lopende uitspraak wordt bij het stoppen nog verwerkt."""
         self.t0 = time.monotonic()
-        for s in self.sources:
-            s.start(self.q)
         pending: dict[str, np.ndarray] = {}
+        interrupted = False
         try:
+            for s in self.sources:  # binnen try: faalt het tweede apparaat, dan sluit het eerste
+                s.start(self.q)
             while not self.stop_flag.is_set():
                 try:
                     block = self.q.get(timeout=0.2)
@@ -130,25 +149,38 @@ class LiveSession:
                         self._handle(segment, ready_at=block.t)
                     buf = buf[FRAME:]
                 pending[block.channel] = buf
-            for seg in self.segmenters.values():
-                for segment in seg.flush():
-                    self._handle(segment, ready_at=time.monotonic())
+        except KeyboardInterrupt:
+            interrupted = True
         finally:
             for s in self.sources:
-                s.stop()
+                try:
+                    s.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+        for seg in self.segmenters.values():
+            for segment in seg.flush():
+                self._handle(segment, ready_at=time.monotonic(), advise=False)
+        return interrupted
 
     def stop(self):
         self.stop_flag.set()
 
-    def _handle(self, segment, ready_at: float):
+    @property
+    def overflows(self) -> int:
+        return sum(getattr(s, "overflows", 0) for s in self.sources)
+
+    def _handle(self, segment, ready_at: float, advise: bool = True):
         wait_ms = (time.monotonic() - ready_at) * 1000
         text, asr_ms = self.transcriber(segment.audio)
         if not text:
             return
         u = Utterance(int(segment.start), segment.channel, text)
         self.utterances.append(u)
-        step = self.pipeline.step(self.utterances, len(self.utterances) - 1, on_text=self.on_text)
-        event = LiveEvent(u, step, wait_ms, asr_ms)
+        stale = wait_ms > self.STALE_MS
+        step = None
+        if advise and not stale:
+            step = self.pipeline.step(self.utterances, len(self.utterances) - 1, on_text=self.on_text)
+        event = LiveEvent(u, step, wait_ms, asr_ms, stale)
         self.events.append(event)
         if self.on_event:
             self.on_event(event)
