@@ -1037,7 +1037,8 @@ def test_eml_nesting_is_capped(tmp_path):
     assert "dieper dan 5 niveaus" in (out / ("diep.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
 
 
-def test_eml_version_follows_other_converters(monkeypatch):
+@pytest.mark.parametrize("ext", [".pdf", ".docx"])  # .docx: ophoging onder het maximum
+def test_eml_version_follows_other_converters(monkeypatch, ext):
     before = kb_prep.converter_version(".eml")
-    monkeypatch.setitem(kb_prep.TYPE_VERSION, ".pdf", before + 1)
-    assert kb_prep.converter_version(".eml") == before + 1
+    monkeypatch.setitem(kb_prep.TYPE_VERSION, ext, kb_prep.converter_version(ext) + 1)
+    assert kb_prep.converter_version(".eml") != before

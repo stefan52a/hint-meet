@@ -61,9 +61,11 @@ TYPE_VERSION = {".docx": 4, ".eml": 4, **{ext: 5 for ext in IMAGE_EXTS}}
 PHOTO_NOTE = "## Foto zonder (veel) herkenbare tekst"  # kop: telt niet mee als tekst
 
 
-def converter_version(ext: str) -> int:
-    if ext == ".eml":  # bijlagen gaan door de andere converters, dus elke verbetering telt mee
-        return max(CONVERTER_VERSION, *TYPE_VERSION.values())
+def converter_version(ext: str) -> int | str:
+    if ext == ".eml":
+        # bijlagen gaan door de andere converters: elke wijziging daarin telt mee, dus een
+        # vingerafdruk van alle versies (een maximum mist een ophoging onder het maximum)
+        return f"{CONVERTER_VERSION}|" + ",".join(f"{k}={v}" for k, v in sorted(TYPE_VERSION.items()))
     return max(CONVERTER_VERSION, TYPE_VERSION.get(ext, 0))
 MAX_EMAIL_DEPTH = 5  # doorgestuurd in doorgestuurd in ...
 IGNORE_FILE = ".kbignore"  # gitignore-syntax, in de root van de bronmap
