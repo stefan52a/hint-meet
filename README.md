@@ -117,7 +117,7 @@ hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-mee
 
 Een KB hoort bij één bronmap; dat staat in het manifest. Hebben twee bronmappen dezelfde naam (`klantA/docs` en `klantB/docs`), dan weigert de tweede run en vraagt om een eigen `--project`. Met `--force` koppel je een KB bewust aan een andere bronmap.
 
-Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's ook de OCR-instelling. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de index; gebruik dan `--no-ocr`.
+Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`, en met OCR ook afbeeldingen (`.png .jpg .jpeg .tif .tiff .webp`). OCR leest ook gescande PDF-pagina's en slides die alleen uit een afbeelding bestaan. Levert een bestand minder dan 50 tekens tekst op, dan komt het wel in de KB maar meldt kb_prep het met ⚠, zodat je de bron kunt nakijken. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's, presentaties en afbeeldingen ook de OCR-instelling. Verbetert kb_prep zelf (`CONVERTER_VERSION`), dan worden bestaande schaduwbestanden bij de volgende run opnieuw gemaakt. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de index; gebruik dan `--no-ocr`.
 
 ## Providers
 

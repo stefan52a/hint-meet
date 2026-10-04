@@ -62,7 +62,7 @@ def test_empty_source_writes_empty_index(tmp_path):
 def test_only_unsupported_files(tmp_path):
     src, out = tmp_path / "kb", tmp_path / "out"
     src.mkdir()
-    (src / "foto.jpg").write_bytes(b"\xff\xd8")
+    (src / "opname.mp3").write_bytes(b"ID3")
     assert main([str(src), str(out)]) == 0
     assert index(out) == []
 
@@ -446,3 +446,141 @@ def test_manifest_records_source_root(tmp_path):
     src, out = make_kb(tmp_path, {"a.txt": "x"})
     main([str(src), str(out)])
     assert manifest(out)["source_root"] == str(src.resolve())
+
+
+# OCR op slides en afbeeldingen, waarschuwing bij weinig tekst
+
+class FakeOCR:
+    calls: list = []
+
+    @staticmethod
+    def image_to_string(img, **_k):
+        FakeOCR.calls.append(img.size)
+        return "Belscript: eerst de klacht samenvatten, dan de vraag stellen."
+
+
+@pytest.fixture
+def fake_ocr(monkeypatch):
+    FakeOCR.calls = []
+    monkeypatch.setitem(sys.modules, "pytesseract", FakeOCR)
+    return FakeOCR
+
+
+def png(path: Path, size=(400, 200)):
+    from PIL import Image
+    Image.new("RGB", size, "white").save(path)
+
+
+def picture_only_deck(path: Path, tmp_path: Path):
+    pptx = pytest.importorskip("pptx")
+    from pptx.util import Inches
+    img = tmp_path / "slide.png"
+    png(img)
+    prs = pptx.Presentation()
+    for _ in range(2):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])  # leeg layout
+        slide.shapes.add_picture(str(img), Inches(0), Inches(0))
+    prs.save(str(path))
+
+
+def test_picture_only_slides_are_ocred(tmp_path, fake_ocr):
+    src, out = make_kb(tmp_path, {})
+    picture_only_deck(src / "deck.pptx", tmp_path)
+    assert main([str(src), str(out)]) == 0
+    text = (out / ("deck.pptx" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert text.count("Belscript") == 2
+    assert len(fake_ocr.calls) == 2
+
+
+def test_slides_with_text_are_not_ocred(tmp_path, fake_ocr):
+    pptx = pytest.importorskip("pptx")
+    src, out = make_kb(tmp_path, {})
+    prs = pptx.Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Titel"
+    slide.placeholders[1].text = "Er staat al genoeg tekst op deze slide om niet te hoeven OCR-en."
+    prs.save(str(src / "deck.pptx"))
+    assert main([str(src), str(out)]) == 0
+    assert fake_ocr.calls == []
+
+
+def test_image_source_is_ocred(tmp_path, fake_ocr):
+    src, out = make_kb(tmp_path, {})
+    png(src / "belscript.png")
+    assert main([str(src), str(out)]) == 0
+    assert "Belscript" in (out / ("belscript.png" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_images_are_unsupported_without_ocr(tmp_path, fake_ocr, capsys):
+    src, out = make_kb(tmp_path, {})
+    png(src / "belscript.png")
+    assert main([str(src), str(out), "--no-ocr"]) == 0
+    assert shadows(out) == []
+    assert "1 niet-ondersteund" in capsys.readouterr().out
+    assert fake_ocr.calls == []
+
+
+def test_switching_ocr_reconverts_images_and_decks(tmp_path, fake_ocr, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "genoeg tekst om niet als leeg gemeld te worden, echt waar."})
+    picture_only_deck(src / "deck.pptx", tmp_path)
+    main([str(src), str(out), "--no-ocr"])
+    capsys.readouterr()
+    assert main([str(src), str(out)]) == 0
+    assert "1 omgezet, 1 overgeslagen" in capsys.readouterr().out
+
+
+def test_low_text_is_warned_but_kept(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"leeg.txt": "", "vol.txt": "x" * 100})
+    assert main([str(src), str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "⚠ leeg.txt: maar 0 tekens tekst" in printed
+    assert "1 met weinig tekst" in printed
+    assert "vol.txt" not in printed.split("Weinig tekst")[1]
+    assert len(shadows(out)) == 2
+
+
+def test_empty_deck_without_ocr_suggests_ocr(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {})
+    picture_only_deck(src / "deck.pptx", tmp_path)
+    main([str(src), str(out), "--no-ocr"])
+    assert "deck.pptx: maar 0 tekens tekst, probeer zonder --no-ocr" in capsys.readouterr().out
+
+
+def test_real_tesseract_reads_dutch(tmp_path):
+    import shutil
+    if not shutil.which("tesseract"):
+        pytest.skip("tesseract niet geïnstalleerd")
+    pytest.importorskip("pytesseract")
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (900, 120), "white")
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
+    except OSError:
+        pytest.skip("geen systeemfont")
+    ImageDraw.Draw(img).text((20, 30), "Geschillencommissie", fill="black", font=font)
+    assert "Geschillencommissie" in kb_prep.ocr_image(img, "test")
+
+
+def test_transparent_image_is_flattened_on_white(tmp_path):
+    import shutil
+    if not shutil.which("tesseract"):
+        pytest.skip("tesseract niet geïnstalleerd")
+    pytest.importorskip("pytesseract")
+    from PIL import Image, ImageDraw, ImageFont
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
+    except OSError:
+        pytest.skip("geen systeemfont")
+    img = Image.new("RGBA", (900, 120), (0, 0, 0, 0))  # volledig transparant
+    ImageDraw.Draw(img).text((20, 30), "Geschillencommissie", fill=(0, 0, 0, 255), font=font)
+    assert "Geschillencommissie" in kb_prep.ocr_image(img, "test")
+
+
+def test_new_converter_version_reconverts(tmp_path, monkeypatch, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100})
+    main([str(src), str(out)])
+    assert manifest(out)["files"]["a.txt" + SHADOW_SUFFIX]["converter"] == kb_prep.CONVERTER_VERSION
+    monkeypatch.setattr(kb_prep, "CONVERTER_VERSION", kb_prep.CONVERTER_VERSION + 1)
+    capsys.readouterr()
+    main([str(src), str(out)])
+    assert "1 omgezet" in capsys.readouterr().out
