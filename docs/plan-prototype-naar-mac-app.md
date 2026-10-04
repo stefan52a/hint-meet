@@ -43,6 +43,8 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M3. Jev als poortwachter (1 sessie)
 
+**Stand 5-10-2026: geslaagd.** typesafe-sdk 0.7.2, model jev-1.13.0 (alias jev-latest; het werkelijke model wordt gelogd). Eén system_one-aanroep met een Noul (hint nodig), Choice (soort moment) en Score (urgentie); state = laatste 3 beurten, 3 passages en de net getoonde hint. Kalibratie (`hint-meet calibrate`, zonder advies, drie runs): Jev bij drempel 0,55 10/10 (één run 9/10) met 1 ruisbeurt; Haiku had bij zijn beste drempel 7 ruisbeurten. Volledige replay met Jev: 10/10 geraakt, 1 hint op ruis, gate ±250 ms. Marge is smal (zwakste moment 0,53–0,67, hoogste echte ruis 0,51–0,54) en de drempel is op hetzelfde transcript gekozen als waarop gemeten is: een tweede proefgesprek is nodig om dat te toetsen. Knelpunt is nu het advies: ±3,8 s.
+
 - Jev-documentatie en SDK nalopen; provider `jev` bouwen naast `adapter` (Claude Haiku). Laya alleen als Jev tegenvalt of offline nodig is.
 - Drempels kalibreren op het proefgesprek; vergelijken met de Haiku-gate op treffers, ruis, snelheid en kosten.
 - **Geslaagd als:** Jev minstens zo goed scoort als Haiku, onder 0,5 s per blok.

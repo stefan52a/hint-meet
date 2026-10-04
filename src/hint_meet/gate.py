@@ -86,8 +86,72 @@ class ClaudeGate:
         return GateResult(p, data["moment"], int(data["urgency"]))
 
 
+MOMENT_DESCRIPTIONS = {
+    "vraag_aan_mij": "Iemand stelt Stefan een vraag of vraagt hem iets te bevestigen.",
+    "onjuiste_bewering": "Iemand noemt een bedrag, datum of afspraak die niet klopt met het dossier of vervallen is.",
+    "risico": "Iemand wijst op een risico of probleem dat in het dossier beschreven staat.",
+    "toezegging": "Iemand doet een toezegging of spreekt een actie af.",
+    "smalltalk": "Persoonlijk gesprek, beleefdheden of iets buiten het dossier.",
+    "overig": "Iets anders, zoals procesafspraken of een reactie zonder nieuwe inhoud.",
+}
+
+URGENCY_LEVELS = [
+    "Geen hint nodig.",
+    "Kan later, bijvoorbeeld na het gesprek.",
+    "Handig binnen een minuut.",
+    "Nu nodig: Stefan moet hierop antwoorden.",
+    "Direct nodig: anders gaat het gesprek uit van een verkeerd feit.",
+]
+
+
+class JevGate:
+    """Jev (TypeSafe) als poortwachter: één system_one-aanroep met een Noul, een Choice en een Score.
+
+    De state bevat alleen de laatste beurten, de passages en de net getoonde hint: Jev is volgens
+    TypeSafe zwak op grote, rommelige states."""
+
+    def __init__(self, config: dict, client=None):
+        from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
+        self.client = client or TypeSafeClient()
+        self.model = config["gate"].get("jev_model", "jev-latest")
+        self.moments = config["moments"]
+        self.questions = {
+            "hint_nodig": Noul(
+                instructions="Heeft Stefan op dit moment een hint nodig, gezien de onderste beurt van het gesprek?",
+                criteria={
+                    "true": ("De onderste beurt stelt Stefan een vraag die de dossierpassages beantwoorden en die "
+                             "hij nog niet correct beantwoord heeft, of bevat een bewering die botst met de "
+                             "dossierpassages (verkeerd bedrag, vervallen afspraak), of raakt een risico uit het "
+                             "dossier waar Stefan op moet reageren."),
+                    "false": ("De onderste beurt is smalltalk, een planningsafspraak, een uitspraak die klopt met "
+                              "het dossier, een vraag die Stefan al goed beantwoord heeft, iets wat de net getoonde "
+                              "hint al dekt, of iets waar de dossierpassages niets over zeggen."),
+                },
+            ),
+            "moment": Choice(instructions="Wat voor moment is de onderste beurt?",
+                             criteria={m: MOMENT_DESCRIPTIONS.get(m) for m in self.moments}),
+            "urgentie": Score(instructions="Hoe snel heeft Stefan een hint nodig?", criteria=URGENCY_LEVELS),
+        }
+        self.last_model = None
+
+    def evaluate(self, window, hits, previous_hint: str | None = None) -> GateResult:
+        state = {
+            "gesprek": [str(u) for u in window],
+            "onderste_beurt": str(window[-1]) if window else "",
+            "dossierpassages": [{"document": h.chunk.ref, "kop": h.chunk.heading, "tekst": h.chunk.text}
+                                for h in hits],
+            "net_getoonde_hint": previous_hint,
+        }
+        r = self.client.system_one(state, self.questions, model=self.model)
+        self.last_model = r.model  # jev-latest kan ongemerkt veranderen: loggen wat er echt draaide
+        return GateResult(float(r.nouls["hint_nodig"].noul), r.choices["moment"].choice,
+                          int(round(r.scores["urgentie"].score)))
+
+
 def make_gate(config: dict):
     provider = config["gate"]["provider"]
     if provider == "claude":
         return ClaudeGate(config)
-    raise NotImplementedError(f"gate-provider {provider!r} komt in M3")
+    if provider == "jev":
+        return JevGate(config)
+    raise NotImplementedError(f"gate-provider {provider!r}: alleen claude en jev")

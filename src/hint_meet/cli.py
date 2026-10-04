@@ -1,5 +1,6 @@
 """Entrypoint: hint-meet live | replay <opname.wav>"""
 import argparse
+from pathlib import Path
 import sys
 
 from dotenv import find_dotenv, load_dotenv
@@ -15,6 +16,10 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("replay", help="transcript (.txt) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript")
     rp.add_argument("--out", default="logs/replay.csv")
+    cal = sub.add_parser("calibrate", help="alleen de gate over een transcript, met drempeltabel")
+    cal.add_argument("transcript")
+    cal.add_argument("--gate", choices=["claude", "jev"], help="provider (standaard uit de config)")
+    cal.add_argument("--out", help="CSV met de kans per beurt (standaard logs/gate-<provider>.csv)")
     ev = sub.add_parser("eval-kb", help="zoeken testen met een vragenlijst (YAML)")
     ev.add_argument("questions")
     ev.add_argument("--k", type=int)
@@ -26,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
         return eval_kb_cmd(a)
     if a.cmd == "replay":
         return replay_cmd(a)
+    if a.cmd == "calibrate":
+        return calibrate_cmd(a)
     try:
         print(f"KB: {kb_dir(a.project)}")
     except ValueError as e:
@@ -84,9 +91,42 @@ def replay_cmd(a) -> int:
         print("Gemist: " + ", ".join(f"[{utterances[m].seconds // 60:02d}:{utterances[m].seconds % 60:02d}]" for m in s.missed))
     if s.false_pos:
         print("Ruis: " + ", ".join(f"[{utterances[i].seconds // 60:02d}:{utterances[i].seconds % 60:02d}]" for i in s.false_pos))
-    print(f"Gate mediaan {gate_ms[len(gate_ms) // 2]:.0f} ms"
+    gate_model = getattr(pipeline.gate, "last_model", None) or config["gate"].get("model")
+    print(f"Gate {config['gate']['provider']} ({gate_model}) mediaan {gate_ms[len(gate_ms) // 2]:.0f} ms"
           + (f" · advies mediaan {adv_ms[len(adv_ms) // 2]:.0f} ms" if adv_ms else "")
           + f"\nLog: {a.out}")
+    return 0
+
+
+def calibrate_cmd(a) -> int:
+    import statistics
+
+    import yaml
+
+    from .calibrate import run_gate, sweep, write_rows
+    from .gate import make_gate
+    from .transcript import load
+
+    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    if a.gate:
+        config["gate"]["provider"] = a.gate
+    provider = config["gate"]["provider"]
+    try:
+        root = kb_dir(a.project)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    utterances = load(a.transcript)
+    gate = make_gate(config)
+    rows = run_gate(utterances, KB(root), gate, config)
+    out = a.out or f"logs/gate-{provider}.csv"
+    write_rows(Path(out), utterances, rows)
+    model = getattr(gate, "last_model", None) or config["gate"].get("model")
+    print(f"Gate: {provider} ({model}) · mediaan {statistics.median(r.ms for r in rows):.0f} ms\n")
+    print("drempel  geraakt  ruis")
+    for t, hits, n, fp in sweep(utterances, rows, [x / 20 for x in range(4, 20)], config["gate"]["urgency_min"]):
+        print(f"  {t:.2f}    {hits:>2}/{n}   {fp:>3}")
+    print(f"\nLog: {out}")
     return 0
 
 

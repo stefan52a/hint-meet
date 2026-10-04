@@ -183,3 +183,40 @@ def test_claude_gate_prompt_mentions_previous_hint():
     client = FakeClient({"intervene_probability": 0.2, "moment": "overig", "urgency": 0})
     ClaudeGate(CONFIG, client).evaluate(parse(TRANSCRIPT)[:2], [hit("rente.md")], "Rente 3%.")
     assert "Net getoonde hint: Rente 3%." in client.kwargs["messages"][0]["content"]
+
+
+# Jev-gate en kalibratie
+
+class FakeJevClient:
+    def __init__(self, noul=0.8, choice="vraag_aan_mij", score=2.6):
+        self.calls = []
+        self.answer = NS(model="jev-1.13.0",
+                         nouls={"hint_nodig": NS(noul=noul)},
+                         choices={"moment": NS(choice=choice)},
+                         scores={"urgentie": NS(score=score)})
+
+    def system_one(self, state, questions, model=None):
+        self.calls.append((state, questions, model))
+        return self.answer
+
+
+def test_jev_gate_maps_answers_and_keeps_state_small():
+    pytest.importorskip("typesafe_sdk")
+    from hint_meet.gate import JevGate
+    client = FakeJevClient()
+    gate = JevGate(CONFIG | {"gate": CONFIG["gate"] | {"jev_model": "jev-latest"}}, client)
+    r = gate.evaluate(parse(TRANSCRIPT)[:2], [hit("rente.md", "3%")], "vorige hint")
+    assert r == GateResult(0.8, "vraag_aan_mij", 3)
+    state, questions, model = client.calls[0]
+    assert state["onderste_beurt"] == "Maria: Wat is de rente op de schuld?"
+    assert state["dossierpassages"][0]["document"] == "rente.md"
+    assert state["net_getoonde_hint"] == "vorige hint"
+    assert set(questions) == {"hint_nodig", "moment", "urgentie"} and model == "jev-latest"
+    assert gate.last_model == "jev-1.13.0"
+
+
+def test_sweep_counts_hits_and_noise():
+    from hint_meet.calibrate import GateRow, sweep
+    u = parse(TRANSCRIPT)  # gemarkeerd: index 1
+    rows = [GateRow(0, 0.7, "x", 2, 1), GateRow(1, 0.5, "x", 2, 1), GateRow(2, 0.9, "x", 2, 1), GateRow(3, 0.2, "x", 2, 1)]
+    assert sweep(u, rows, [0.4, 0.8]) == [(0.4, 1, 1, 1), (0.8, 1, 1, 0)]  # index 2 = beurt na het moment

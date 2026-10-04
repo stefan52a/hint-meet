@@ -3,9 +3,10 @@
 window_turns: 3            # zoveel laatste beurten gaan naar gate en advies
 
 gate:
-  provider: claude         # claude (tot M3) | jev | laya
+  provider: jev            # jev | claude (Haiku, als terugvaloptie)
   model: claude-haiku-4-5  # voor provider claude
-  intervene_min: 0.6       # kans "nu een hint tonen" waarboven het advies wordt gemaakt
+  jev_model: jev-latest    # voor provider jev; het werkelijke model (bv. jev-1.13.0) wordt gelogd
+  intervene_min: 0.55      # Jev; gekalibreerd 5-10-2026 (Haiku had 0.7 nodig)
   urgency_min: 1           # 0-4
 
 moments:                   # Choice: wat voor moment is dit

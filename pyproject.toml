@@ -10,6 +10,8 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "anthropic",
+    "typesafe-sdk",
+    "python-dotenv",
     "onnxruntime",
     "tokenizers",
     "huggingface_hub",
