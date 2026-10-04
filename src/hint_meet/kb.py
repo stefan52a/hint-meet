@@ -134,11 +134,16 @@ def load_chunks(root: Path) -> list[Chunk]:
 
 # ---------- trefwoorden (BM25) ----------
 
+def _thousand(num: str) -> str:
+    value = float(num.replace(",", ".")) * 1000
+    return str(int(value)) if value.is_integer() else str(value)
+
+
 def tokenize(text: str) -> list[str]:
     text = text.lower()
     text = re.sub(r"(?<=\d)[.](?=\d{3}\b)", "", text)          # 600.000 → 600000
     text = re.sub(r"(\d+(?:[.,]\d+)?)\s*k\b",                   # 600k → 600000, 1,5k → 1500
-                  lambda m: f"{float(m.group(1).replace(',', '.')) * 1000:g}", text)
+                  lambda m: _thousand(m.group(1)), text)
     text = re.sub(r"(?<=\d),(?=\d)", ".", text)                # 0,31 → 0.31
     return [t for t in re.findall(r"[a-z0-9à-ÿ]+(?:\.[0-9]+)?", text) if t not in STOPWORDS]
 

@@ -39,6 +39,7 @@ def test_tokenize_normalises_amounts():
     assert "600000" in tokenize("€ 600.000")
     assert "600000" in tokenize("zo'n 600k")
     assert "1500" in tokenize("1,5k")
+    assert "1500000" in tokenize("1500k")
     assert "0.31" in tokenize("0,31% marktaandeel")
     assert "37d" in tokenize("artikel 37d")
     assert "de" not in tokenize("de agio")
