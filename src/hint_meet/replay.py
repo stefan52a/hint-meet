@@ -53,13 +53,15 @@ def score(utterances, steps) -> Score:
 
 def replay(utterances, pipeline, out_csv: Path | None = None, on_step=None):
     steps = []
-    for i in range(len(utterances)):
-        step = pipeline.step(utterances, i)
-        steps.append(step)
-        if on_step:
-            on_step(utterances[i], step)
-    if out_csv:
-        write_csv(Path(out_csv), utterances, steps)
+    try:
+        for i in range(len(utterances)):
+            step = pipeline.step(utterances, i)
+            steps.append(step)
+            if on_step:
+                on_step(utterances[i], step)
+    finally:
+        if out_csv:  # ook bij een fout halverwege: wat er is, blijft bewaard
+            write_csv(Path(out_csv), utterances[:len(steps)], steps)
     return steps
 
 

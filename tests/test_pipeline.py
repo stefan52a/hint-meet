@@ -147,3 +147,25 @@ def test_advisor_drops_invented_sources():
 def test_advisor_refusal_shows_nothing():
     client = FakeClient({"hint": "x", "sources": ["rente.md"]}, stop_reason="refusal")
     assert not ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")]).shown
+
+
+def test_same_source_later_is_not_a_repeat():
+    u = parse(TRANSCRIPT)
+    adv = FakeAdvisor(Advice("Uit hetzelfde memo.", ["rente.md"]))
+    steps = replay(u, Pipeline(FakeKB(), ScriptedGate([0.9, 0.1, 0.1, 0.9]), adv, CONFIG))
+    assert steps[0].shown and steps[3].shown  # twee beurten verder: geen herhaling
+
+
+def test_csv_written_when_replay_fails(tmp_path):
+    u = parse(TRANSCRIPT)
+
+    class Breaks(ScriptedGate):
+        def evaluate(self, window, hits):
+            if len(self.seen) == 2:
+                raise RuntimeError("API weg")
+            return super().evaluate(window, hits)
+
+    out = tmp_path / "log.csv"
+    with pytest.raises(RuntimeError):
+        replay(u, Pipeline(FakeKB(), Breaks([0.1] * 4), FakeAdvisor(Advice("", [])), CONFIG), out)
+    assert len(out.read_text(encoding="utf-8").splitlines()) == 3  # kop + 2 blokken

@@ -26,6 +26,7 @@ class Pipeline:
     def __init__(self, kb, gate, advisor, config: dict):
         self.kb, self.gate, self.advisor, self.config = kb, gate, advisor, config
         self.last_sources: set[str] = set()
+        self.last_index = -10
 
     def step(self, history: list, index: int) -> Step:
         cfg = self.config
@@ -50,8 +51,9 @@ class Pipeline:
         ms["advies"] = (time.perf_counter() - t) * 1000
         if not step.advice.shown:
             step.suppressed = "geen bron"
-        elif set(step.advice.sources) == self.last_sources:
-            step.suppressed = "herhaling"  # zelfde bronnen als de vorige hint: niet nog eens tonen
+        elif set(step.advice.sources) == self.last_sources and index - self.last_index <= 1:
+            # de beurt direct na een hint, met dezelfde bronnen: dezelfde hint nog eens, niet tonen
+            step.suppressed = "herhaling"
         if step.shown:
-            self.last_sources = set(step.advice.sources)
+            self.last_sources, self.last_index = set(step.advice.sources), index
         return step
