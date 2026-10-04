@@ -307,6 +307,7 @@ def test_manifest_saved_after_each_conversion(tmp_path, monkeypatch):
     assert list(manifest(out)["files"]) == ["a.txt" + SHADOW_SUFFIX]
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root kan alles lezen")
 def test_unreadable_source_is_a_failure_not_a_crash(tmp_path):
     src, out = make_kb(tmp_path, {"a.txt": "x", "b.txt": "y"})
     (src / "b.txt").chmod(0)

@@ -81,7 +81,7 @@ Wat van kb_prep is, staat in `_manifest.json` in de doelmap: per schaduwbestand 
 Nog een paar regels:
 
 - Er kan maar één kb_prep tegelijk op dezelfde doelmap draaien (lock in `.kb_prep.lock`).
-- Het manifest wordt na elke conversie opgeslagen, dus een afgebroken run laat niets verweesd achter.
+- Het manifest wordt na elke conversie opgeslagen. Wordt een run precies tussen het schrijven van een schaduw en het opslaan van het manifest afgebroken, dan meldt de volgende run die schaduw als conflict; gooi hem dan weg.
 - Schaduwbestanden van vóór het manifest gelden als vreemd. Gooi ze één keer weg en draai opnieuw.
 - Exitcodes: `0` alles goed, `1` mislukte conversies of conflicten, `2` bronmap niet gevonden, `3` er draait al een kb_prep op deze map.
 

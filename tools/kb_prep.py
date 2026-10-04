@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     a.out.mkdir(parents=True, exist_ok=True)
 
-    with (a.out / LOCK_NAME).open("w") as lock:
+    with (a.out / LOCK_NAME).open("a") as lock:  # "a": nooit iets leegmaken
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
