@@ -265,6 +265,13 @@ def valid_key(out: Path, key: str) -> bool:
             and (out / rel).resolve().is_relative_to(out))
 
 
+def manifest_source_root(out: Path) -> str | None:
+    path = out / MANIFEST_NAME
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8")).get("source_root")
+
+
 def load_manifest(out: Path) -> dict[str, dict]:
     path = out / MANIFEST_NAME
     if not path.exists():
@@ -281,9 +288,10 @@ def load_manifest(out: Path) -> dict[str, dict]:
     return files
 
 
-def save_manifest(out: Path, manifest: dict[str, dict]) -> None:
+def save_manifest(out: Path, manifest: dict[str, dict], source_root: Path) -> None:
     write_atomic(out / MANIFEST_NAME,
-                 json.dumps({"version": MANIFEST_VERSION, "tool": "kb_prep", "files": manifest},
+                 json.dumps({"version": MANIFEST_VERSION, "tool": "kb_prep",
+                             "source_root": str(source_root), "files": manifest},
                             ensure_ascii=False, indent=2, sort_keys=True))
 
 
@@ -347,7 +355,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run(a: argparse.Namespace) -> int:
+    print(f"Bron: {a.src}\nDoel: {a.out}")
     manifest = load_manifest(a.out)
+    bound = manifest_source_root(a.out)
+    if manifest and bound and bound != str(a.src) and not a.force:
+        # anders ruimt deze run alle schaduwbestanden van de andere bronmap op
+        print(f"{a.out} hoort bij bronmap {bound}, niet bij {a.src}. Kies een ander project met "
+              f"--project, of gebruik --force om deze KB aan de nieuwe bronmap te koppelen.", file=sys.stderr)
+        return 2
     stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0}
     expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
@@ -388,7 +403,7 @@ def run(a: argparse.Namespace) -> int:
             if owned_and_unchanged(dst, entry):
                 dst.unlink()  # geen verouderde versie in de index laten staan
             manifest.pop(key, None)
-            save_manifest(a.out, manifest)
+            save_manifest(a.out, manifest, a.src)
             failures.append((rel, f"{type(e).__name__}: {e}"))
             print(f"  ✗ {rel}: {e}", file=sys.stderr)
             continue
@@ -399,7 +414,7 @@ def run(a: argparse.Namespace) -> int:
             "ocr": a.ocr,
             "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         }
-        save_manifest(a.out, manifest)  # direct vastleggen, zodat een crash geen eigen output verweesd achterlaat
+        save_manifest(a.out, manifest, a.src)  # direct vastleggen, zodat een crash geen eigen output verweesd achterlaat
         stats["ok"] += 1
         print(f"  ✓ {rel}")
 
@@ -415,7 +430,7 @@ def run(a: argparse.Namespace) -> int:
             stats["conflict"] += 1
             print(f"  ! {key}: bron weg maar bestand is aangepast, laten staan", file=sys.stderr)
         del manifest[key]
-    save_manifest(a.out, manifest)
+    save_manifest(a.out, manifest, a.src)
 
     # index voor de retriever: alleen wat kb_prep succesvol heeft geschreven
     index = [{"md": key, "source": manifest[key]["source"]} for key in sorted(manifest)]

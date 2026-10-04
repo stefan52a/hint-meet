@@ -95,7 +95,7 @@ python tools/kb_prep.py ~/Documents/Fabrikam --project fabrikam    # → ~/KB_md
 python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/anders/ (geen submap)
 ```
 
-`KB_ROOT` komt uit de omgeving of uit `.env` in de werkmap.
+`KB_ROOT` komt uit de omgeving, of uit de eerste `.env` in de werkmap of een map daarboven. kb_prep print bij de start de bron- en doelmap.
 
 | Optie       | Wat                                                                                       |
 |-------------|-------------------------------------------------------------------------------------------|
@@ -113,7 +113,9 @@ python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/a
     └── …
 ```
 
-hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-meet --project fabrikam live`. Projectnamen mogen letters, cijfers, spaties en `. _ -` bevatten, maar moeten met een letter of cijfer beginnen. Zonder `--project` schrijft kb_prep direct in de doelmap.
+hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-meet --project fabrikam live`. Projectnamen mogen letters, cijfers, spaties en `. _ -` bevatten, maar moeten met een letter of cijfer beginnen.
+
+Een KB hoort bij één bronmap; dat staat in het manifest. Hebben twee bronmappen dezelfde naam (`klantA/docs` en `klantB/docs`), dan weigert de tweede run en vraagt om een eigen `--project`. Met `--force` koppel je een KB bewust aan een andere bronmap.
 
 Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's ook de OCR-instelling. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de index; gebruik dan `--no-ocr`.
 

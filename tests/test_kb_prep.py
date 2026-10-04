@@ -282,7 +282,7 @@ def test_other_source_root_with_same_content_is_reconverted(tmp_path):
     src2 = tmp_path / "kb2"
     src2.mkdir()
     (src2 / "a.txt").write_text("x", encoding="utf-8")
-    assert main([str(src2), str(out)]) == 0
+    assert main([str(src2), str(out), "--force"]) == 0
     assert index(out)[0]["source"] == str((src2 / "a.txt").resolve())
 
 
@@ -427,3 +427,22 @@ def test_kb_root_fallback(monkeypatch, tmp_path):
     monkeypatch.delenv("KB_ROOT", raising=False)
     monkeypatch.chdir(tmp_path)
     assert kb_prep.default_root() == Path.home() / "KB_md"
+
+
+def test_same_basename_from_other_folder_is_refused(tmp_path, kb_root):
+    a = tmp_path / "klantA" / "docs"
+    b = tmp_path / "klantB" / "docs"
+    a.mkdir(parents=True)
+    b.mkdir(parents=True)
+    (a / "a.txt").write_text("van A", encoding="utf-8")
+    (b / "b.txt").write_text("van B", encoding="utf-8")
+    assert main([str(a)]) == 0
+    assert main([str(b)]) == 2  # zou anders de schaduw van A opruimen
+    assert shadows(kb_root / "docs") == ["a.txt" + SHADOW_SUFFIX]
+    assert main([str(b), "--project", "docs-B"]) == 0
+
+
+def test_manifest_records_source_root(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    assert manifest(out)["source_root"] == str(src.resolve())
