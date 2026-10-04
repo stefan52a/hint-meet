@@ -13,7 +13,10 @@ die in het manifest staan en sindsdien niet zijn aangepast; wat hint-meet of de 
 map zet, blijft staan. Herconversie gebeurt als de bronhash of de OCR-instelling verandert.
 
 Gebruik:
-    python kb_prep.py <bron-map> <doel-map> [--force] [--ocr]
+    python kb_prep.py <bron-map> <doel-map> [--project NAAM] [--force] [--ocr]
+
+    --project schrijf naar <doel-map>/NAAM/, zodat elk project een eigen KB heeft
+              (bijv. ~/KB_md/fabrikam/); hint-meet kiest die via KB_ROOT + KB_PROJECT
 
     --force   overschrijf ook als de .md nieuwer is dan de bron
     --ocr     probeer OCR op PDF-pagina's zonder tekstlaag (vereist pytesseract + tesseract)
@@ -37,6 +40,7 @@ from pathlib import Path
 
 SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm",
              ".txt", ".md", ".json", ".rtf"}
+PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
 SHADOW_SUFFIX = ".kb-hint-meet.md"
 INDEX_NAME = "_index.json"
 MANIFEST_NAME = "_manifest.json"
@@ -292,9 +296,15 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Zet een KB-map om naar Markdown.")
     ap.add_argument("src", type=Path)
     ap.add_argument("out", type=Path)
+    ap.add_argument("--project", help="submap onder <out> voor dit project")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--ocr", action="store_true")
     a = ap.parse_args(argv)
+    if a.project is not None:
+        if not PROJECT_NAME.fullmatch(a.project) or ".." in a.project:
+            print(f"Ongeldige projectnaam: {a.project!r} (letters, cijfers, spatie, . _ -)", file=sys.stderr)
+            return 2
+        a.out = a.out / a.project
     a.src, a.out = a.src.expanduser().resolve(), a.out.expanduser().resolve()
 
     if not a.src.is_dir():

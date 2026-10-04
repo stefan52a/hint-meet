@@ -322,3 +322,32 @@ def test_no_temp_files_left_behind(tmp_path):
     src, out = make_kb(tmp_path, {"a.txt": "x", "b.json": "{kapot"})
     main([str(src), str(out)])
     assert not list(out.rglob("*.tmp"))
+
+
+# projecten
+
+def test_project_writes_into_subfolder(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src), str(out), "--project", "fabrikam"]) == 0
+    assert shadows(out / "fabrikam") == ["a.txt" + SHADOW_SUFFIX]
+    assert (out / "fabrikam" / "_manifest.json").exists()
+    assert not (out / "_manifest.json").exists()
+
+
+def test_projects_are_independent(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    src2 = tmp_path / "kb2"
+    src2.mkdir()
+    (src2 / "b.txt").write_text("y", encoding="utf-8")
+    main([str(src), str(out), "--project", "een"])
+    main([str(src2), str(out), "--project", "twee"])
+    # opruimen in project twee raakt project een niet
+    assert shadows(out / "een") == ["a.txt" + SHADOW_SUFFIX]
+    assert shadows(out / "twee") == ["b.txt" + SHADOW_SUFFIX]
+
+
+@pytest.mark.parametrize("name", ["../weg", "a/b", ".verborgen", "_index", "..", ""])
+def test_invalid_project_name_is_refused(tmp_path, name):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src), str(out), "--project", name]) == 2
+    assert not out.exists()

@@ -30,7 +30,7 @@ Waarom een gate: een LLM-call om de paar seconden is duur en traag. Jev geeft in
 hint-meet/
 ├── README.md
 ├── pyproject.toml
-├── .env.example            PROVIDER, API-keys, KB-pad
+├── .env.example            PROVIDER, API-keys, KB_ROOT + KB_PROJECT
 ├── config/
 │   └── gate.yaml           drempels voor gate, reranker en advies
 ├── src/hint_meet/
@@ -47,7 +47,8 @@ hint-meet/
 ├── docs/
 │   └── gesprek-meeting-copilot-jev.md
 └── tests/
-    └── test_kb_prep.py
+    ├── test_kb_prep.py
+    └── test_kb_dir.py
 ```
 
 ## Tests
@@ -85,10 +86,24 @@ Nog een paar regels:
 - Schaduwbestanden van vóór het manifest gelden als vreemd. Gooi ze één keer weg en draai opnieuw.
 - Exitcodes: `0` alles goed, `1` mislukte conversies of conflicten, `2` bronmap niet gevonden, `3` er draait al een kb_prep op deze map.
 
+Elk project krijgt een eigen KB in `~/KB_md/<project>/`:
+
 ```bash
-python tools/kb_prep.py ~/KB ~/KB_md
-python tools/kb_prep.py ~/KB ~/KB_md --ocr --force
+python tools/kb_prep.py ~/Documents/Fabrikam ~/KB_md --project fabrikam
+python tools/kb_prep.py ~/Documents/Acme  ~/KB_md --project acme --ocr
 ```
+
+```
+~/KB_md/
+├── fabrikam/
+│   ├── _manifest.json
+│   ├── _index.json
+│   └── offerte.pdf.kb-hint-meet.md
+└── acme/
+    └── …
+```
+
+hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-meet --project fabrikam live`. Projectnamen mogen letters, cijfers, spaties en `. _ -` bevatten, maar moeten met een letter of cijfer beginnen. Zonder `--project` schrijft kb_prep direct in de doelmap.
 
 Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash) en de OCR-instelling, niet de wijzigingsdatum. `--ocr` vereist `pytesseract` en `tesseract`; als OCR mislukt, telt het bestand als mislukt en komt het niet in de index.
 
