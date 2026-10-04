@@ -136,6 +136,16 @@ Een KB hoort bij één bronmap; dat staat in het manifest. Hebben twee bronmappe
 
 Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf .eml`, en met OCR ook afbeeldingen (`.png .jpg .jpeg .tif .tiff .webp`). OCR leest ook gescande PDF-pagina's en slides die alleen uit een afbeelding bestaan. Levert een bestand minder dan 50 tekens tekst op, dan komt het wel in de KB maar meldt kb_prep het met ⚠, zodat je de bron kunt nakijken. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's, presentaties en afbeeldingen ook de OCR-instelling. Verbetert kb_prep zelf (`CONVERTER_VERSION`), dan worden bestaande schaduwbestanden bij de volgende run opnieuw gemaakt. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de KB; gebruik dan `--no-ocr`.
 
+## Zoeken in de KB testen
+
+`kb.py` zoekt hybride: een lokaal embeddingmodel (`intfloat/multilingual-e5-large` via onnxruntime, ±2,2 GB in `~/.cache/hint-meet/models/`, downloadt bij eerste gebruik) plus BM25 voor exacte termen als bedragen en artikelnummers. Embeddings worden per stukje gecachet in `<kb>/.hint-meet-cache/`.
+
+```bash
+hint-meet eval-kb data/eval/acme-vragen.yaml
+```
+
+Een vragenlijst is YAML met per vraag de stukken waar het antwoord staat; zie `data/eval/` (staat niet in git, want bevat dossierinhoud).
+
 ## Providers
 
 `PROVIDER` in `.env` kiest de beslissingslaag:

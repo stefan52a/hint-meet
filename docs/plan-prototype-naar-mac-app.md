@@ -26,6 +26,8 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M1. Kennisbank Acme en zoeken (1 sessie)
 
+**Stand 5-10-2026: geslaagd.** 41 stukken (38 vervallen of historische uitgesloten via `.kbignore`), 219 stukjes. Top 5: 20/20, MRR 0,81 (alleen embeddings 0,78, alleen BM25 0,64). Eén verwachting in de testset was te smal en is aangevuld (vraag "aandelen of een lening"). Zoeken ±20 ms per vraag, laden 0,8 s. Testset in `data/eval/acme-vragen.yaml`, nog na te kijken door Stefan.
+
 - `kb_prep` op het dossier, met een `.kbignore` voor vervallen stukken en backups.
 - `kb.py`: hybride zoeken. Embeddings (meertalig, lokaal) plus trefwoorden, omdat juist bedragen, artikelnummers (37d) en namen exact moeten matchen.
 - **Testset:** 20 vragen met het juiste document erbij, door mij opgesteld uit het dossier, door jou nagekeken.

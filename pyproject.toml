@@ -10,7 +10,9 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "anthropic",
-    "lancedb",
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
 ]
 
 [project.optional-dependencies]
