@@ -65,6 +65,7 @@ Vereist macOS, Python 3.11+ en [BlackHole](https://github.com/ExistentialAudio/B
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[kb-prep]"
+brew install tesseract tesseract-lang   # voor OCR van gescande PDF's
 cp .env.example .env        # vul keys en paden in
 ```
 
@@ -86,12 +87,21 @@ Nog een paar regels:
 - Schaduwbestanden van vóór het manifest gelden als vreemd. Gooi ze één keer weg en draai opnieuw.
 - Exitcodes: `0` alles goed, `1` mislukte conversies of conflicten, `2` bronmap niet gevonden, `3` er draait al een kb_prep op deze map.
 
-Elk project krijgt een eigen KB in `~/KB_md/<project>/`:
+Elk project krijgt een eigen KB in `KB_ROOT/<project>/` (standaard `~/KB_md`). Zonder doelmap is het project de naam van de bronmap:
 
 ```bash
-python tools/kb_prep.py ~/Documents/Fabrikam ~/KB_md --project fabrikam
-python tools/kb_prep.py ~/Documents/Acme  ~/KB_md --project acme --ocr
+python tools/kb_prep.py ~/Documents/Fabrikam                     # → ~/KB_md/Fabrikam/
+python tools/kb_prep.py ~/Documents/Fabrikam --project fabrikam    # → ~/KB_md/fabrikam/
+python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/anders/ (geen submap)
 ```
+
+`KB_ROOT` komt uit de omgeving of uit `.env` in de werkmap.
+
+| Optie       | Wat                                                                                       |
+|-------------|-------------------------------------------------------------------------------------------|
+| `--project` | naam van de submap; standaard de naam van de bronmap als je geen doelmap opgeeft         |
+| `--no-ocr`  | OCR uitzetten. Standaard leest kb_prep gescande PDF-pagina's (zonder tekstlaag) uit met Tesseract |
+| `--force`   | alles opnieuw omzetten, ook ongewijzigde bronnen, en eigen schaduwbestanden overschrijven die je hebt aangepast. Bestanden die niet van kb_prep zijn blijven altijd staan |
 
 ```
 ~/KB_md/
@@ -105,7 +115,7 @@ python tools/kb_prep.py ~/Documents/Acme  ~/KB_md --project acme --ocr
 
 hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-meet --project fabrikam live`. Projectnamen mogen letters, cijfers, spaties en `. _ -` bevatten, maar moeten met een letter of cijfer beginnen. Zonder `--project` schrijft kb_prep direct in de doelmap.
 
-Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash) en de OCR-instelling, niet de wijzigingsdatum. `--ocr` vereist `pytesseract` en `tesseract`; als OCR mislukt, telt het bestand als mislukt en komt het niet in de index.
+Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's ook de OCR-instelling. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de index; gebruik dan `--no-ocr`.
 
 ## Providers
 

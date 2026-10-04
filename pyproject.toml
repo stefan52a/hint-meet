@@ -14,8 +14,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-kb-prep = ["python-docx", "openpyxl", "python-pptx", "pymupdf", "markdownify"]
-ocr = ["pytesseract", "pillow"]
+kb-prep = ["python-docx", "openpyxl", "python-pptx", "pymupdf", "markdownify",
+           "pytesseract", "pillow"]
 dev = ["pytest"]
 
 [project.scripts]

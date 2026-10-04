@@ -3,6 +3,7 @@ openpyxl
 python-pptx
 pymupdf
 markdownify
-# optioneel, voor --ocr:
-# pytesseract
-# pillow
+python-dotenv
+# voor OCR (standaard aan; zonder deze en tesseract mislukken gescande PDF's, of gebruik --no-ocr):
+pytesseract
+pillow

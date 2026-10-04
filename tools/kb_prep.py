@@ -13,13 +13,17 @@ die in het manifest staan en sindsdien niet zijn aangepast; wat hint-meet of de 
 map zet, blijft staan. Herconversie gebeurt als de bronhash of de OCR-instelling verandert.
 
 Gebruik:
-    python kb_prep.py <bron-map> <doel-map> [--project NAAM] [--force] [--ocr]
+    python kb_prep.py <bron-map> [<doel-map>] [--project NAAM] [--force] [--no-ocr]
 
+    <doel-map> standaard KB_ROOT (uit de omgeving of .env, anders ~/KB_md); het project
+              is dan standaard de naam van de bronmap: ~/Documents/Fabrikam -> ~/KB_md/Fabrikam/
     --project schrijf naar <doel-map>/NAAM/, zodat elk project een eigen KB heeft
               (bijv. ~/KB_md/fabrikam/); hint-meet kiest die via KB_ROOT + KB_PROJECT
 
-    --force   overschrijf ook als de .md nieuwer is dan de bron
-    --ocr     probeer OCR op PDF-pagina's zonder tekstlaag (vereist pytesseract + tesseract)
+    --force   zet alles opnieuw om, ook als de bron niet veranderd is, en overschrijf eigen
+              schaduwbestanden die na conversie zijn aangepast (vreemde bestanden nooit)
+    --no-ocr  geen OCR; standaard leest OCR PDF-pagina's zonder tekstlaag (scans) uit,
+              wat pytesseract + tesseract (met taal nld) vereist
 
 Vereisten (pip): python-docx openpyxl python-pptx pymupdf markdownify
 Optioneel:       pytesseract (OCR)
@@ -292,17 +296,38 @@ def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
     return out / rel.parent / (rel.name + SHADOW_SUFFIX)
 
 
+def default_root() -> Path:
+    """KB_ROOT uit de omgeving of een .env vanaf de werkmap, anders ~/KB_md."""
+    if "KB_ROOT" not in os.environ:
+        try:
+            from dotenv import dotenv_values, find_dotenv
+            root = dotenv_values(find_dotenv(usecwd=True)).get("KB_ROOT")
+        except ImportError:
+            root = None
+        if root:
+            return Path(root).expanduser()
+    return Path(os.environ.get("KB_ROOT") or "~/KB_md").expanduser()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Zet een KB-map om naar Markdown.")
-    ap.add_argument("src", type=Path)
-    ap.add_argument("out", type=Path)
+    ap.add_argument("src", type=Path, help="bronmap met documenten")
+    ap.add_argument("out", type=Path, nargs="?",
+                    help="doelmap (standaard KB_ROOT, project = naam van de bronmap)")
     ap.add_argument("--project", help="submap onder <out> voor dit project")
-    ap.add_argument("--force", action="store_true")
-    ap.add_argument("--ocr", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="alles opnieuw omzetten, ook aangepaste eigen schaduwbestanden overschrijven")
+    ap.add_argument("--ocr", action=argparse.BooleanOptionalAction, default=True,
+                    help="OCR op PDF-pagina's zonder tekstlaag (standaard aan)")
     a = ap.parse_args(argv)
+    if a.out is None:
+        a.out = default_root()
+        if a.project is None:
+            a.project = a.src.expanduser().resolve().name
     if a.project is not None:
         if not PROJECT_NAME.fullmatch(a.project) or ".." in a.project:
-            print(f"Ongeldige projectnaam: {a.project!r} (letters, cijfers, spatie, . _ -)", file=sys.stderr)
+            print(f"Ongeldige projectnaam: {a.project!r} (letters, cijfers, spatie, . _ -); "
+                  "kies er een met --project", file=sys.stderr)
             return 2
         a.out = a.out / a.project
     a.src, a.out = a.src.expanduser().resolve(), a.out.expanduser().resolve()
@@ -353,7 +378,8 @@ def run(a: argparse.Namespace) -> int:
         try:
             src_sha1 = sha1_of(src)
             if (not a.force and owned_and_unchanged(dst, entry) and entry.get("source") == str(src)
-                    and entry.get("source_sha1") == src_sha1 and entry.get("ocr") == a.ocr):
+                    and entry.get("source_sha1") == src_sha1
+                    and (ext != ".pdf" or entry.get("ocr") == a.ocr)):  # OCR raakt alleen PDF's
                 stats["skip"] += 1
                 continue
             shadow_sha1 = convert_one(src, dst, a.ocr, src_sha1)

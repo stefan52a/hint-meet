@@ -161,7 +161,7 @@ def test_manifest_records_ownership(tmp_path):
     assert entry["source"] == str((src / "a.txt").resolve())
     assert entry["source_sha1"] == kb_prep.sha1_of(src / "a.txt")
     assert entry["shadow_sha1"] == kb_prep.sha1_of(out / ("a.txt" + SHADOW_SUFFIX))
-    assert entry["ocr"] is False
+    assert entry["ocr"] is True  # OCR staat standaard aan
 
 
 def test_touched_but_unchanged_source_is_skipped(tmp_path, capsys):
@@ -184,13 +184,17 @@ def test_changed_content_with_old_mtime_is_reconverted(tmp_path):
     assert "nieuw" in (out / ("a.txt" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
 
 
-def test_ocr_setting_change_triggers_reconversion(tmp_path, capsys):
+def test_ocr_setting_change_only_reconverts_pdfs(tmp_path, capsys):
+    fitz = pytest.importorskip("pymupdf")
     src, out = make_kb(tmp_path, {"a.txt": "x"})
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "tekstlaag")
+    doc.save(str(src / "b.pdf"))
     main([str(src), str(out)])
     capsys.readouterr()
-    assert main([str(src), str(out), "--ocr"]) == 0
-    assert "1 omgezet" in capsys.readouterr().out
-    assert manifest(out)["files"]["a.txt" + SHADOW_SUFFIX]["ocr"] is True
+    assert main([str(src), str(out), "--no-ocr"]) == 0
+    assert "1 omgezet, 1 overgeslagen" in capsys.readouterr().out
+    assert manifest(out)["files"]["b.pdf" + SHADOW_SUFFIX]["ocr"] is False
 
 
 def test_foreign_file_at_shadow_path_is_not_overwritten(tmp_path):
@@ -357,3 +361,69 @@ def test_invalid_project_name_is_refused(tmp_path, name):
     src, out = make_kb(tmp_path, {"a.txt": "x"})
     assert main([str(src), str(out), "--project", name]) == 2
     assert not out.exists()
+
+
+# standaardwaarden
+
+def test_ocr_is_default_and_no_ocr_skips_it(tmp_path, monkeypatch):
+    fitz = pytest.importorskip("pymupdf")
+    src, out = make_kb(tmp_path, {})
+    doc = fitz.open()
+    doc.new_page()  # scan zonder tekstlaag
+    doc.save(str(src / "scan.pdf"))
+    calls = []
+
+    class Fake:
+        @staticmethod
+        def image_to_string(*_a, **_k):
+            calls.append(1)
+            return "gescande tekst"
+
+    monkeypatch.setitem(sys.modules, "pytesseract", Fake)
+    assert main([str(src), str(out / "met")]) == 0
+    assert calls and "gescande tekst" in (out / "met" / ("scan.pdf" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    calls.clear()
+    assert main([str(src), str(out / "zonder"), "--no-ocr"]) == 0
+    assert not calls
+
+
+@pytest.fixture
+def kb_root(tmp_path, monkeypatch):
+    root = tmp_path / "KB_md"
+    monkeypatch.setenv("KB_ROOT", str(root))
+    return root
+
+
+def test_out_defaults_to_kb_root_and_source_name(tmp_path, kb_root):
+    src, _ = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src)]) == 0
+    assert shadows(kb_root / "kb") == ["a.txt" + SHADOW_SUFFIX]
+
+
+def test_project_overrides_source_name(tmp_path, kb_root):
+    src, _ = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src), "--project", "fabrikam"]) == 0
+    assert shadows(kb_root / "fabrikam") == ["a.txt" + SHADOW_SUFFIX]
+
+
+def test_source_name_that_is_no_valid_project_needs_flag(tmp_path, kb_root):
+    src = tmp_path / "kado's"
+    src.mkdir()
+    assert main([str(src)]) == 2
+    assert main([str(src), "--project", "kados"]) == 0
+
+
+def test_kb_root_from_dotenv(tmp_path, monkeypatch):
+    monkeypatch.delenv("KB_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(f"KB_ROOT={tmp_path / 'uit_env'}\n", encoding="utf-8")
+    src, _ = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src)]) == 0
+    assert shadows(tmp_path / "uit_env" / "kb") == ["a.txt" + SHADOW_SUFFIX]
+    assert "KB_ROOT" not in os.environ  # .env lezen verandert de omgeving niet
+
+
+def test_kb_root_fallback(monkeypatch, tmp_path):
+    monkeypatch.delenv("KB_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert kb_prep.default_root() == Path.home() / "KB_md"
