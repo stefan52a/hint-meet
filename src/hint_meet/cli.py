@@ -13,7 +13,16 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv(find_dotenv(usecwd=True))  # .env vanaf de werkmap; bestaande omgevingsvariabelen gaan voor
     ap = argparse.ArgumentParser(prog="hint-meet")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("live", help="realtime meeting volgen")
+    sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
+    lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
+    lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
+    lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
+    lv.add_argument("--me", default="Stefan", help="naam bij de microfoon")
+    lv.add_argument("--other", default="Gesprekspartner", help="naam bij de systeemaudio")
+    lv.add_argument("--wav", help="test: speel deze WAV in echte tijd af in plaats van apparaten")
+    lv.add_argument("--channels", default="Stefan,Gesprekspartner", help="bij --wav: spreker per kanaal")
+    lv.add_argument("--speed", type=float, default=1.0, help="bij --wav: afspeelsnelheid")
+    lv.add_argument("--devices", action="store_true", help="toon de audioapparaten en stop")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -37,13 +46,17 @@ def main(argv: list[str] | None = None) -> int:
         return replay_cmd(a)
     if a.cmd == "calibrate":
         return calibrate_cmd(a)
-    try:
-        print(f"KB: {kb_dir(a.project)}")
-    except ValueError as e:
-        print(e, file=sys.stderr)
-        return 2
-    print(f"{a.cmd}: nog niet geïmplementeerd", file=sys.stderr)
-    return 1
+    if a.cmd == "live":
+        return live_cmd(a)
+    if a.cmd == "kb":
+        try:
+            print(f"KB: {kb_dir(a.project)}")
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        return 0
+    print(f"{a.cmd}: onbekend commando", file=sys.stderr)
+    return 2
 
 
 def audio_replay_cmd(a, config, root) -> int:
@@ -159,6 +172,77 @@ def replay_cmd(a) -> int:
     print(f"Gate {config['gate']['provider']} ({gate_model}) mediaan {gate_ms[len(gate_ms) // 2]:.0f} ms"
           + (f" · advies mediaan {adv_ms[len(adv_ms) // 2]:.0f} ms" if adv_ms else "")
           + f"\nLog: {a.out}")
+    return 0
+
+
+def live_cmd(a) -> int:
+    import shutil
+    import statistics
+
+    import yaml
+
+    if a.devices:
+        import sounddevice as sd
+        print(sd.query_devices())
+        return 0
+
+    from .advise import ClaudeAdvisor
+    from .audio import Transcriber, kb_terms
+    from .gate import make_gate
+    from .live import DeviceSource, LiveSession, WavSource
+    from .pipeline import Pipeline
+
+    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    try:
+        root = kb_dir(a.project)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    kb = KB(root)
+    transcriber = Transcriber(kb_terms(kb.chunks))
+    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
+    if a.wav:
+        wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
+        sources, until = [wav], (lambda: wav.finished)
+    else:
+        sources = [DeviceSource(a.mic, a.me)]
+        if a.system:
+            sources.append(DeviceSource(a.system, a.other))
+        until = None
+    cols = shutil.get_terminal_size((100, 20)).columns - 1
+    print(f"KB: {root}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
+          + "\nStoppen met Ctrl-C.\n")
+
+    def on_text(partial):
+        sys.stdout.write("\r\033[K  💡 " + partial.replace("\n", " ")[:cols - 5])
+        sys.stdout.flush()
+
+    def on_event(ev):
+        st, u = ev.step, ev.utterance
+        lat = ev.wait_ms + ev.asr_ms + st.ms.get("zoeken", 0) + st.ms.get("gate", 0)
+        if st.advice is not None:
+            sys.stdout.write("\r\033[K")
+            if st.shown:
+                first = lat + st.ms.get("advies_eerste", 0)
+                print(f"  💡 ({first / 1000:.1f} s) {st.advice.text}\n     bron: {', '.join(st.advice.sources)}")
+            elif st.advice.text:
+                print(f"  ✗ ingetrokken ({st.suppressed or 'geen bron'})")
+        print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
+
+    session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text)
+    try:
+        session.run(until=until)
+    except KeyboardInterrupt:
+        print("\nGestopt.")
+    out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    session.save_transcript(out)
+    if session.events:
+        waits = [e.wait_ms for e in session.events]
+        firsts = [e.wait_ms + e.asr_ms + e.step.ms.get("zoeken", 0) + e.step.ms.get("gate", 0)
+                  + e.step.ms["advies_eerste"] for e in session.events if e.step.shown and "advies_eerste" in e.step.ms]
+        print(f"\n{len(session.events)} uitspraken · wachtrij mediaan {statistics.median(waits):.0f} ms, max {max(waits):.0f} ms"
+              + (f" · na einde-detectie tot eerste woorden: mediaan {statistics.median(firsts):.0f} ms, max {max(firsts):.0f} ms" if firsts else ""))
+    print(f"Transcript: {out}")
     return 0
 
 

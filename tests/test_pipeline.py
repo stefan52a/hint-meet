@@ -261,3 +261,12 @@ def test_sweep_counts_hits_and_noise():
     u = parse(TRANSCRIPT)  # gemarkeerd: index 1
     rows = [GateRow(0, 0.7, "x", 2, 1), GateRow(1, 0.5, "x", 2, 1), GateRow(2, 0.9, "x", 2, 1), GateRow(3, 0.2, "x", 2, 1)]
     assert sweep(u, rows, [0.4, 0.8]) == [(0.4, 1, 1, 1), (0.8, 1, 1, 0)]  # index 2 = beurt na het moment
+
+
+def test_advisor_passes_thinking_setting():
+    client = FakeClient(reply="x\nBRONNEN: 1")
+    cfg = CONFIG | {"advise": CONFIG["advise"] | {"thinking": "between_tools"}}
+    ClaudeAdvisor(cfg, client).advise([], "overig", [hit("rente.md")])
+    assert client.kwargs["thinking"] == {"type": "between_tools"}
+    ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")])
+    assert "thinking" not in client.kwargs

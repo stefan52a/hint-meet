@@ -146,6 +146,24 @@ hint-meet eval-kb data/eval/acme-vragen.yaml
 
 Een vragenlijst is YAML met per vraag de stukken waar het antwoord staat; zie `data/eval/` (staat niet in git, want bevat dossierinhoud).
 
+## Gebruiken
+
+```bash
+hint-meet --project acme live                              # microfoon
+hint-meet --project acme live --system "BlackHole 2ch"     # plus systeemaudio van een online meeting
+hint-meet --project acme live --wav opname.wav             # test: WAV in echte tijd
+hint-meet --project acme replay gesprek.txt                # transcript met #!-markeringen, met score
+hint-meet --project acme replay gesprek.wav                # opname (stereo: jij links, de ander rechts)
+hint-meet --project acme calibrate gesprek.txt --gate jev  # alleen de gate, drempeltabel
+hint-meet live --devices                                    # audioapparaten tonen
+```
+
+Live bewaart het transcript in `logs/live-<datum>.txt`, in hetzelfde formaat als de testtranscripten: zet er `#! advies:`-regels onder en speel het af met `replay` om drempels te kalibreren.
+
+Systeemaudio (Teams, Zoom, Meet, bellen via de Mac) vraagt [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, en in Audio MIDI-instellingen een apparaat voor meerdere uitgangen met je speakers én BlackHole, zodat je de meeting zelf ook blijft horen.
+
+In de KB markeert een kopje met `[VERVALLEN]` die sectie als vervallen; hint-meet gebruikt zo'n passage alleen om te zeggen dát iets vervallen is.
+
 ## Providers
 
 `PROVIDER` in `.env` kiest de beslissingslaag:

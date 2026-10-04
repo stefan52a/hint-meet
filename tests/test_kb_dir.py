@@ -52,7 +52,7 @@ def test_cli_reads_project_from_dotenv(clean_env, monkeypatch, tmp_path, capsys)
     from hint_meet.cli import main
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(f"KB_ROOT={tmp_path}\nKB_PROJECT=acme\n", encoding="utf-8")
-    main(["live"])
+    main(["kb"])
     assert f"KB: {tmp_path / 'acme'}" in capsys.readouterr().out
 
 
@@ -60,5 +60,5 @@ def test_cli_project_flag_beats_dotenv(clean_env, monkeypatch, tmp_path, capsys)
     from hint_meet.cli import main
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(f"KB_ROOT={tmp_path}\nKB_PROJECT=acme\n", encoding="utf-8")
-    main(["--project", "fabrikam", "live"])
+    main(["--project", "fabrikam", "kb"])
     assert f"KB: {tmp_path / 'fabrikam'}" in capsys.readouterr().out

@@ -71,6 +71,8 @@ class ClaudeAdvisor:
         self.client = client or anthropic.Anthropic()
         self.model = config["advise"]["model"]
         self.effort = config["advise"].get("effort", "low")
+        thinking = config["advise"].get("thinking")
+        self.extra = {"thinking": {"type": thinking}} if thinking else {}
         self.system = ADVISE_SYSTEM.format(max_sentences=config["advise"]["max_sentences"],
                                            max_words=config["advise"].get("max_words", 40))
 
@@ -89,6 +91,7 @@ class ClaudeAdvisor:
             output_config={"effort": self.effort},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
+            **self.extra,
         ) as stream:
             for piece in stream.text_stream:
                 reply += piece
