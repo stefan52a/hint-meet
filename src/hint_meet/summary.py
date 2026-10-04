@@ -38,11 +38,14 @@ def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float
     stamp = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(started))
     folder = kb_root / "meetings"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{stamp}-gesprek.md"
-    n = 2
-    while path.exists():   # nooit een eerder verslag overschrijven
-        path = folder / f"{stamp}-gesprek-{n}.md"
-        n += 1
+    n = 1
+    while True:   # exclusief aanmaken: nooit een eerder verslag overschrijven, ook niet tegelijk
+        path = folder / (f"{stamp}-gesprek.md" if n == 1 else f"{stamp}-gesprek-{n}.md")
+        try:
+            handle = path.open("x", encoding="utf-8")
+            break
+        except FileExistsError:
+            n += 1
     lines = [f"# Gesprek {time.strftime('%d-%m-%Y %H:%M', time.localtime(started))}", "",
              "> Automatisch verslag door hint-meet; transcript via spraakherkenning.", "", summary_md, "",
              "## Getoonde hints",
@@ -50,5 +53,6 @@ def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float
     lines += [f"- {h}" for h in hints] or ["(geen)"]
     lines += ["", "## Transcript", ""]
     lines += [f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] **{u.speaker}:** {u.text}  " for u in utterances]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with handle:
+        handle.write("\n".join(lines) + "\n")
     return path
