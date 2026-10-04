@@ -272,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ✓ {rel}")
         except Exception as e:  # noqa: BLE001
             stats["fail"] += 1
+            dst.unlink(missing_ok=True)  # geen verouderde versie in de index laten staan
             failures.append((rel, f"{type(e).__name__}: {e}"))
             print(f"  ✗ {rel}: {e}", file=sys.stderr)
 

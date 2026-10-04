@@ -122,3 +122,16 @@ def test_ocr_failure_raises_from_converter(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "pytesseract", None)  # import faalt
     with pytest.raises(RuntimeError, match="OCR mislukt op pagina 1"):
         kb_prep.conv_pdf(pdf, ocr=True)
+
+
+def test_failed_reconversion_drops_old_shadow(tmp_path):
+    src, out = tmp_path / "kb", tmp_path / "out"
+    src.mkdir()
+    (src / "data.json").write_text('{"a": 1}', encoding="utf-8")
+    assert main([str(src), str(out)]) == 0
+    assert shadows(out) == ["data.json" + SHADOW_SUFFIX]
+
+    (src / "data.json").write_text("{kapot", encoding="utf-8")
+    assert main([str(src), str(out), "--force"]) == 1
+    assert shadows(out) == []
+    assert index(out) == []
