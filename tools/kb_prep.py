@@ -48,9 +48,17 @@ from pathlib import Path
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm",
              ".txt", ".md", ".json", ".rtf"} | IMAGE_EXTS
-OCR_EXTS = {".pdf", ".pptx"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
+OCR_EXTS = {".pdf", ".pptx", ".docx"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
 # Ophogen als de conversie zelf verbetert: bestaande schaduwbestanden worden dan opnieuw gemaakt.
 CONVERTER_VERSION = 3
+# Per bestandstype hoger dan de basis, zodat een verbetering alleen dat type opnieuw doet.
+# 4: docx zonder stijl, OCR in docx met alleen afbeeldingen, foto's zonder tekst.
+TYPE_VERSION = {".docx": 4, **{ext: 4 for ext in IMAGE_EXTS}}
+PHOTO_NOTE = "_Foto zonder herkenbare tekst._"
+
+
+def converter_version(ext: str) -> int:
+    return max(CONVERTER_VERSION, TYPE_VERSION.get(ext, 0))
 LOW_TEXT = 50
 OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
 PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
@@ -122,8 +130,11 @@ def ocr_image(img, what: str) -> str:
         raise RuntimeError(f"OCR mislukt op {what}: {e}") from e
 
 
-def conv_docx(path: Path) -> str:
+def conv_docx(path: Path, ocr: bool = False, tick=no_tick) -> str:
+    from io import BytesIO
+
     from docx import Document
+    from PIL import Image, UnidentifiedImageError
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
@@ -136,7 +147,7 @@ def conv_docx(path: Path) -> str:
             t = p.text.strip()
             if not t:
                 continue
-            style = (p.style.name or "").lower()
+            style = ((p.style.name if p.style is not None else None) or "").lower()
             m = re.match(r"heading (\d)", style)
             if m:
                 parts.append("#" * int(m.group(1)) + " " + t)
@@ -148,6 +159,19 @@ def conv_docx(path: Path) -> str:
             tbl = Table(block, doc)
             rows = [[c.text for c in r.cells] for r in tbl.rows]
             parts.append(md_table(rows))
+    if ocr and readable_chars("\n".join(parts)) < LOW_TEXT:
+        # document (vrijwel) zonder tekst, bv. alleen geplakte screenshots
+        blobs = [rel.target_part.blob for rel in doc.part.rels.values()
+                 if "image" in rel.reltype and not rel.is_external]
+        for i, blob in enumerate(blobs, 1):
+            tick(i - 1, len(blobs), "afbeelding")
+            try:
+                img = Image.open(BytesIO(blob))
+            except UnidentifiedImageError:
+                continue
+            txt = ocr_image(img, f"afbeelding {i}")
+            if txt:
+                parts.append(txt)
     return "\n\n".join(parts)
 
 
@@ -259,7 +283,9 @@ def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
     with Image.open(path) as img:
         frames = [f.copy() for f in ImageSequence.Iterator(img)]
     if len(frames) == 1:
-        return ocr_image(frames[0], "afbeelding")
+        text = ocr_image(frames[0], "afbeelding")
+        # een foto zonder tekst levert alleen OCR-ruis op; naam en pad blijven wel vindbaar
+        return text if readable_chars(text) >= LOW_TEXT else PHOTO_NOTE
     # meerpagina-TIFF (scans): elke pagina apart
     parts = []
     for i, frame in enumerate(frames, 1):
@@ -425,7 +451,12 @@ def main(argv: list[str] | None = None) -> int:
         except BlockingIOError:
             print(f"Er draait al een kb_prep op {a.out}", file=sys.stderr)
             return 3
-        return run(a)
+        try:
+            return run(a)
+        except KeyboardInterrupt:
+            print("\nAfgebroken. Wat al omgezet is, blijft bewaard; de volgende run gaat verder.",
+                  file=sys.stderr)
+            return 130
 
 
 def fmt_duration(seconds: float) -> str:
@@ -497,7 +528,7 @@ def run(a: argparse.Namespace) -> int:
         print(f"{a.out} hoort bij bronmap {bound}, niet bij {a.src}. Kies een ander project met "
               f"--project, of gebruik --force om deze KB aan de nieuwe bronmap te koppelen.", file=sys.stderr)
         return 2
-    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0}
+    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0, "photos": 0}
     low_text: list[tuple[Path, int]] = []
     expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
@@ -543,10 +574,12 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
             src_sha1 = sha1_of(src)
             if (not a.force and owned_and_unchanged(dst, entry) and entry.get("source") == str(src)
                     and entry.get("source_sha1") == src_sha1
-                    and entry.get("converter") == CONVERTER_VERSION
+                    and entry.get("converter") == converter_version(ext)
                     and (ext not in OCR_EXTS or entry.get("ocr") == a.ocr)):
                 stats["skip"] += 1
-                if entry.get("chars", LOW_TEXT) < LOW_TEXT:
+                if ext in IMAGE_EXTS and entry.get("chars", LOW_TEXT) < LOW_TEXT:
+                    stats["photos"] += 1
+                elif entry.get("chars", LOW_TEXT) < LOW_TEXT:
                     low_text.append((rel, entry["chars"]))  # blijft melden tot de bron beter is
                 continue
             shadow_sha1, chars = convert_one(src, dst, a.ocr, src_sha1, tick=progress.tick)
@@ -564,13 +597,16 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
             "source_sha1": src_sha1,
             "shadow_sha1": shadow_sha1,
             "ocr": a.ocr,
-            "converter": CONVERTER_VERSION,
+            "converter": converter_version(ext),
             "chars": chars,
             "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         }
         save_manifest(a.out, manifest, a.src)  # direct vastleggen, zodat een crash geen eigen output verweesd achterlaat
         stats["ok"] += 1
-        if chars < LOW_TEXT:
+        if chars < LOW_TEXT and ext in IMAGE_EXTS:
+            stats["photos"] += 1
+            progress.log(f"  ✓ {rel} (foto zonder tekst)", routine=True)
+        elif chars < LOW_TEXT:
             low_text.append((rel, chars))
             hint = "" if a.ocr or ext not in OCR_EXTS else ", probeer zonder --no-ocr"
             progress.log(f"  ⚠ {rel}: maar {chars} tekens tekst{hint}")
@@ -596,7 +632,9 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
 
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
           f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
-          f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst.")
+          f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst"
+          + (f", {stats['photos']} foto's zonder tekst (alleen naam en pad in de KB)" if stats["photos"] else "")
+          + ".")
     if low_text:
         print(f"\nWeinig tekst (< {LOW_TEXT} tekens), staat wel in de KB maar controleer de bron:")
         for rel, chars in low_text:

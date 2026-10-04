@@ -308,8 +308,7 @@ def test_manifest_saved_after_each_conversion(tmp_path, monkeypatch):
         return real(s, d, ocr, sha, **kw)
 
     monkeypatch.setattr(kb_prep, "convert_one", crash_on_b)
-    with pytest.raises(KeyboardInterrupt):
-        main([str(src), str(out)])
+    assert main([str(src), str(out)]) == 130
     assert list(manifest(out)["files"]) == ["a.txt" + SHADOW_SUFFIX]
 
 
@@ -709,9 +708,8 @@ def test_progress_line_cleared_on_interrupt(tmp_path, monkeypatch):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(kb_prep, "convert_one", boom)
-    with pytest.raises(KeyboardInterrupt):
-        main([str(src), str(out)])
-    assert tty.buf[-1] == "\r\033[K"
+    assert main([str(src), str(out)]) == 130
+    assert "\r\033[K\nAfgebroken" in tty.text  # regel gewist vóór de melding
 
 
 def test_page_progress_and_estimate(tmp_path, monkeypatch, capsys):
@@ -748,3 +746,91 @@ def test_fmt_duration():
     assert kb_prep.fmt_duration(40) == "40 s"
     assert kb_prep.fmt_duration(300) == "5 min"
     assert kb_prep.fmt_duration(3 * 3600) == "3.0 u"
+
+
+
+def test_ctrl_c_gives_short_message(tmp_path, monkeypatch, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+
+    def boom(*_a, **_k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(kb_prep, "convert_one", boom)
+    assert main([str(src), str(out)]) == 130
+    err = capsys.readouterr().err
+    assert "Afgebroken" in err and "Traceback" not in err
+
+
+# docx
+
+def test_docx_paragraph_without_style(tmp_path):
+    docx = pytest.importorskip("docx")
+    src, out = make_kb(tmp_path, {})
+    d = docx.Document()
+    d.add_paragraph("Paragraaf met stijl")
+    p = d.add_paragraph("Paragraaf zonder stijl")  # geen w:pStyle én (hieronder) geen standaardstijl
+    styles = d.styles.element
+    for st in styles.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}style"):
+        if st.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}default") == "1":
+            styles.remove(st)
+    assert p.style is None  # zoals in de Contoso-memo
+    d.save(str(src / "memo.docx"))
+    assert main([str(src), str(out)]) == 0
+    assert "Paragraaf zonder stijl" in (out / ("memo.docx" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_docx_with_only_screenshots_is_ocred(tmp_path, fake_ocr):
+    docx = pytest.importorskip("docx")
+    src, out = make_kb(tmp_path, {})
+    img = tmp_path / "screenshot.png"
+    png(img)
+    d = docx.Document()
+    d.add_picture(str(img))
+    d.add_picture(str(img))
+    d.save(str(src / "logging.docx"))
+    assert main([str(src), str(out)]) == 0
+    assert "Belscript" in (out / ("logging.docx" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_docx_with_text_is_not_ocred(tmp_path, fake_ocr):
+    docx = pytest.importorskip("docx")
+    src, out = make_kb(tmp_path, {})
+    img = tmp_path / "grafiek.png"
+    png(img)
+    d = docx.Document()
+    d.add_paragraph("Ruim voldoende tekst in dit document, dus de grafiek hoeft niet door OCR.")
+    d.add_picture(str(img))
+    d.save(str(src / "rapport.docx"))
+    main([str(src), str(out)])
+    assert fake_ocr.calls == []
+
+
+# foto's
+
+def test_photo_without_text_is_kept_quietly(tmp_path, monkeypatch, capsys):
+    class Noise:
+        @staticmethod
+        def image_to_string(*_a, **_k):
+            return "~ |"
+
+    monkeypatch.setitem(sys.modules, "pytesseract", Noise)
+    src, out = make_kb(tmp_path, {})
+    png(src / "20260625Waterdrukmeter.jpg")
+    assert main([str(src), str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "⚠" not in printed and "1 foto's zonder tekst" in printed
+    shadow = (out / ("20260625Waterdrukmeter.jpg" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "# 20260625Waterdrukmeter" in shadow and kb_prep.PHOTO_NOTE in shadow and "~ |" not in shadow
+    capsys.readouterr()
+    main([str(src), str(out)])  # overgeslagen: nog steeds als foto geteld, niet als waarschuwing
+    printed = capsys.readouterr().out
+    assert "1 overgeslagen" in printed and "1 foto's zonder tekst" in printed and "⚠" not in printed
+
+
+def test_type_version_only_redoes_that_type(tmp_path, monkeypatch, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100, "b.csv": "a,b\n" + "1,2\n" * 30})
+    main([str(src), str(out)])
+    monkeypatch.setitem(kb_prep.TYPE_VERSION, ".csv", 99)
+    capsys.readouterr()
+    main([str(src), str(out)])
+    assert "1 omgezet, 1 overgeslagen" in capsys.readouterr().out
