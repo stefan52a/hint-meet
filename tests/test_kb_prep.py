@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -135,3 +136,117 @@ def test_failed_reconversion_drops_old_shadow(tmp_path):
     assert main([str(src), str(out), "--force"]) == 1
     assert shadows(out) == []
     assert index(out) == []
+
+
+# manifest en eigendom
+
+def manifest(out: Path) -> dict:
+    return json.loads((out / "_manifest.json").read_text(encoding="utf-8"))
+
+
+def make_kb(tmp_path, files: dict[str, str]):
+    src, out = tmp_path / "kb", tmp_path / "out"
+    src.mkdir()
+    for name, text in files.items():
+        (src / name).write_text(text, encoding="utf-8")
+    return src, out
+
+
+def test_manifest_records_ownership(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    assert main([str(src), str(out)]) == 0
+    m = manifest(out)
+    assert m["version"] == 1 and m["tool"] == "kb_prep"
+    entry = m["files"]["a.txt" + SHADOW_SUFFIX]
+    assert entry["source"] == str((src / "a.txt").resolve())
+    assert entry["source_sha1"] == kb_prep.sha1_of(src / "a.txt")
+    assert entry["shadow_sha1"] == kb_prep.sha1_of(out / ("a.txt" + SHADOW_SUFFIX))
+    assert entry["ocr"] is False
+
+
+def test_touched_but_unchanged_source_is_skipped(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    later = (src / "a.txt").stat().st_mtime + 100
+    os.utime(src / "a.txt", (later, later))
+    capsys.readouterr()
+    assert main([str(src), str(out)]) == 0
+    assert "0 omgezet, 1 overgeslagen" in capsys.readouterr().out
+
+
+def test_changed_content_with_old_mtime_is_reconverted(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "oud"})
+    main([str(src), str(out)])
+    st = (src / "a.txt").stat()
+    (src / "a.txt").write_text("nieuw", encoding="utf-8")
+    os.utime(src / "a.txt", (st.st_atime, st.st_mtime))
+    assert main([str(src), str(out)]) == 0
+    assert "nieuw" in (out / ("a.txt" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_ocr_setting_change_triggers_reconversion(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    capsys.readouterr()
+    assert main([str(src), str(out), "--ocr"]) == 0
+    assert "1 omgezet" in capsys.readouterr().out
+    assert manifest(out)["files"]["a.txt" + SHADOW_SUFFIX]["ocr"] is True
+
+
+def test_foreign_file_at_shadow_path_is_not_overwritten(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    foreign = out / ("a.txt" + SHADOW_SUFFIX)
+    foreign.write_text("---\nsource: \"ergens anders\"\n---\nvan hint-meet", encoding="utf-8")
+    assert main([str(src), str(out), "--force"]) == 1
+    assert "van hint-meet" in foreign.read_text(encoding="utf-8")
+    assert manifest(out)["files"] == {}
+    assert index(out) == []
+
+
+def test_foreign_suffix_file_elsewhere_is_left_alone(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    (out / ("notities-meeting.kb-hint-meet.md")).write_text("van hint-meet", encoding="utf-8")
+    assert main([str(src), str(out)]) == 0
+    assert (out / "notities-meeting.kb-hint-meet.md").exists()
+    assert [e["md"] for e in index(out)] == ["a.txt" + SHADOW_SUFFIX]
+
+
+def test_edited_shadow_needs_force(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    shadow = out / ("a.txt" + SHADOW_SUFFIX)
+    shadow.write_text(shadow.read_text(encoding="utf-8") + "\naantekening", encoding="utf-8")
+    (src / "a.txt").write_text("y", encoding="utf-8")
+
+    assert main([str(src), str(out)]) == 1
+    assert "aantekening" in shadow.read_text(encoding="utf-8")
+    assert main([str(src), str(out), "--force"]) == 0
+    assert "aantekening" not in shadow.read_text(encoding="utf-8")
+
+
+def test_edited_shadow_survives_source_deletion(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    shadow = out / ("a.txt" + SHADOW_SUFFIX)
+    shadow.write_text("aangepast", encoding="utf-8")
+    (src / "a.txt").unlink()
+    assert main([str(src), str(out)]) == 0
+    assert shadow.exists()
+    assert manifest(out)["files"] == {}
+    assert index(out) == []
+
+
+def test_legacy_shadow_without_manifest_is_adopted(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    (out / "_manifest.json").unlink()
+    assert main([str(src), str(out)]) == 0
+    assert "a.txt" + SHADOW_SUFFIX in manifest(out)["files"]
+
+
+def test_no_temp_files_left_behind(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x", "b.json": "{kapot"})
+    main([str(src), str(out)])
+    assert not list(out.rglob("*.tmp"))

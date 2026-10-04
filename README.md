@@ -74,14 +74,16 @@ cp .env.example .env        # vul keys en paden in
 Elk schaduwbestand heet `<naam>.<ext>.kb-hint-meet.md` (bijvoorbeeld `offerte.pdf.kb-hint-meet.md`). Aan die suffix herkent het script zijn eigen output. Daardoor:
 
 - mag de doelmap ook binnen de bronmap liggen, of dezelfde map zijn: schaduwbestanden worden nooit opnieuw ingelezen;
-- verdwijnt de schaduw automatisch als je het bronbestand verwijdert, terwijl je eigen `.md`-bestanden altijd blijven staan.
+- verdwijnt de schaduw automatisch als je het bronbestand verwijdert.
+
+Wat van kb_prep is, staat in `_manifest.json` in de doelmap: per schaduwbestand de bron, de hash van de bron, de hash van wat kb_prep schreef en of OCR aan stond. kb_prep overschrijft of verwijdert alleen bestanden die daarin staan en sindsdien niet zijn aangepast. Wat hint-meet of jij zelf in de map zet, blijft staan, ook met dezelfde suffix. Een aangepaste schaduw overschrijf je met `--force`; een bestand dat niet van kb_prep is nooit. Zulke gevallen meldt het script als conflict (exitcode 1).
 
 ```bash
 python tools/kb_prep.py ~/KB ~/KB_md
 python tools/kb_prep.py ~/KB ~/KB_md --ocr --force
 ```
 
-Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Bestanden waarvan de schaduw al actueel is worden overgeslagen. `--ocr` vereist `pytesseract` en `tesseract`; als OCR mislukt, telt het bestand als mislukt en komt het niet in de index.
+Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf`. Of een bestand opnieuw moet, bepaalt de inhoud (hash) en de OCR-instelling, niet de wijzigingsdatum. `--ocr` vereist `pytesseract` en `tesseract`; als OCR mislukt, telt het bestand als mislukt en komt het niet in de index.
 
 ## Providers
 

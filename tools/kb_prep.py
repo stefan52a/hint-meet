@@ -5,8 +5,12 @@ kb_prep.py : zet een kennisbank-map om naar Markdown.
 Ondersteund: .docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf (via textutil op macOS)
 Resultaat: dezelfde mappenstructuur onder <out>/, elk bestand als <naam>.<ext>.kb-hint-meet.md
 met YAML-frontmatter. Aan die suffix herkent het script zijn eigen schaduwbestanden: ze worden nooit
-als bron gelezen, en alleen zij worden opgeruimd als de bron verdwenen is. <out> mag dus ook binnen
-<bron> liggen of gelijk zijn aan <bron>.
+als bron gelezen. <out> mag dus ook binnen <bron> liggen of gelijk zijn aan <bron>.
+
+Eigendom staat in <out>/_manifest.json: per schaduwbestand de bron, de hash van de bron, de hash
+van wat kb_prep schreef en de OCR-instelling. kb_prep overschrijft of verwijdert alleen bestanden
+die in het manifest staan en sindsdien niet zijn aangepast; wat hint-meet of de gebruiker in de
+map zet, blijft staan. Herconversie gebeurt als de bronhash of de OCR-instelling verandert.
 
 Gebruik:
     python kb_prep.py <bron-map> <doel-map> [--force] [--ocr]
@@ -23,6 +27,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,6 +38,8 @@ SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm"
              ".txt", ".md", ".json", ".rtf"}
 SHADOW_SUFFIX = ".kb-hint-meet.md"
 INDEX_NAME = "_index.json"
+MANIFEST_NAME = "_manifest.json"
+MANIFEST_VERSION = 1
 
 # ---------- hulpfuncties ----------
 
@@ -42,6 +49,13 @@ def sha1_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()[:12]
+
+
+def write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def clean(text: str) -> str:
@@ -208,7 +222,8 @@ CONVERTERS = {
 
 # ---------- hoofdloop ----------
 
-def convert_one(src: Path, dst: Path, ocr: bool) -> str:
+def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str) -> str:
+    """Zet src om naar dst en geeft de sha1 van het geschreven bestand terug."""
     ext = src.suffix.lower()
     fn = CONVERTERS[ext]
     body = fn(src, ocr) if ext == ".pdf" else fn(src)
@@ -216,19 +231,38 @@ def convert_one(src: Path, dst: Path, ocr: bool) -> str:
     front = {
         "source": str(src),
         "type": ext.lstrip("."),
-        "sha1": sha1_of(src),
+        "sha1": src_sha1,
         "modified": datetime.fromtimestamp(src.stat().st_mtime, tz=timezone.utc).isoformat(timespec="seconds"),
         "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         "chars": len(body),
     }
     fm = "---\n" + "\n".join(f"{k}: {json.dumps(v, ensure_ascii=False)}" for k, v in front.items()) + "\n---\n\n"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(fm + f"# {src.stem}\n\n" + body, encoding="utf-8")
-    return "ok"
+    write_atomic(dst, fm + f"# {src.stem}\n\n" + body)
+    return sha1_of(dst)
 
 
 def is_own_output(path: Path, out: Path) -> bool:
-    return path.name.endswith(SHADOW_SUFFIX) or path == out / INDEX_NAME
+    return path.name.endswith(SHADOW_SUFFIX) or path in (out / INDEX_NAME, out / MANIFEST_NAME)
+
+
+def load_manifest(out: Path) -> dict[str, dict]:
+    path = out / MANIFEST_NAME
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("version") != MANIFEST_VERSION:
+        raise SystemExit(f"Onbekende manifestversie in {path}: {data.get('version')}")
+    return data["files"]
+
+
+def frontmatter_source(md: Path) -> str | None:
+    head = md.read_text(encoding="utf-8", errors="replace")[:2000]
+    m = re.search(r'^source: (".*")$', head, re.M)
+    return json.loads(m.group(1)) if m else None
+
+
+def owned_and_unchanged(dst: Path, entry: dict | None) -> bool:
+    return entry is not None and dst.exists() and sha1_of(dst) == entry["shadow_sha1"]
 
 
 def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
@@ -250,8 +284,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     a.out.mkdir(parents=True, exist_ok=True)
 
-    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0}
-    expected: set[Path] = set()
+    manifest = load_manifest(a.out)
+    stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0}
+    expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
     for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
         if src.name.startswith(("~$", ".")) or is_own_output(src, a.out):
@@ -262,43 +297,77 @@ def main(argv: list[str] | None = None) -> int:
             continue
         rel = src.relative_to(a.src)
         dst = shadow_path(a.src, a.out, src)
-        expected.add(dst)
-        if dst.exists() and not a.force and dst.stat().st_mtime >= src.stat().st_mtime:
+        key = str(dst.relative_to(a.out))
+        expected.add(key)
+        entry = manifest.get(key)
+
+        if dst.exists():
+            if entry is None:
+                # schaduw van een oudere kb_prep zonder manifest: overnemen; anders niet van ons
+                if frontmatter_source(dst) != str(src):
+                    stats["conflict"] += 1
+                    print(f"  ! {rel}: {key} bestaat al en is niet van kb_prep, overgeslagen", file=sys.stderr)
+                    continue
+            elif not owned_and_unchanged(dst, entry) and not a.force:
+                stats["conflict"] += 1
+                print(f"  ! {rel}: {key} is na conversie aangepast, overgeslagen (--force overschrijft)",
+                      file=sys.stderr)
+                continue
+
+        src_sha1 = sha1_of(src)
+        if (not a.force and owned_and_unchanged(dst, entry)
+                and entry["source_sha1"] == src_sha1 and entry["ocr"] == a.ocr):
             stats["skip"] += 1
             continue
         try:
-            convert_one(src, dst, a.ocr)
-            stats["ok"] += 1
-            print(f"  ✓ {rel}")
+            shadow_sha1 = convert_one(src, dst, a.ocr, src_sha1)
         except Exception as e:  # noqa: BLE001
             stats["fail"] += 1
-            dst.unlink(missing_ok=True)  # geen verouderde versie in de index laten staan
+            if owned_and_unchanged(dst, entry):
+                dst.unlink()  # geen verouderde versie in de index laten staan
+            manifest.pop(key, None)
             failures.append((rel, f"{type(e).__name__}: {e}"))
             print(f"  ✗ {rel}: {e}", file=sys.stderr)
+            continue
+        manifest[key] = {
+            "source": str(src),
+            "source_sha1": src_sha1,
+            "shadow_sha1": shadow_sha1,
+            "ocr": a.ocr,
+            "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
+        }
+        stats["ok"] += 1
+        print(f"  ✓ {rel}")
 
-    # schaduwbestanden van verwijderde of niet meer ondersteunde bronnen opruimen
-    for md in a.out.rglob("*" + SHADOW_SUFFIX):
-        if md not in expected:
-            md.unlink()
+    # schaduwbestanden van verwijderde of niet meer ondersteunde bronnen opruimen,
+    # maar alleen als ze van kb_prep zijn en sindsdien niet zijn aangepast
+    for key in sorted(set(manifest) - expected):
+        dst = a.out / key
+        if owned_and_unchanged(dst, manifest[key]):
+            dst.unlink()
             stats["removed"] += 1
-            print(f"  - {md.relative_to(a.out)} (bron weg)")
+            print(f"  - {key} (bron weg)")
+        elif dst.exists():
+            print(f"  ! {key}: bron weg maar bestand is aangepast, laten staan", file=sys.stderr)
+        del manifest[key]
 
-    # index voor de retriever
-    index = []
-    for md in sorted(a.out.rglob("*" + SHADOW_SUFFIX)):
-        head = md.read_text(encoding="utf-8", errors="replace")[:2000]
-        m = re.search(r'^source: "(.*)"$', head, re.M)
-        index.append({"md": str(md.relative_to(a.out)), "source": m.group(1) if m else None})
-    (a.out / INDEX_NAME).write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_atomic(a.out / MANIFEST_NAME,
+                 json.dumps({"version": MANIFEST_VERSION, "tool": "kb_prep", "files": manifest},
+                            ensure_ascii=False, indent=2, sort_keys=True))
+
+    # index voor de retriever: alleen wat kb_prep succesvol heeft geschreven
+    index = [{"md": key, "source": manifest[key]["source"]} for key in sorted(manifest)]
+    write_atomic(a.out / INDEX_NAME, json.dumps(index, ensure_ascii=False, indent=2))
 
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
-          f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd. "
+          f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
+          f"{stats['conflict']} conflict. "
           f"Index: {a.out / INDEX_NAME}")
     if failures:
         print("\nMislukt:")
         for rel, err in failures:
             print(f"  {rel}: {err}")
-    return 1 if failures else 0
+    return 1 if failures or stats["conflict"] else 0
 
 
 if __name__ == "__main__":
