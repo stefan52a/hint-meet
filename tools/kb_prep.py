@@ -53,8 +53,9 @@ OCR_EXTS = {".pdf", ".pptx", ".docx"} | IMAGE_EXTS  # uitkomst hangt af van --oc
 CONVERTER_VERSION = 3
 # Per bestandstype hoger dan de basis, zodat een verbetering alleen dat type opnieuw doet.
 # 4: docx zonder stijl, OCR in docx met alleen afbeeldingen, foto's zonder tekst.
-TYPE_VERSION = {".docx": 4, **{ext: 4 for ext in IMAGE_EXTS}}
-PHOTO_NOTE = "_Foto zonder herkenbare tekst._"
+# 5 (afbeeldingen): korte OCR-tekst van foto's bewaren, gemarkeerd als onzeker.
+TYPE_VERSION = {".docx": 4, **{ext: 5 for ext in IMAGE_EXTS}}
+PHOTO_NOTE = "## Foto zonder (veel) herkenbare tekst"  # kop: telt niet mee als tekst
 
 
 def converter_version(ext: str) -> int:
@@ -284,8 +285,12 @@ def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
         frames = [f.copy() for f in ImageSequence.Iterator(img)]
     if len(frames) == 1:
         text = ocr_image(frames[0], "afbeelding")
-        # een foto zonder tekst levert alleen OCR-ruis op; naam en pad blijven wel vindbaar
-        return text if readable_chars(text) >= LOW_TEXT else PHOTO_NOTE
+        if readable_chars(text) >= LOW_TEXT:
+            return text
+        # foto: naam en pad blijven vindbaar; korte OCR-tekst kan ruis zijn, maar ook "Enter PIN"
+        # of een merknaam op een drukmeter, dus bewaren en als onzeker markeren
+        snippet = " ".join(text.split())
+        return PHOTO_NOTE + (f"\n\nHerkende tekst (OCR, onzeker): {snippet}" if snippet else "")
     # meerpagina-TIFF (scans): elke pagina apart
     parts = []
     for i, frame in enumerate(frames, 1):
@@ -633,7 +638,7 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
           f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
           f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst"
-          + (f", {stats['photos']} foto's zonder tekst (alleen naam en pad in de KB)" if stats["photos"] else "")
+          + (f", {stats['photos']} foto's met weinig of geen tekst" if stats["photos"] else "")
           + ".")
     if low_text:
         print(f"\nWeinig tekst (< {LOW_TEXT} tekens), staat wel in de KB maar controleer de bron:")

@@ -818,13 +818,14 @@ def test_photo_without_text_is_kept_quietly(tmp_path, monkeypatch, capsys):
     png(src / "20260625Waterdrukmeter.jpg")
     assert main([str(src), str(out)]) == 0
     printed = capsys.readouterr().out
-    assert "⚠" not in printed and "1 foto's zonder tekst" in printed
+    assert "⚠" not in printed and "1 foto's met weinig of geen tekst" in printed
     shadow = (out / ("20260625Waterdrukmeter.jpg" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
-    assert "# 20260625Waterdrukmeter" in shadow and kb_prep.PHOTO_NOTE in shadow and "~ |" not in shadow
+    assert "# 20260625Waterdrukmeter" in shadow and kb_prep.PHOTO_NOTE in shadow
+    assert "Herkende tekst (OCR, onzeker): ~ |" in shadow  # kort, maar bewaard
     capsys.readouterr()
     main([str(src), str(out)])  # overgeslagen: nog steeds als foto geteld, niet als waarschuwing
     printed = capsys.readouterr().out
-    assert "1 overgeslagen" in printed and "1 foto's zonder tekst" in printed and "⚠" not in printed
+    assert "1 overgeslagen" in printed and "1 foto's met weinig of geen tekst" in printed and "⚠" not in printed
 
 
 def test_type_version_only_redoes_that_type(tmp_path, monkeypatch, capsys):
@@ -834,3 +835,32 @@ def test_type_version_only_redoes_that_type(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     main([str(src), str(out)])
     assert "1 omgezet, 1 overgeslagen" in capsys.readouterr().out
+
+
+def test_photo_with_short_real_text_keeps_it(tmp_path, monkeypatch, capsys):
+    class Pin:
+        @staticmethod
+        def image_to_string(*_a, **_k):
+            return "Enter\nPIN"
+
+    monkeypatch.setitem(sys.modules, "pytesseract", Pin)
+    src, out = make_kb(tmp_path, {})
+    png(src / "pincode.jpeg")
+    main([str(src), str(out)])
+    assert "⚠" not in capsys.readouterr().out
+    shadow = (out / ("pincode.jpeg" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "Herkende tekst (OCR, onzeker): Enter PIN" in shadow
+
+
+def test_blank_photo_has_note_only(tmp_path, monkeypatch):
+    class Blank:
+        @staticmethod
+        def image_to_string(*_a, **_k):
+            return ""
+
+    monkeypatch.setitem(sys.modules, "pytesseract", Blank)
+    src, out = make_kb(tmp_path, {})
+    png(src / "vloer.jpg")
+    main([str(src), str(out)])
+    shadow = (out / ("vloer.jpg" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert shadow.rstrip().endswith(kb_prep.PHOTO_NOTE)
