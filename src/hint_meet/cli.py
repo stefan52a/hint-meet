@@ -2,10 +2,13 @@
 import argparse
 import sys
 
+from dotenv import find_dotenv, load_dotenv
+
 from .kb import kb_dir
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    load_dotenv(find_dotenv(usecwd=True))  # .env vanaf de werkmap; bestaande omgevingsvariabelen gaan voor
     ap = argparse.ArgumentParser(prog="hint-meet")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("live", help="realtime meeting volgen")
@@ -14,7 +17,7 @@ def main() -> int:
     rp.add_argument("--out", default="logs/replay.csv")
     ap.add_argument("--config", default="config/gate.yaml")
     ap.add_argument("--project", help="KB-project, overschrijft KB_PROJECT")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     try:
         print(f"KB: {kb_dir(a.project)}")
     except ValueError as e:

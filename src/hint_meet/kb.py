@@ -12,7 +12,8 @@ PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")  # gelijk aan tools/kb
 
 def kb_dir(project: str | None = None) -> Path:
     """KB-map van een project: KB_ROOT/<project>, met project uit het argument of KB_PROJECT."""
-    project = project or os.environ.get("KB_PROJECT")
+    if project is None:
+        project = os.environ.get("KB_PROJECT")
     if not project:
         raise ValueError("Geen project gekozen: zet KB_PROJECT in .env of geef --project mee")
     if not PROJECT_NAME.fullmatch(project) or ".." in project:

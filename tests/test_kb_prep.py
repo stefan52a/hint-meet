@@ -341,9 +341,15 @@ def test_projects_are_independent(tmp_path):
     (src2 / "b.txt").write_text("y", encoding="utf-8")
     main([str(src), str(out), "--project", "een"])
     main([str(src2), str(out), "--project", "twee"])
-    # opruimen in project twee raakt project een niet
+    before = {f: (out / "een" / f).read_bytes() for f in ("_manifest.json", "_index.json")}
+
+    # bron van project twee leeg: alles in twee wordt opgeruimd, een blijft ongemoeid
+    (src2 / "b.txt").unlink()
+    assert main([str(src2), str(out), "--project", "twee"]) == 0
+    assert shadows(out / "twee") == []
+    assert index(out / "twee") == []
     assert shadows(out / "een") == ["a.txt" + SHADOW_SUFFIX]
-    assert shadows(out / "twee") == ["b.txt" + SHADOW_SUFFIX]
+    assert {f: (out / "een" / f).read_bytes() for f in before} == before
 
 
 @pytest.mark.parametrize("name", ["../weg", "a/b", ".verborgen", "_index", "..", ""])
