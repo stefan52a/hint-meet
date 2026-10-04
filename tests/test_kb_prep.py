@@ -984,3 +984,60 @@ def test_eml_inline_images_are_skipped(tmp_path):
     main([str(src), str(out)])
     text = (out / ("re.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
     assert "image001.gif" not in text and "## Bijlage: offerte.pdf" in text
+
+
+def test_eml_text_attachment_keeps_declared_charset(tmp_path):
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "mail.eml", attachments=[("notitie.txt", "Café über €".encode("cp1252"), "text", "plain")])
+    # zet de bijlage om naar windows-1252 met charset in de kop, zoals Outlook dat doet
+    from email import policy
+    from email.parser import BytesParser
+    msg = BytesParser(policy=policy.default).parsebytes((src / "mail.eml").read_bytes())
+    att = next(msg.iter_attachments())
+    att.set_content("Café über €", subtype="plain", charset="windows-1252", disposition="attachment",
+                    filename="notitie.txt")
+    (src / "mail.eml").write_bytes(bytes(msg))
+    main([str(src), str(out)])
+    assert "Café über €" in (out / ("mail.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_eml_broken_forward_does_not_fail_mail(tmp_path, monkeypatch):
+    from email.message import EmailMessage
+    inner = EmailMessage()
+    inner["Subject"] = "binnen"
+    inner.set_content("x")
+    src, out = make_kb(tmp_path, {})
+    write_eml(src / "fw.eml", forwarded=inner)
+    real = kb_prep.render_email
+
+    def flaky(msg, ocr, tick, depth=0):
+        if depth == 1:
+            raise ValueError("kapot")
+        return real(msg, ocr, tick, depth)
+
+    monkeypatch.setattr(kb_prep, "render_email", flaky)
+    assert main([str(src), str(out)]) == 0
+    assert "_(niet gelezen: ValueError: kapot)_" in (out / ("fw.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_eml_nesting_is_capped(tmp_path):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = "niveau 0"
+    msg.set_content("0")
+    for level in range(1, 8):
+        outer = EmailMessage()
+        outer["Subject"] = f"niveau {level}"
+        outer.set_content(str(level))
+        outer.add_attachment(msg)
+        msg = outer
+    src, out = make_kb(tmp_path, {})
+    (src / "diep.eml").write_bytes(bytes(msg))
+    assert main([str(src), str(out)]) == 0
+    assert "dieper dan 5 niveaus" in (out / ("diep.eml" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_eml_version_follows_other_converters(monkeypatch):
+    before = kb_prep.converter_version(".eml")
+    monkeypatch.setitem(kb_prep.TYPE_VERSION, ".pdf", before + 1)
+    assert kb_prep.converter_version(".eml") == before + 1

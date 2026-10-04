@@ -108,10 +108,14 @@ python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/a
 Zet een `.kbignore` in de root van de bronmap, met gitignore-syntax. Uitgesloten bestanden komen niet in de KB, en al bestaande schaduwbestanden ervan worden opgeruimd.
 
 ```gitignore
-/tmp/            # alleen de tmp-map in de root; tmp/ zonder / raakt elke tmp-map in de boom
+# alleen de tmp-map in de root; tmp/ zonder / raakt elke tmp-map in de boom
+/tmp/
 *.log
-!tmp/bewaar.pdf  # ! haalt iets terug, ook binnen een uitgesloten map
+# ! haalt iets terug, ook binnen een uitgesloten map
+!tmp/bewaar.pdf
 ```
+
+Commentaar staat altijd op een eigen regel: een `#` achter een patroon hoort bij het patroon.
 
 ### E-mail (`.eml`)
 

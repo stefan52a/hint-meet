@@ -62,7 +62,10 @@ PHOTO_NOTE = "## Foto zonder (veel) herkenbare tekst"  # kop: telt niet mee als 
 
 
 def converter_version(ext: str) -> int:
+    if ext == ".eml":  # bijlagen gaan door de andere converters, dus elke verbetering telt mee
+        return max(CONVERTER_VERSION, *TYPE_VERSION.values())
     return max(CONVERTER_VERSION, TYPE_VERSION.get(ext, 0))
+MAX_EMAIL_DEPTH = 5  # doorgestuurd in doorgestuurd in ...
 IGNORE_FILE = ".kbignore"  # gitignore-syntax, in de root van de bronmap
 LOW_TEXT = 50
 OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
@@ -332,8 +335,14 @@ def render_email(msg, ocr: bool, tick, depth: int = 0) -> str:
         if att.get_content_maintype() == "image" and att.get_content_disposition() != "attachment":
             continue  # ingebedde afbeelding in de html (logo, handtekening), geen echte bijlage
         if att.get_content_type() == "message/rfc822":
-            inner = att.get_payload()[0] if att.is_multipart() else att.get_content()
-            parts.append(f"{h} Doorgestuurd bericht\n\n" + render_email(inner, ocr, tick, depth + 1))
+            if depth + 1 >= MAX_EMAIL_DEPTH:
+                parts.append(f"{h} Doorgestuurd bericht\n\n_(niet gelezen: dieper dan {MAX_EMAIL_DEPTH} niveaus)_")
+                continue
+            try:
+                inner = att.get_payload()[0] if att.is_multipart() else att.get_content()
+                parts.append(f"{h} Doorgestuurd bericht\n\n" + render_email(inner, ocr, tick, depth + 1))
+            except Exception as e:  # noqa: BLE001
+                parts.append(f"{h} Doorgestuurd bericht\n\n_(niet gelezen: {type(e).__name__}: {e})_")
             continue
         name = att.get_filename() or "bijlage"
         ext = Path(name).suffix.lower()
@@ -343,7 +352,11 @@ def render_email(msg, ocr: bool, tick, depth: int = 0) -> str:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 f = Path(tmp) / ("bijlage" + ext)
-                f.write_bytes(att.get_payload(decode=True) or b"")
+                if att.get_content_maintype() == "text":
+                    # decodeer met de charset uit de mail; de converters lezen utf-8
+                    f.write_text(att.get_content(), encoding="utf-8")
+                else:
+                    f.write_bytes(att.get_payload(decode=True) or b"")
                 fn = CONVERTERS[ext]
                 text = fn(f, ocr, tick) if ext in OCR_EXTS else fn(f)
             parts.append(f"{h} Bijlage: {name}\n\n{text.strip()}")
