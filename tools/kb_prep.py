@@ -53,7 +53,7 @@ LOW_TEXT = 50
 OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
 PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
 SHADOW_SUFFIX = ".kb-hint-meet.md"
-INDEX_NAME = "_index.json"
+LEGACY_INDEX = "_index.json"  # vroeger geschreven, nu overbodig naast het manifest; wordt opgeruimd
 MANIFEST_NAME = "_manifest.json"
 MANIFEST_VERSION = 1
 LOCK_NAME = ".kb_prep.lock"
@@ -316,7 +316,7 @@ def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str) -> tuple[str, in
 
 
 def is_own_output(path: Path, out: Path) -> bool:
-    return path.name.endswith(SHADOW_SUFFIX) or path in (out / INDEX_NAME, out / MANIFEST_NAME)
+    return path.name.endswith(SHADOW_SUFFIX) or path in (out / LEGACY_INDEX, out / MANIFEST_NAME)
 
 
 def valid_key(out: Path, key: str) -> bool:
@@ -504,14 +504,11 @@ def run(a: argparse.Namespace) -> int:
         del manifest[key]
     save_manifest(a.out, manifest, a.src)
 
-    # index voor de retriever: alleen wat kb_prep succesvol heeft geschreven
-    index = [{"md": key, "source": manifest[key]["source"]} for key in sorted(manifest)]
-    write_atomic(a.out / INDEX_NAME, json.dumps(index, ensure_ascii=False, indent=2))
+    (a.out / LEGACY_INDEX).unlink(missing_ok=True)
 
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
           f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
-          f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst. "
-          f"Index: {a.out / INDEX_NAME}")
+          f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst.")
     if low_text:
         print(f"\nWeinig tekst (< {LOW_TEXT} tekens), staat wel in de KB maar controleer de bron:")
         for rel, chars in low_text:

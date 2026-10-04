@@ -15,7 +15,9 @@ def shadows(out: Path) -> list[str]:
 
 
 def index(out: Path) -> list[dict]:
-    return json.loads((out / "_index.json").read_text(encoding="utf-8"))
+    """Wat kb_prep in de KB heeft staan, volgens het manifest."""
+    files = json.loads((out / "_manifest.json").read_text(encoding="utf-8"))["files"]
+    return [{"md": k, "source": v["source"]} for k, v in sorted(files.items())]
 
 
 def test_shadow_name_keeps_extension_and_suffix(tmp_path):
@@ -52,7 +54,7 @@ def test_output_inside_source_is_not_reingested(tmp_path, out_rel):
 
 # 2. lege of niet-ondersteunde invoer crasht niet
 
-def test_empty_source_writes_empty_index(tmp_path):
+def test_empty_source_writes_empty_manifest(tmp_path):
     src, out = tmp_path / "kb", tmp_path / "nog" / "niet" / "aanwezig"
     src.mkdir()
     assert main([str(src), str(out)]) == 0
@@ -345,7 +347,7 @@ def test_projects_are_independent(tmp_path):
     (src2 / "b.txt").write_text("y", encoding="utf-8")
     main([str(src), str(out), "--project", "een"])
     main([str(src2), str(out), "--project", "twee"])
-    before = {f: (out / "een" / f).read_bytes() for f in ("_manifest.json", "_index.json")}
+    before = {f: (out / "een" / f).read_bytes() for f in ("_manifest.json",)}
 
     # bron van project twee leeg: alles in twee wordt opgeruimd, een blijft ongemoeid
     (src2 / "b.txt").unlink()
@@ -636,3 +638,11 @@ def test_ocr_uses_timeout(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "pytesseract", Fake)
     kb_prep.ocr_image(Image.new("RGB", (10, 10)), "test")
     assert seen["timeout"] == kb_prep.OCR_TIMEOUT
+
+
+def test_no_index_file_and_legacy_index_removed(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    (out / "_index.json").write_text("[]", encoding="utf-8")
+    assert main([str(src), str(out)]) == 0
+    assert not (out / "_index.json").exists()

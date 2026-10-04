@@ -1,4 +1,5 @@
-"""Retrieval over de Markdown-KB (output van tools/kb_prep.py, met _index.json).
+"""Retrieval over de Markdown-KB: alle .md-bestanden in de projectmap, dus zowel de schaduwbestanden
+van tools/kb_prep.py als wat hint-meet zelf schrijft. _manifest.json is administratie van kb_prep.
 
 Elk project heeft een eigen KB in KB_ROOT/KB_PROJECT (standaard ~/KB_md/<project>/).
 Embeddings in LanceDB, daarna een Jev-reranker: één Noul per passage, alleen boven kb.rerank_min door.
