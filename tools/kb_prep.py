@@ -38,6 +38,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -415,6 +416,41 @@ def main(argv: list[str] | None = None) -> int:
         return run(a)
 
 
+class Progress:
+    """Voortgangsregel die zichzelf overschrijft, alleen in een terminal.
+
+    In een terminal: [ 3/18] naam op één regel, en alleen meldingen (⚠ ✗ ! -) als eigen regel.
+    Anders (pipe, logbestand): elke regel blijft staan, ook ✓, zoals voorheen.
+    """
+
+    def __init__(self, total: int):
+        self.total = total
+        self.tty = sys.stderr.isatty()
+        self.width = len(str(total))
+
+    def update(self, i: int, name: str) -> None:
+        if not self.tty:
+            return
+        cols = shutil.get_terminal_size((80, 20)).columns - 1
+        line = f"[{i:>{self.width}}/{self.total}] {name}"
+        if len(line) > cols:
+            line = line[:cols - 1] + "…"
+        sys.stderr.write("\r\033[K" + line)
+        sys.stderr.flush()
+
+    def clear(self) -> None:
+        if self.tty:
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
+
+    def log(self, msg: str, *, routine: bool = False, err: bool = False) -> None:
+        """routine=True (✓) alleen buiten de terminal tonen, daar zegt de voortgangsregel genoeg."""
+        if routine and self.tty:
+            return
+        self.clear()
+        print(msg, file=sys.stderr if err else sys.stdout)
+
+
 def run(a: argparse.Namespace) -> int:
     print(f"Bron: {a.src}\nDoel: {a.out}")
     manifest = load_manifest(a.out)
@@ -428,6 +464,7 @@ def run(a: argparse.Namespace) -> int:
     low_text: list[tuple[Path, int]] = []
     expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
+    todo: list[Path] = []
     for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
         if src.name.startswith(("~$", ".")) or is_own_output(src, a.out) or src == a.out / LOCK_NAME:
             continue
@@ -435,7 +472,13 @@ def run(a: argparse.Namespace) -> int:
         if ext not in SUPPORTED or (ext in IMAGE_EXTS and not a.ocr):
             stats["unsupported"] += 1
             continue
+        todo.append(src)
+
+    progress = Progress(len(todo))
+    for i, src in enumerate(todo, 1):
+        ext = src.suffix.lower()
         rel = src.relative_to(a.src)
+        progress.update(i, str(rel))
         dst = shadow_path(a.src, a.out, src)
         key = str(dst.relative_to(a.out))
         expected.add(key)
@@ -444,12 +487,12 @@ def run(a: argparse.Namespace) -> int:
         if dst.exists():
             if entry is None:
                 stats["conflict"] += 1
-                print(f"  ! {rel}: {key} bestaat al en staat niet in het manifest, overgeslagen", file=sys.stderr)
+                progress.log(f"  ! {rel}: {key} bestaat al en staat niet in het manifest, overgeslagen", err=True)
                 continue
             if not owned_and_unchanged(dst, entry) and not a.force:
                 stats["conflict"] += 1
-                print(f"  ! {rel}: {key} is na conversie aangepast, overgeslagen (--force overschrijft)",
-                      file=sys.stderr)
+                progress.log(f"  ! {rel}: {key} is na conversie aangepast, overgeslagen (--force overschrijft)",
+                             err=True)
                 continue
 
         try:
@@ -470,7 +513,7 @@ def run(a: argparse.Namespace) -> int:
             manifest.pop(key, None)
             save_manifest(a.out, manifest, a.src)
             failures.append((rel, f"{type(e).__name__}: {e}"))
-            print(f"  ✗ {rel}: {e}", file=sys.stderr)
+            progress.log(f"  ✗ {rel}: {e}", err=True)
             continue
         manifest[key] = {
             "source": str(src),
@@ -486,9 +529,10 @@ def run(a: argparse.Namespace) -> int:
         if chars < LOW_TEXT:
             low_text.append((rel, chars))
             hint = "" if a.ocr or ext not in OCR_EXTS else ", probeer zonder --no-ocr"
-            print(f"  ⚠ {rel}: maar {chars} tekens tekst{hint}")
+            progress.log(f"  ⚠ {rel}: maar {chars} tekens tekst{hint}")
         else:
-            print(f"  ✓ {rel}")
+            progress.log(f"  ✓ {rel}", routine=True)
+    progress.clear()
 
     # schaduwbestanden van verwijderde of niet meer ondersteunde bronnen opruimen,
     # maar alleen als ze van kb_prep zijn en sindsdien niet zijn aangepast

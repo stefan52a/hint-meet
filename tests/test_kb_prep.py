@@ -646,3 +646,44 @@ def test_no_index_file_and_legacy_index_removed(tmp_path):
     (out / "_index.json").write_text("[]", encoding="utf-8")
     assert main([str(src), str(out)]) == 0
     assert not (out / "_index.json").exists()
+
+
+# voortgang
+
+class FakeTTY:
+    def __init__(self):
+        self.buf = []
+
+    def isatty(self):
+        return True
+
+    def write(self, s):
+        self.buf.append(s)
+
+    def flush(self):
+        pass
+
+    @property
+    def text(self):
+        return "".join(self.buf)
+
+
+def test_progress_overwrites_one_line_in_terminal(tmp_path, monkeypatch, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100, "b.txt": "y" * 100, "leeg.txt": ""})
+    tty = FakeTTY()
+    monkeypatch.setattr(sys, "stderr", tty)
+    assert main([str(src), str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "[1/3] a.txt" in tty.text and "[3/3] leeg.txt" in tty.text
+    assert "\r\033[K" in tty.text and "\n" not in tty.text  # alles op één regel
+    assert "✓" not in printed  # routine zit in de voortgangsregel
+    assert "⚠ leeg.txt" in printed  # meldingen blijven staan
+    assert tty.buf[-1] == "\r\033[K"  # regel leeg voor de samenvatting
+
+
+def test_no_progress_line_outside_terminal(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {"a.txt": "x" * 100})
+    main([str(src), str(out)])
+    captured = capsys.readouterr()
+    assert "✓ a.txt" in captured.out
+    assert "\r" not in captured.out + captured.err
