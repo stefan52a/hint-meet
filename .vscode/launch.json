@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:hint-meeting-assistent}/app/HintMeet",
+            "name": "Debug HintMeet (app/HintMeet)",
+            "target": "HintMeet",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug HintMeet (app/HintMeet)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:hint-meeting-assistent}/app/HintMeet",
+            "name": "Release HintMeet (app/HintMeet)",
+            "target": "HintMeet",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release HintMeet (app/HintMeet)"
+        }
+    ]
+}

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Eén hint zoals de pijplijn hem meldt: in wording, definitief (met bronnen) of ingetrokken.
@@ -30,6 +31,7 @@ final class HintStore: ObservableObject {
     @Published var utterances: [Utterance] = []  // laatste paar
     @Published var summaryPath: String?
     @Published var stopped = false
+    private(set) var session = ""
 
     var current: Hint? { hints.last { $0.state != .retracted || Date().timeIntervalSince($0.updated) < 4 } }
     var earlier: [Hint] {
@@ -40,6 +42,12 @@ final class HintStore: ObservableObject {
     func handle(_ msg: [String: Any]) {
         switch msg["type"] as? String {
         case "hello":
+            // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
+            let new = msg["session"] as? String ?? ""
+            if new != session {
+                hints = []; utterances = []; summaryPath = nil
+                session = new
+            }
             project = msg["project"] as? String ?? ""
             stopped = false
         case "utterance":

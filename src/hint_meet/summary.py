@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-SUMMARY_SYSTEM = """Je maakt het verslag van een zakelijk gesprek voor Stefan, op basis van een automatisch transcript (spraakherkenning, dus namen en getallen kunnen verkeerd verstaan zijn; lees ze zoals bedoeld).
+SUMMARY_SYSTEM = """Je maakt het verslag van een zakelijk gesprek voor Stefan, op basis van een automatisch transcript. Het transcript komt van spraakherkenning: neem namen en getallen over zoals ze er staan, en zet [onzeker] achter wat duidelijk verkeerd verstaan lijkt. Verbeter niets op eigen gezag.
 
 Schrijf in het Nederlands, in Markdown, met precies deze kopjes:
 ## Samenvatting
@@ -20,27 +20,33 @@ Vragen die gesteld zijn en niet beantwoord.
 Verzin niets: staat iets niet in het transcript, laat het weg."""
 
 
-def summarize(utterances, hints, config, client=None) -> str:
+def summarize(utterances, config, client=None) -> str:
+    """Alleen het transcript: getoonde hints zijn suggesties, geen afspraken, en horen niet in de basis."""
     import anthropic
     client = client or anthropic.Anthropic()
     transcript = "\n".join(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {u.speaker}: {u.text}" for u in utterances)
-    shown = "\n".join(f"- {h}" for h in hints) or "(geen)"
     response = client.messages.create(
         model=config["advise"]["model"],
         max_tokens=4000,
         system=SUMMARY_SYSTEM,
-        messages=[{"role": "user", "content": f"Transcript:\n{transcript}\n\nHints die tijdens het gesprek getoond zijn:\n{shown}"}],
+        messages=[{"role": "user", "content": f"Transcript:\n{transcript}"}],
     )
     return next((b.text for b in response.content if b.type == "text"), "").strip()
 
 
 def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float) -> Path:
-    stamp = time.strftime("%Y-%m-%d-%H%M", time.localtime(started))
-    path = kb_root / "meetings" / f"{stamp}-gesprek.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(started))
+    folder = kb_root / "meetings"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{stamp}-gesprek.md"
+    n = 2
+    while path.exists():   # nooit een eerder verslag overschrijven
+        path = folder / f"{stamp}-gesprek-{n}.md"
+        n += 1
     lines = [f"# Gesprek {time.strftime('%d-%m-%Y %H:%M', time.localtime(started))}", "",
              "> Automatisch verslag door hint-meet; transcript via spraakherkenning.", "", summary_md, "",
-             "## Getoonde hints", ""]
+             "## Getoonde hints",
+             "", "> Suggesties van hint-meet tijdens het gesprek, geen afspraken of besluiten.", ""]
     lines += [f"- {h}" for h in hints] or ["(geen)"]
     lines += ["", "## Transcript", ""]
     lines += [f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] **{u.speaker}:** {u.text}  " for u in utterances]

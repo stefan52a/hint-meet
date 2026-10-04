@@ -20,11 +20,11 @@ def free_port():
 def test_hub_backlog_and_messages_roundtrip():
     from websockets.sync.client import connect
     got = []
-    hub = Hub(port=free_port(), on_message=got.append)
+    hub = Hub(port=free_port(), on_message=got.append, token="t" * 40)
     hub.start()
     try:
         hub.send(type="hello", project="acme")
-        with connect(f"ws://127.0.0.1:{hub.port}") as ws:
+        with connect(f"ws://127.0.0.1:{hub.port}/?token={'t' * 40}") as ws:
             assert json.loads(ws.recv(timeout=2))["type"] == "hello"   # late verbinding krijgt de backlog
             hub.send(type="hint", id=3, state="final", text="Rente 3%.", sources=[])
             assert json.loads(ws.recv(timeout=2))["text"] == "Rente 3%."
@@ -34,12 +34,63 @@ def test_hub_backlog_and_messages_roundtrip():
                     break
                 time.sleep(0.05)
         assert got == [{"type": "feedback", "id": 3, "rating": 1}]
+        assert all(m.get("type") != "x" for m in got)
     finally:
         hub.stop()
 
 
+def test_hub_rejects_wrong_token_and_browsers():
+    from websockets.exceptions import ConnectionClosed, InvalidStatus
+    from websockets.sync.client import connect
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.start()
+    try:
+        hub.send(type="hello", project="geheim")
+        for url, headers in [(f"ws://127.0.0.1:{hub.port}/?token=fout", None),
+                             (f"ws://127.0.0.1:{hub.port}/?token={'t' * 40}", {"Origin": "https://evil.example"})]:
+            with pytest.raises((ConnectionClosed, InvalidStatus)):
+                with connect(url, additional_headers=headers) as ws:
+                    ws.recv(timeout=2)
+    finally:
+        hub.stop()
+
+
+def test_hello_resets_backlog_and_carries_session():
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.send(type="hint", id=1, text="oud")
+    hub.send(type="hello", project="acme")
+    hub.send(type="hint", id=1, text="nieuw")
+    assert json.loads(hub.hello)["session"] == hub.session
+    assert [json.loads(b)["text"] for b in hub.backlog] == ["nieuw"]
+
+
+def test_token_file_is_private(tmp_path):
+    import os
+    import stat
+    from hint_meet.server import load_or_create_token
+    path = tmp_path / "sub" / "token"
+    token = load_or_create_token(path)
+    assert len(token) >= 32 and load_or_create_token(path) == token
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_feedback_ignores_garbage(tmp_path):
+    log = FeedbackLog(tmp_path / "f.jsonl")
+    log.record("x", "y")
+    log.record(None, 1)
+    assert not (tmp_path / "f.jsonl").exists()
+
+
+def test_meeting_note_never_overwrites(tmp_path):
+    u = [Utterance(5, "Maria", "Hoi")]
+    t = time.time()
+    a = write_note(tmp_path, u, [], "## Samenvatting\nA", t)
+    b = write_note(tmp_path, u, [], "## Samenvatting\nB", t)
+    assert a != b and "A" in a.read_text() and "B" in b.read_text()
+
+
 def test_hub_send_without_clients_is_fine():
-    hub = Hub(port=free_port())
+    hub = Hub(port=free_port(), token="t" * 40)
     hub.send(type="utterance", id=0, text="x")  # niet gestart, geen overlay: geen fout
     assert len(hub.backlog) == 1
 

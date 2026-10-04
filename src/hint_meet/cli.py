@@ -226,8 +226,8 @@ def live_cmd(a) -> int:
         feedback = FeedbackLog(Path("logs") / "feedback.jsonl")
 
         def on_message(msg):
-            if msg.get("type") == "feedback":
-                feedback.record(int(msg.get("id", -1)), int(msg.get("rating", 0)))
+            if msg.get("type") == "feedback" and msg.get("session") in (None, hub.session):
+                feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 session.stop()
 
@@ -255,9 +255,10 @@ def live_cmd(a) -> int:
             if st is not None and st.advice is not None:
                 if st.shown:
                     srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(root / r)} for r in st.advice.sources]
-                    hub.send(type="hint", id=uid, state="final", text=st.advice.text, sources=srcs)
+                    # eerst de context vastleggen: een snelle 👍 moet er al bij kunnen
                     feedback.remember(uid, utterance=u.text, hint=st.advice.text, sources=st.advice.sources,
                                       gate=round(st.gate.intervene, 3), moment=st.gate.moment)
+                    hub.send(type="hint", id=uid, state="final", text=st.advice.text, sources=srcs)
                 elif st.advice.text:
                     hub.send(type="hint", id=uid, state="retracted", text=st.advice.text,
                              reason=st.suppressed or "geen bron")
@@ -300,7 +301,7 @@ def live_cmd(a) -> int:
     if not a.no_summary and len(session.utterances) >= 3:
         from .summary import summarize, write_note
         try:
-            md = summarize(session.utterances, shown_hints, config)
+            md = summarize(session.utterances, config)
             # een testrun (--wav) hoort niet als echte meeting in de KB
             note = write_note(Path("logs") if a.wav else root, session.utterances, shown_hints, md, started)
             print(f"\n{md}\n\nVerslag: {note}")

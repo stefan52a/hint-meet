@@ -13,7 +13,7 @@ struct OverlayView: View {
             if let hint = store.current {
                 HintCard(hint: hint, rate: { r in
                     store.rate(hint.id, r)
-                    send(["type": "feedback", "id": hint.id, "rating": r])
+                    send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
                 })
             } else {
                 Text(store.connected ? "Luistert…" : "Wacht op hint-meet (hint-meet live --ui)")
