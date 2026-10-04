@@ -1,0 +1,81 @@
+# Plan: van prototype naar Mac-app
+
+Concept, 5 oktober 2026. Testcase: het Acme-transactiedossier (`Finance/01-entities/AcmeBV/20260316oprichting/Acme van Globex naar Initech naar Acme BV`).
+
+## Doel
+
+Tijdens een meeting over een dossier (bijvoorbeeld met de accountant over de Acme-structuur) toont hint-meet op het juiste moment een kort advies met bronverwijzing. Voorbeelden:
+
+- de accountant zegt "die software is toch € 650.000 waard" → *"Geldende prijs is € 400.000 (besluit 4-10). € 650.000 komt uit de vervallen ronde. Bron: 00-INDEX §4."*
+- iemand vraagt naar de BTW op schakel 2 → *"Twijfelachtig onder 37d, steunt op Schriever. Vooroverleg nodig. Bron: 11-fiscaal-memo."*
+
+En verder vooral: zwijgen als er niets nuttigs te zeggen is.
+
+## Beslissingen (5-10-2026)
+
+1. **Lokaal waar het kan.** Audio en transcriptie blijven op de Mac. Alleen het advies gaat naar Claude, met een paar zinnen transcript en de relevante passages. *Akkoord Stefan.*
+2. **Elk advies heeft een bron.** Geen bron, dan geen advies. Zo kan de copilot geen bedragen verzinnen.
+3. **Eerst tekst, dan audio, dan app.** Elke stap is te testen zonder de volgende.
+4. **Testmateriaal:** een geschreven proefgesprek over Acme, met momenten waarop advies wel en niet hoort, later omgezet naar audio met twee macOS-stemmen. *Akkoord Stefan.*
+5. **Jev als gate**, key komt in `.env`. De API-documentatie loop ik na aan het begin van M3; tot die tijd werkt de gate via dezelfde interface op Claude Haiku, zodat M2 niet hoeft te wachten.
+6. **Drie soorten meetings:** online (Teams, Zoom, Meet), fysiek aan tafel, en bellen via de Mac. Online en bellen lopen via systeemaudio plus microfoon. Aan tafel is er alleen de microfoon, met meerdere sprekers erdoor; daar kan de gate niet op "wie zegt wat" leunen, dus de vragen aan Jev moeten ook zonder sprekerslabels werken.
+
+## Mijlpalen
+
+Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslist of we doorgaan.
+
+### M1. Kennisbank Acme en zoeken (1 sessie)
+
+- `kb_prep` op het dossier, met een `.kbignore` voor vervallen stukken en backups.
+- `kb.py`: hybride zoeken. Embeddings (meertalig, lokaal) plus trefwoorden, omdat juist bedragen, artikelnummers (37d) en namen exact moeten matchen.
+- **Testset:** 20 vragen met het juiste document erbij, door mij opgesteld uit het dossier, door jou nagekeken.
+- **Geslaagd als:** het juiste document staat bij ≥ 18 van de 20 vragen in de top 5, en vervallen stukken komen nooit boven.
+
+### M2. Pijplijn op tekst (1 sessie)
+
+- Proefgesprek van ~15 minuten als transcript, met ~10 gemarkeerde momenten "hier hoort advies" en ruis daartussen.
+- `hint-meet replay transcript.txt`: blok voor blok door gate → zoeken → advies, met een CSV-log per blok.
+- **Geslaagd als:** ≥ 8 van de 10 momenten een advies krijgen, ≤ 3 adviezen op ruis, en elk advies klopt met de bron (door jou beoordeeld).
+
+### M3. Jev als poortwachter (1 sessie)
+
+- Jev-documentatie en SDK nalopen; provider `jev` bouwen naast `adapter` (Claude Haiku). Laya alleen als Jev tegenvalt of offline nodig is.
+- Drempels kalibreren op het proefgesprek; vergelijken met de Haiku-gate op treffers, ruis, snelheid en kosten.
+- **Geslaagd als:** Jev minstens zo goed scoort als Haiku, onder 0,5 s per blok.
+
+### M4. Audio (1 tot 2 sessies)
+
+- Transcriptie lokaal met Whisper (large-v3-turbo, Nederlands; via mlx op Apple Silicon).
+- Microfoon plus systeemaudio. Voor de prototypefase via BlackHole; in de app via ScreenCaptureKit, dan is BlackHole niet meer nodig.
+- Replay op WAV: het proefgesprek uitgesproken door twee macOS-stemmen.
+- **Geslaagd als:** advies verschijnt binnen 4 s na het einde van de uitspraak, met dezelfde scores als M2.
+
+### M5. Overlay (1 sessie)
+
+- Klein venster altijd bovenop: advies, bron (klikbaar), en knoppen 👍/👎 die naar het log gaan voor latere kalibratie.
+- Na afloop: lijst met toezeggingen en actiepunten.
+- **Geslaagd als:** jij het in een echt gesprek gebruikt en het niet afleidt.
+
+### M6. Mac-app (2 tot 3 sessies)
+
+- Menubalk-app in SwiftUI; de Python-pijplijn draait daarachter als lokaal proces.
+- Projectkeuze (welke KB), start/stop, rechten voor microfoon en schermopname, instellingen (drempels, provider, keys in de Keychain).
+- Ondertekend en genotariseerd `.app`/`.dmg`, zodat het zonder waarschuwingen installeert.
+- **Geslaagd als:** installeren met dubbelklik, starten vanuit de menubalk, een meeting van een uur zonder crash.
+
+## Risico's
+
+| Risico | Gevolg | Aanpak |
+|---|---|---|
+| Jev-API anders dan beschreven of geen toegang | M3 schuift | gate werkt al op Haiku; Laya als lokale optie |
+| Whisper mist vaktermen ("agio", "37d", "Initech") | verkeerde zoekvragen | woordenlijst uit de KB als prompt voor Whisper |
+| Advies op basis van vervallen stuk | fout advies in een gevoelig gesprek | `.kbignore` + status uit de index meewegen; testvragen hierop |
+| Vertrouwelijke stukken naar de cloud | privacy | alleen fragmenten naar Claude; optie volledig lokaal (Laya + lokaal model) later |
+| Te veel adviezen | afleiding, uitgezet | drempels op het proefgesprek, 👍/👎 voor bijstellen |
+| Mac-app-ondertekening | installatie lastig | Apple Developer-account nodig vóór M6 |
+
+## Wat ik van jou nodig heb
+
+- TypeSafe-key en Anthropic API-key in `.env`.
+- Bij M2: het proefgesprek en de testvragen nakijken (inhoudelijk ken jij het dossier).
+- Bij M6: een Apple Developer-account.
