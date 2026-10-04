@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import hashlib
 import json
 import os
@@ -40,6 +41,7 @@ SHADOW_SUFFIX = ".kb-hint-meet.md"
 INDEX_NAME = "_index.json"
 MANIFEST_NAME = "_manifest.json"
 MANIFEST_VERSION = 1
+LOCK_NAME = ".kb_prep.lock"
 
 # ---------- hulpfuncties ----------
 
@@ -54,8 +56,11 @@ def sha1_of(path: Path) -> str:
 def write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def clean(text: str) -> str:
@@ -245,20 +250,33 @@ def is_own_output(path: Path, out: Path) -> bool:
     return path.name.endswith(SHADOW_SUFFIX) or path in (out / INDEX_NAME, out / MANIFEST_NAME)
 
 
+def valid_key(out: Path, key: str) -> bool:
+    """Manifest-sleutels moeten relatieve paden binnen <out> zijn die eindigen op de suffix."""
+    rel = Path(key)
+    return (not rel.is_absolute() and ".." not in rel.parts and key.endswith(SHADOW_SUFFIX)
+            and (out / rel).resolve().is_relative_to(out))
+
+
 def load_manifest(out: Path) -> dict[str, dict]:
     path = out / MANIFEST_NAME
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("version") != MANIFEST_VERSION:
-        raise SystemExit(f"Onbekende manifestversie in {path}: {data.get('version')}")
-    return data["files"]
+    if data.get("version") != MANIFEST_VERSION or data.get("tool") != "kb_prep":
+        raise SystemExit(f"{path} is geen kb_prep-manifest (versie {MANIFEST_VERSION}), afgebroken")
+    files = {}
+    for key, entry in data.get("files", {}).items():
+        if valid_key(out, key) and isinstance(entry, dict) and "shadow_sha1" in entry:
+            files[key] = entry
+        else:
+            print(f"  ! ongeldige manifestregel genegeerd: {key!r}", file=sys.stderr)
+    return files
 
 
-def frontmatter_source(md: Path) -> str | None:
-    head = md.read_text(encoding="utf-8", errors="replace")[:2000]
-    m = re.search(r'^source: (".*")$', head, re.M)
-    return json.loads(m.group(1)) if m else None
+def save_manifest(out: Path, manifest: dict[str, dict]) -> None:
+    write_atomic(out / MANIFEST_NAME,
+                 json.dumps({"version": MANIFEST_VERSION, "tool": "kb_prep", "files": manifest},
+                            ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def owned_and_unchanged(dst: Path, entry: dict | None) -> bool:
@@ -284,12 +302,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     a.out.mkdir(parents=True, exist_ok=True)
 
+    with (a.out / LOCK_NAME).open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"Er draait al een kb_prep op {a.out}", file=sys.stderr)
+            return 3
+        return run(a)
+
+
+def run(a: argparse.Namespace) -> int:
     manifest = load_manifest(a.out)
     stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0}
     expected: set[str] = set()
     failures: list[tuple[Path, str]] = []
     for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
-        if src.name.startswith(("~$", ".")) or is_own_output(src, a.out):
+        if src.name.startswith(("~$", ".")) or is_own_output(src, a.out) or src == a.out / LOCK_NAME:
             continue
         ext = src.suffix.lower()
         if ext not in SUPPORTED:
@@ -303,29 +331,28 @@ def main(argv: list[str] | None = None) -> int:
 
         if dst.exists():
             if entry is None:
-                # schaduw van een oudere kb_prep zonder manifest: overnemen; anders niet van ons
-                if frontmatter_source(dst) != str(src):
-                    stats["conflict"] += 1
-                    print(f"  ! {rel}: {key} bestaat al en is niet van kb_prep, overgeslagen", file=sys.stderr)
-                    continue
-            elif not owned_and_unchanged(dst, entry) and not a.force:
+                stats["conflict"] += 1
+                print(f"  ! {rel}: {key} bestaat al en staat niet in het manifest, overgeslagen", file=sys.stderr)
+                continue
+            if not owned_and_unchanged(dst, entry) and not a.force:
                 stats["conflict"] += 1
                 print(f"  ! {rel}: {key} is na conversie aangepast, overgeslagen (--force overschrijft)",
                       file=sys.stderr)
                 continue
 
-        src_sha1 = sha1_of(src)
-        if (not a.force and owned_and_unchanged(dst, entry)
-                and entry["source_sha1"] == src_sha1 and entry["ocr"] == a.ocr):
-            stats["skip"] += 1
-            continue
         try:
+            src_sha1 = sha1_of(src)
+            if (not a.force and owned_and_unchanged(dst, entry) and entry.get("source") == str(src)
+                    and entry.get("source_sha1") == src_sha1 and entry.get("ocr") == a.ocr):
+                stats["skip"] += 1
+                continue
             shadow_sha1 = convert_one(src, dst, a.ocr, src_sha1)
         except Exception as e:  # noqa: BLE001
             stats["fail"] += 1
             if owned_and_unchanged(dst, entry):
                 dst.unlink()  # geen verouderde versie in de index laten staan
             manifest.pop(key, None)
+            save_manifest(a.out, manifest)
             failures.append((rel, f"{type(e).__name__}: {e}"))
             print(f"  ✗ {rel}: {e}", file=sys.stderr)
             continue
@@ -336,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             "ocr": a.ocr,
             "converted": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         }
+        save_manifest(a.out, manifest)  # direct vastleggen, zodat een crash geen eigen output verweesd achterlaat
         stats["ok"] += 1
         print(f"  ✓ {rel}")
 
@@ -348,12 +376,10 @@ def main(argv: list[str] | None = None) -> int:
             stats["removed"] += 1
             print(f"  - {key} (bron weg)")
         elif dst.exists():
+            stats["conflict"] += 1
             print(f"  ! {key}: bron weg maar bestand is aangepast, laten staan", file=sys.stderr)
         del manifest[key]
-
-    write_atomic(a.out / MANIFEST_NAME,
-                 json.dumps({"version": MANIFEST_VERSION, "tool": "kb_prep", "files": manifest},
-                            ensure_ascii=False, indent=2, sort_keys=True))
+    save_manifest(a.out, manifest)
 
     # index voor de retriever: alleen wat kb_prep succesvol heeft geschreven
     index = [{"md": key, "source": manifest[key]["source"]} for key in sorted(manifest)]

@@ -232,18 +232,89 @@ def test_edited_shadow_survives_source_deletion(tmp_path):
     shadow = out / ("a.txt" + SHADOW_SUFFIX)
     shadow.write_text("aangepast", encoding="utf-8")
     (src / "a.txt").unlink()
-    assert main([str(src), str(out)]) == 0
+    assert main([str(src), str(out)]) == 1
     assert shadow.exists()
     assert manifest(out)["files"] == {}
     assert index(out) == []
 
 
-def test_legacy_shadow_without_manifest_is_adopted(tmp_path):
+def test_shadow_without_manifest_entry_is_never_overwritten(tmp_path):
     src, out = make_kb(tmp_path, {"a.txt": "x"})
     main([str(src), str(out)])
+    shadow = out / ("a.txt" + SHADOW_SUFFIX)
+    shadow.write_text(shadow.read_text(encoding="utf-8") + "\neigen aantekening", encoding="utf-8")
     (out / "_manifest.json").unlink()
+    assert main([str(src), str(out), "--force"]) == 1
+    assert "eigen aantekening" in shadow.read_text(encoding="utf-8")
+
+
+def test_manifest_cannot_delete_outside_output(tmp_path):
+    src, out = make_kb(tmp_path, {})
+    out.mkdir()
+    victim = tmp_path / ("buiten" + SHADOW_SUFFIX)
+    victim.write_text("niet aankomen", encoding="utf-8")
+    sha = kb_prep.sha1_of(victim)
+    bad = {"version": 1, "tool": "kb_prep", "files": {
+        "../buiten" + SHADOW_SUFFIX: {"source": "x", "source_sha1": "x", "shadow_sha1": sha, "ocr": False},
+        str(victim): {"source": "x", "source_sha1": "x", "shadow_sha1": sha, "ocr": False},
+    }}
+    (out / "_manifest.json").write_text(json.dumps(bad), encoding="utf-8")
     assert main([str(src), str(out)]) == 0
-    assert "a.txt" + SHADOW_SUFFIX in manifest(out)["files"]
+    assert victim.exists()
+    assert manifest(out)["files"] == {}
+
+
+def test_foreign_manifest_aborts(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    (out / "_manifest.json").write_text(json.dumps({"version": 1, "tool": "iets-anders", "files": {}}))
+    with pytest.raises(SystemExit):
+        main([str(src), str(out)])
+
+
+def test_other_source_root_with_same_content_is_reconverted(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    main([str(src), str(out)])
+    src2 = tmp_path / "kb2"
+    src2.mkdir()
+    (src2 / "a.txt").write_text("x", encoding="utf-8")
+    assert main([str(src2), str(out)]) == 0
+    assert index(out)[0]["source"] == str((src2 / "a.txt").resolve())
+
+
+def test_concurrent_run_is_refused(tmp_path):
+    import fcntl
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    with (out / ".kb_prep.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert main([str(src), str(out)]) == 3
+    assert main([str(src), str(out)]) == 0
+
+
+def test_manifest_saved_after_each_conversion(tmp_path, monkeypatch):
+    src, out = make_kb(tmp_path, {"a.txt": "x", "b.txt": "y"})
+    real = kb_prep.convert_one
+
+    def crash_on_b(s, d, ocr, sha):
+        if s.name == "b.txt":
+            raise KeyboardInterrupt
+        return real(s, d, ocr, sha)
+
+    monkeypatch.setattr(kb_prep, "convert_one", crash_on_b)
+    with pytest.raises(KeyboardInterrupt):
+        main([str(src), str(out)])
+    assert list(manifest(out)["files"]) == ["a.txt" + SHADOW_SUFFIX]
+
+
+def test_unreadable_source_is_a_failure_not_a_crash(tmp_path):
+    src, out = make_kb(tmp_path, {"a.txt": "x", "b.txt": "y"})
+    (src / "b.txt").chmod(0)
+    try:
+        assert main([str(src), str(out)]) == 1
+    finally:
+        (src / "b.txt").chmod(0o644)
+    assert [e["md"] for e in index(out)] == ["a.txt" + SHADOW_SUFFIX]
 
 
 def test_no_temp_files_left_behind(tmp_path):
