@@ -11,7 +11,6 @@ dependencies = [
     "python-dotenv",
     "anthropic",
     "typesafe-sdk",
-    "python-dotenv",
     "onnxruntime",
     "tokenizers",
     "huggingface_hub",
