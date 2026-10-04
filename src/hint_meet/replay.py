@@ -77,3 +77,71 @@ def write_csv(path: Path, utterances, steps) -> None:
                         f"{s.gate.intervene:.2f}", s.gate.moment, s.gate.urgency,
                         int(s.shown), s.suppressed, a.text if a else "", "; ".join(a.sources) if a else "",
                         f"{s.ms.get('zoeken', 0):.0f}", f"{s.ms.get('gate', 0):.0f}", f"{s.ms.get('advies', 0):.0f}"])
+
+
+# ---------- audio ----------
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[\w%€]+", _norm(text))
+
+
+def wer(reference: str, hypothesis: str) -> tuple[int, int]:
+    """Woordfouten (vervanging, weglating, invoeging) en het aantal referentiewoorden."""
+    r, h = _words(reference), _words(hypothesis)
+    d = list(range(len(h) + 1))
+    for i in range(1, len(r) + 1):
+        prev, d[0] = d[0], i
+        for j in range(1, len(h) + 1):
+            cur = min(d[j] + 1, d[j - 1] + 1, prev + (r[i - 1] != h[j - 1]))
+            prev, d[j] = d[j], cur
+    return d[len(h)], len(r)
+
+
+@dataclass
+class AudioTiming:
+    script_index: int | None   # welke scriptuitspraak dit segment het meest overlapt
+    detect_ms: float           # van het echte einde van de uitspraak tot de VAD het einde ziet
+    asr_ms: float
+
+
+def match_script(segment, timeline) -> int | None:
+    best, best_overlap = None, 0.0
+    for u in timeline:
+        overlap = min(segment.end, u["end"]) - max(segment.start, u["start"])
+        if overlap > best_overlap:
+            best, best_overlap = u["index"], overlap
+    return best
+
+
+def audio_replay(segments, transcriber, pipeline, script, timeline, out_csv: Path | None = None, on_step=None):
+    """Segmenten in de volgorde waarin ze klaar zijn → Whisper → pijplijn. Geeft (uitspraken, stappen,
+    timings) terug; de uitspraken krijgen de #!-markering van de scriptuitspraak die ze overlappen."""
+    from .transcript import Utterance
+
+    utterances, steps, timings = [], [], []
+    try:
+        for seg in segments:
+            text, asr_ms = transcriber(seg.audio)
+            if not text:
+                continue
+            idx = match_script(seg, timeline) if timeline else None
+            expect = script[idx].expect if idx is not None else None
+            true_end = timeline[idx]["end"] if idx is not None else seg.end
+            u = Utterance(int(seg.start), seg.channel, text, expect)
+            utterances.append(u)
+            timings.append(AudioTiming(idx, (seg.detected_at - true_end) * 1000, asr_ms))
+            step = pipeline.step(utterances, len(utterances) - 1)
+            steps.append(step)
+            if on_step:
+                on_step(u, step, timings[-1])
+    finally:
+        if out_csv:
+            write_csv(Path(out_csv), utterances, steps)
+    return utterances, steps, timings
+
+
+def latency_ms(step, timing) -> tuple[float, float | None]:
+    """Vertraging tot de gate beslist en (als er een hint is) tot de eerste zichtbare woorden."""
+    base = timing.detect_ms + timing.asr_ms + step.ms.get("zoeken", 0) + step.ms.get("gate", 0)
+    first = step.ms.get("advies_eerste")
+    return base, (base + first) if first is not None else None

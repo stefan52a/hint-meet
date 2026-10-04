@@ -38,9 +38,13 @@ class GateResult:
         return self.intervene >= g["intervene_min"] and self.urgency >= g["urgency_min"]
 
 
+VERVALLEN_NOTE = "⚠ VERVALLEN — niet meer geldend; alleen gebruiken om te zeggen dát dit vervallen is.\n"
+
+
 def format_passages(hits) -> str:
     return "\n\n".join(
-        f"[{i}] {h.chunk.ref}" + (f" › {h.chunk.heading}" if h.chunk.heading else "") + f"\n{h.chunk.text}"
+        f"[{i}] {h.chunk.ref}" + (f" › {h.chunk.heading}" if h.chunk.heading else "") + "\n"
+        + (VERVALLEN_NOTE if h.chunk.superseded else "") + h.chunk.text
         for i, h in enumerate(hits, 1)
     )
 
@@ -138,8 +142,8 @@ class JevGate:
         state = {
             "gesprek": [str(u) for u in window],
             "onderste_beurt": str(window[-1]) if window else "",
-            "dossierpassages": [{"document": h.chunk.ref, "kop": h.chunk.heading, "tekst": h.chunk.text}
-                                for h in hits],
+            "dossierpassages": [{"document": h.chunk.ref, "kop": h.chunk.heading, "tekst": h.chunk.text,
+                                 "vervallen": h.chunk.superseded} for h in hits],
             "net_getoonde_hint": previous_hint,
         }
         r = self.client.system_one(state, self.questions, model=self.model)

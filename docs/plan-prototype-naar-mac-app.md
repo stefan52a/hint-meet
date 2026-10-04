@@ -51,6 +51,8 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M4. Audio (1 tot 2 sessies)
 
+**Stand 5-10-2026: werkt op WAV, vertraging nog boven het doel.** Proefgesprek uitgesproken met macOS-stemmen (stereo: links Stefan, rechts de ander). Silero VAD per kanaal (einde herkend na ±540 ms), Whisper large-v3-turbo via MLX (±380 ms per uitspraak, WER 3,0% met woordenlijst uit de KB). Replay: 10/10 geraakt, 1 hint op ruis. Tot de gatebeslissing ±1,2 s; tot de eerste woorden van de hint mediaan 5,0 s (Opus 5.5 denkt altijd eerst). Meting eerste woorden: Opus 5.5 4,3 s, Sonnet 5.5 zonder thinking 1,1 s, Haiku 4.5 0,55 s (Haiku inhoudelijk zwakker). Fout ontdekt: een niet-gemarkeerde vervallen sectie in de review leverde vervallen bedragen op; nu expliciete markering `[VERVALLEN]` in kopjes. Live-modus (microfoon, BlackHole) nog te bouwen.
+
 - Transcriptie lokaal met Whisper (large-v3-turbo, Nederlands; via mlx op Apple Silicon).
 - Microfoon plus systeemaudio. Voor de prototypefase via BlackHole; in de app via ScreenCaptureKit, dan is BlackHole niet meer nodig.
 - Replay op WAV: het proefgesprek uitgesproken door twee macOS-stemmen.

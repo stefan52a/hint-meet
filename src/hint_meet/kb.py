@@ -56,6 +56,13 @@ class Chunk:
     text: str
 
     @property
+    def superseded(self) -> bool:
+        """Expliciet gemarkeerd als vervallen: een kopje met [VERVALLEN] of [ACHTERHAALD] erin.
+        Bewust geen trefwoord-heuristiek: 'het naschrift hierboven is achterhaald' is zelf geldig."""
+        h = self.heading.upper()
+        return "[VERVALLEN]" in h or "[ACHTERHAALD]" in h
+
+    @property
     def embed_text(self) -> str:
         return f"{self.ref} › {self.heading}\n{self.text}" if self.heading else f"{self.ref}\n{self.text}"
 

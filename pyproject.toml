@@ -4,7 +4,6 @@ version = "0.0.1"
 description = "Realtime meeting-copilot: Whisper-transcriptie, Jev als beslissingslaag, KB-RAG en Claude-advies."
 requires-python = ">=3.11"
 dependencies = [
-    "faster-whisper",
     "sounddevice",
     "numpy",
     "pyyaml",
@@ -14,6 +13,7 @@ dependencies = [
     "onnxruntime",
     "tokenizers",
     "huggingface_hub",
+    "mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]

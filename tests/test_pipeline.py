@@ -52,7 +52,7 @@ class FakeAdvisor:
         self.advice = advice
         self.calls = 0
 
-    def advise(self, window, moment, hits):
+    def advise(self, window, moment, hits, on_text=None):
         self.calls += 1
         return self.advice
 
@@ -120,14 +120,34 @@ def test_keyword_hits_normalises_amounts():
 # Claude-aanroepen met een nep-client
 
 class FakeClient:
-    def __init__(self, payload, stop_reason="end_turn"):
-        self.payload, self.stop_reason, self.kwargs = payload, stop_reason, None
+    """Nep voor messages.create (gate) en beta.messages.stream (advies)."""
+
+    def __init__(self, payload=None, reply="", stop_reason="end_turn"):
+        self.payload, self.reply, self.stop_reason, self.kwargs = payload, reply, stop_reason, None
         self.messages = self
         self.beta = NS(messages=self)
 
     def create(self, **kwargs):
         self.kwargs = kwargs
         return NS(stop_reason=self.stop_reason, content=[NS(type="text", text=json.dumps(self.payload))])
+
+    def stream(self, **kwargs):
+        self.kwargs = kwargs
+        client = self
+
+        class S:
+            text_stream = [client.reply[i:i + 7] for i in range(0, len(client.reply), 7)]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def get_final_message(self):
+                return NS(stop_reason=client.stop_reason)
+
+        return S()
 
 
 def test_claude_gate_parses_and_clamps():
@@ -138,15 +158,36 @@ def test_claude_gate_parses_and_clamps():
     assert "rente.md" in client.kwargs["messages"][0]["content"]
 
 
-def test_advisor_drops_invented_sources():
-    client = FakeClient({"hint": "Rente 3%.", "sources": ["rente.md", "verzonnen.md"]})
-    a = ClaudeAdvisor(CONFIG, client).advise(parse(TRANSCRIPT)[:2], "vraag_aan_mij", [hit("rente.md")])
-    assert a.sources == ["rente.md"] and a.shown
+def test_advisor_streams_text_and_maps_numbers_to_sources():
+    client = FakeClient(reply="Rente 3%, € 18.000 per jaar.\nBRONNEN: 1, 7")
+    seen = []
+    a = ClaudeAdvisor(CONFIG, client).advise(parse(TRANSCRIPT)[:2], "vraag_aan_mij",
+                                             [hit("rente.md"), hit("ander.md")], on_text=seen.append)
+    assert a.text == "Rente 3%, € 18.000 per jaar." and a.sources == ["rente.md"]  # 7 bestaat niet
+    assert seen and "BRONNEN" not in seen[-1] and a.first_ms is not None
     assert client.kwargs["fallbacks"] == "default"
 
 
+def test_advisor_none_reply_shows_nothing_and_never_streams():
+    client = FakeClient(reply="GEEN")
+    seen = []
+    a = ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")], on_text=seen.append)
+    assert not a.shown and seen == []
+
+
+def test_hint_starting_with_geen_is_kept():
+    client = FakeClient(reply="Geen VPB: boekwinst valt weg tegen de verliesvoorraad.\nBRONNEN: 1")
+    a = ClaudeAdvisor(CONFIG, client).advise([], "vraag_aan_mij", [hit("fiscaal.md")])
+    assert a.shown and a.text.startswith("Geen VPB")
+
+
+def test_advisor_without_sources_line_is_not_shown():
+    client = FakeClient(reply="Een hint zonder bronregel.")
+    assert not ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")]).shown
+
+
 def test_advisor_refusal_shows_nothing():
-    client = FakeClient({"hint": "x", "sources": ["rente.md"]}, stop_reason="refusal")
+    client = FakeClient(reply="x\nBRONNEN: 1", stop_reason="refusal")
     assert not ClaudeAdvisor(CONFIG, client).advise([], "overig", [hit("rente.md")]).shown
 
 

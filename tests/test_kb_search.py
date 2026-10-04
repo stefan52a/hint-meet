@@ -125,3 +125,20 @@ def test_real_model_ranks_by_meaning(tmp_path):
     assert p.shape == (2, 1024)
     assert np.allclose(np.linalg.norm(p, axis=1), 1, atol=1e-4)
     assert p[0] @ q > p[1] @ q
+
+
+def test_superseded_only_with_explicit_marker():
+    from hint_meet.kb import Chunk
+    assert Chunk("r.md", "Review › Naschrift 1 [VERVALLEN]", "x").superseded
+    assert Chunk("r.md", "Review › Oud [achterhaald]", "x").superseded
+    assert not Chunk("r.md", "Review › Naschrift 2 — het naschrift hierboven is achterhaald", "x").superseded
+    assert not Chunk("09/00-VERVALLEN.md", "VERVALLEN: geen terugverkoop", "x").superseded
+
+
+def test_superseded_passage_is_flagged_for_the_models():
+    from hint_meet.gate import format_passages
+    from hint_meet.kb import Chunk, Hit
+    text = format_passages([Hit(Chunk("r.md", "Naschrift 1 [VERVALLEN]", "€ 650.000"), 1, 0, 0),
+                            Hit(Chunk("i.md", "Index", "€ 600.000"), 1, 0, 0)])
+    assert text.index("⚠ VERVALLEN") < text.index("€ 650.000")
+    assert text.count("⚠ VERVALLEN") == 1

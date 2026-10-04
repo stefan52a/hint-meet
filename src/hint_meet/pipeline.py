@@ -29,7 +29,7 @@ class Pipeline:
         self.last_index = -10
         self.last_hint = ""
 
-    def step(self, history: list, index: int) -> Step:
+    def step(self, history: list, index: int, on_text=None) -> Step:
         cfg = self.config
         window = history[max(0, index + 1 - cfg["window_turns"]):index + 1]
         query_turns = history[max(0, index + 1 - cfg["kb"]["query_turns"]):index + 1]
@@ -50,8 +50,10 @@ class Pipeline:
             return step
 
         t = time.perf_counter()
-        step.advice = self.advisor.advise(window, result.moment, hits)
+        step.advice = self.advisor.advise(window, result.moment, hits, on_text=on_text)
         ms["advies"] = (time.perf_counter() - t) * 1000
+        if getattr(step.advice, "first_ms", None) is not None:
+            ms["advies_eerste"] = step.advice.first_ms
         if not step.advice.shown:
             step.suppressed = "geen bron"
         elif set(step.advice.sources) == self.last_sources and index - self.last_index <= 1:
