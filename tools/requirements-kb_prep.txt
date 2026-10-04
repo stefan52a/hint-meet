@@ -1,0 +1,8 @@
+python-docx
+openpyxl
+python-pptx
+pymupdf
+markdownify
+# optioneel, voor --ocr:
+# pytesseract
+# pillow

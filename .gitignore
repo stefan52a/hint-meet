@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+# lokale data
+data/
+logs/
+*.wav
+*.csv

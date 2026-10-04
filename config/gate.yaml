@@ -1,0 +1,22 @@
+# Drempels voor de Jev-gate. Kalibreren met: hint-meet replay <opname.wav>
+model: jev-latest        # pin een geteste versie zodra die er is
+window_turns: 3          # alleen de laatste 2-3 beurten naar Jev
+
+gate:
+  intervene_min: 0.6     # Noul "moet ik ingrijpen?" ja-kans
+  urgency_min: 2         # Score 0-4
+
+moments:                 # Choice: wat voor moment is dit
+  - vraag_aan_mij
+  - bezwaar
+  - toezegging
+  - onjuiste_bewering
+  - risico
+  - smalltalk
+
+kb:
+  rerank_min: 0.7        # Noul per passage, alleen hierboven door naar Claude
+  top_k: 5
+
+advise:
+  max_sentences: 3
