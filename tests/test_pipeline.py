@@ -41,8 +41,9 @@ class ScriptedGate:
         self.probs = probs
         self.seen = []
 
-    def evaluate(self, window, hits):
+    def evaluate(self, window, hits, previous_hint=None):
         self.seen.append((window, hits))
+        self.previous = getattr(self, "previous", []) + [previous_hint]
         return GateResult(self.probs[len(self.seen) - 1], "vraag_aan_mij", 2)
 
 
@@ -160,12 +161,25 @@ def test_csv_written_when_replay_fails(tmp_path):
     u = parse(TRANSCRIPT)
 
     class Breaks(ScriptedGate):
-        def evaluate(self, window, hits):
+        def evaluate(self, window, hits, previous_hint=None):
             if len(self.seen) == 2:
                 raise RuntimeError("API weg")
-            return super().evaluate(window, hits)
+            return super().evaluate(window, hits, previous_hint)
 
     out = tmp_path / "log.csv"
     with pytest.raises(RuntimeError):
         replay(u, Pipeline(FakeKB(), Breaks([0.1] * 4), FakeAdvisor(Advice("", [])), CONFIG), out)
     assert len(out.read_text(encoding="utf-8").splitlines()) == 3  # kop + 2 blokken
+
+
+def test_gate_hears_about_hint_while_it_is_in_the_window():
+    u = parse(TRANSCRIPT)
+    gate = ScriptedGate([0.9, 0.1, 0.1, 0.1])
+    replay(u, Pipeline(FakeKB(), gate, FakeAdvisor(Advice("Rente 3%.", ["rente.md"])), CONFIG))
+    assert gate.previous == [None, "Rente 3%.", "Rente 3%.", None]  # window_turns = 3
+
+
+def test_claude_gate_prompt_mentions_previous_hint():
+    client = FakeClient({"intervene_probability": 0.2, "moment": "overig", "urgency": 0})
+    ClaudeGate(CONFIG, client).evaluate(parse(TRANSCRIPT)[:2], [hit("rente.md")], "Rente 3%.")
+    assert "Net getoonde hint: Rente 3%." in client.kwargs["messages"][0]["content"]

@@ -12,7 +12,7 @@ from .gate import format_passages, format_window
 ADVISE_SYSTEM = """Je bent de meeting-copilot van Stefan. Tijdens een gesprek verschijnt jouw hint op zijn scherm; hij leest hem in een paar seconden en gebruikt hem in zijn antwoord.
 
 Regels:
-- Hooguit {max_sentences} korte zinnen, Nederlands, zakelijk. Begin direct met de inhoud.
+- Hooguit {max_sentences} korte zinnen en hooguit {max_words} woorden, Nederlands, zakelijk. Begin direct met de inhoud: het antwoord of de correctie eerst, de onderbouwing daarna.
 - Gebruik alleen feiten uit de passages. Noem bedragen, datums en artikelen precies zoals ze daar staan.
 - Stukken of passages die als vervallen gemarkeerd zijn, gebruik je alleen om te zeggen dát iets vervallen is; presenteer hun bedragen nooit als geldend.
 - Zegt iemand iets dat botst met het dossier, zeg dan kort wat wél geldt.
@@ -36,7 +36,8 @@ class ClaudeAdvisor:
         self.client = client or anthropic.Anthropic()
         self.model = config["advise"]["model"]
         self.effort = config["advise"].get("effort", "low")
-        self.system = ADVISE_SYSTEM.format(max_sentences=config["advise"]["max_sentences"])
+        self.system = ADVISE_SYSTEM.format(max_sentences=config["advise"]["max_sentences"],
+                                           max_words=config["advise"].get("max_words", 40))
         self.schema = {
             "type": "object",
             "properties": {

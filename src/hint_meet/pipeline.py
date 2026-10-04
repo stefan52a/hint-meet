@@ -27,6 +27,7 @@ class Pipeline:
         self.kb, self.gate, self.advisor, self.config = kb, gate, advisor, config
         self.last_sources: set[str] = set()
         self.last_index = -10
+        self.last_hint = ""
 
     def step(self, history: list, index: int) -> Step:
         cfg = self.config
@@ -40,7 +41,9 @@ class Pipeline:
 
         t = time.perf_counter()
         gate_hits = hits[:cfg["kb"]["gate_passages"]]
-        result = self.gate.evaluate(window, gate_hits)
+        # zolang de vorige hint nog binnen het venster valt, weet de gate dat die er al was
+        previous = self.last_hint if index - self.last_index < cfg["window_turns"] else None
+        result = self.gate.evaluate(window, gate_hits, previous)
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
         if not result.open(cfg):
@@ -56,4 +59,5 @@ class Pipeline:
             step.suppressed = "herhaling"
         if step.shown:
             self.last_sources, self.last_index = set(step.advice.sources), index
+            self.last_hint = step.advice.text
         return step

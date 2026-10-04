@@ -35,6 +35,8 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M2. Pijplijn op tekst (1 sessie)
 
+**Stand 5-10-2026: meetbaar geslaagd, oordeel Stefan open.** Proefgesprek van 50 beurten (4,5 min). Run 3: 10/10 momenten geraakt, 3 hints op ruis, hints ≤ 40 woorden. Latentie: gate ±1,1 s (Haiku) + advies ±3,8 s (Opus 5.5, effort low) = ±4,9 s, boven het M4-doel van 4 s; Jev als gate (M3) en streaming van het advies moeten dat oplossen. De drie "ruis"-hints zijn bevestigingsvragen aan Stefan (verkoopprijs, pandrecht) en een vraag naar de balans; of dat ruis is, beslist Stefan. Kernfeitencheck (53%) is te grof om op te sturen.
+
 - Proefgesprek van ~15 minuten als transcript, met ~10 gemarkeerde momenten "hier hoort advies" en ruis daartussen.
 - `hint-meet replay transcript.txt`: blok voor blok door gate → zoeken → advies, met een CSV-log per blok.
 - **Geslaagd als:** ≥ 8 van de 10 momenten een advies krijgen, ≤ 3 adviezen op ruis, en elk advies klopt met de bron (door jou beoordeeld).
