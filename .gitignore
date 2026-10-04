@@ -10,3 +10,5 @@ data/
 logs/
 *.wav
 *.csv
+app/HintMeet/.build/
+app/build/

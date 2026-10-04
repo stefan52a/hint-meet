@@ -60,6 +60,8 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M5. Overlay (1 sessie)
 
+**Stand 5-10-2026: gebouwd, visuele beoordeling door Stefan open.** Architectuur vooruitlopend op M6: de Python-pijplijn is een lokale WebSocket-server (`hint-meet live --ui`, 127.0.0.1:8765), de overlay een SwiftUI-app (`app/HintMeet`, `app/build-app.sh`). Zwevend paneel dat geen focus steelt (non-activating NSPanel, alle bureaubladen en fullscreen), groeit mee met de inhoud, onthoudt zijn plek; hint woord voor woord, daarna met bronknoppen (openen het oorspronkelijke dossierstuk) en 👍/👎 (naar `logs/feedback.jsonl`), ingetrokken hints doorgestreept met reden. Menubalk-icoon 💡. Na afloop een verslag (samenvatting, toezeggingen en actiepunten, open vragen) in `<KB>/meetings/`, bij testruns in `logs/`. Niet gezien op scherm: schermopname is voor deze sessie niet toegestaan; werking gecontroleerd via de vensterlijst (paneel zichtbaar, groeit 66 → 408 pt) en het protocol (tests).
+
 - Klein venster altijd bovenop: advies, bron (klikbaar), en knoppen 👍/👎 die naar het log gaan voor latere kalibratie.
 - Na afloop: lijst met toezeggingen en actiepunten.
 - **Geslaagd als:** jij het in een echt gesprek gebruikt en het niet afleidt.

@@ -158,6 +158,8 @@ hint-meet --project acme calibrate gesprek.txt --gate jev  # alleen de gate, dre
 hint-meet live --devices                                    # audioapparaten tonen
 ```
 
+Overlay: bouw de app één keer met `app/build-app.sh`, start `app/build/HintMeet.app` en draai `hint-meet --project acme live --ui`. Het paneel blijft boven je meeting zonder je toetsenbord over te nemen; 💡 in de menubalk toont of verbergt het. 👍/👎 komt in `logs/feedback.jsonl`. Na afloop schrijft hint-meet een verslag met actiepunten in `<KB>/meetings/` (uit te zetten met `--no-summary`).
+
 Live bewaart het transcript in `logs/live-<datum>.txt`, in hetzelfde formaat als de testtranscripten: zet er `#! advies:`-regels onder en speel het af met `replay` om drempels te kalibreren.
 
 Systeemaudio (Teams, Zoom, Meet, bellen via de Mac) vraagt [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, en in Audio MIDI-instellingen een apparaat voor meerdere uitgangen met je speakers én BlackHole, zodat je de meeting zelf ook blijft horen.

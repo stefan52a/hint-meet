@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--channels", default="Stefan,Gesprekspartner", help="bij --wav: spreker per kanaal")
     lv.add_argument("--speed", type=float, default=1.0, help="bij --wav: afspeelsnelheid")
     lv.add_argument("--devices", action="store_true", help="toon de audioapparaten en stop")
+    lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
+    lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
+    lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -214,15 +217,52 @@ def live_cmd(a) -> int:
             sources.append(DeviceSource(a.system, a.other))
         until = None
     cols = shutil.get_terminal_size((100, 20)).columns - 1
+    started = time.time()
+    hub = feedback = None
+    sources_by_ref = {}
+    if a.ui:
+        from .server import FeedbackLog, Hub, source_paths
+        sources_by_ref = source_paths(root)
+        feedback = FeedbackLog(Path("logs") / "feedback.jsonl")
+
+        def on_message(msg):
+            if msg.get("type") == "feedback":
+                feedback.record(int(msg.get("id", -1)), int(msg.get("rating", 0)))
+            elif msg.get("type") == "stop":
+                session.stop()
+
+        hub = Hub(port=a.port, on_message=on_message)
+        hub.start()
+        hub.send(type="hello", project=root.name, version=1)
+        print(f"Overlay-server op ws://127.0.0.1:{a.port}")
     print(f"KB: {root}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
           + "\nStoppen met Ctrl-C.\n")
+
+    shown_hints: list[str] = []
 
     def on_text(partial):
         sys.stdout.write("\r\033[K  💡 " + partial.replace("\n", " ")[:cols - 5])
         sys.stdout.flush()
+        if hub:
+            hub.send(type="hint", id=len(session.utterances) - 1, state="streaming", text=partial)
 
     def on_event(ev):
         st, u = ev.step, ev.utterance
+        uid = len(session.utterances) - 1
+        if hub:
+            hub.send(type="utterance", id=uid, time=f"{u.seconds // 60:02d}:{u.seconds % 60:02d}",
+                     speaker=u.speaker, text=u.text)
+            if st is not None and st.advice is not None:
+                if st.shown:
+                    srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(root / r)} for r in st.advice.sources]
+                    hub.send(type="hint", id=uid, state="final", text=st.advice.text, sources=srcs)
+                    feedback.remember(uid, utterance=u.text, hint=st.advice.text, sources=st.advice.sources,
+                                      gate=round(st.gate.intervene, 3), moment=st.gate.moment)
+                elif st.advice.text:
+                    hub.send(type="hint", id=uid, state="retracted", text=st.advice.text,
+                             reason=st.suppressed or "geen bron")
+        if st is not None and st.shown:
+            shown_hints.append(st.advice.text)
         if st is None:
             print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {'(achterstand) ' if ev.stale else ''}{u.speaker}: {u.text}")
             return
@@ -257,6 +297,21 @@ def live_cmd(a) -> int:
         print(f"\n{len(session.events)} uitspraken · wachtrij mediaan {statistics.median(waits):.0f} ms, max {max(waits):.0f} ms"
               + (f" · na einde-detectie tot eerste woorden: mediaan {statistics.median(firsts):.0f} ms, max {max(firsts):.0f} ms" if firsts else ""))
     print(f"Transcript: {out}")
+    if not a.no_summary and len(session.utterances) >= 3:
+        from .summary import summarize, write_note
+        try:
+            md = summarize(session.utterances, shown_hints, config)
+            # een testrun (--wav) hoort niet als echte meeting in de KB
+            note = write_note(Path("logs") if a.wav else root, session.utterances, shown_hints, md, started)
+            print(f"\n{md}\n\nVerslag: {note}")
+            if hub:
+                hub.send(type="summary", markdown=md, path=str(note))
+        except Exception as e:  # noqa: BLE001 - het verslag mag het transcript niet kosten
+            print(f"Verslag mislukt: {e}", file=sys.stderr)
+    if hub:
+        hub.send(type="stopped")
+        time.sleep(0.3)
+        hub.stop()
     return 0
 
 
