@@ -138,11 +138,13 @@ Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf .
 
 ## Zoeken in de KB testen
 
-`kb.py` zoekt hybride: een lokaal embeddingmodel (`intfloat/multilingual-e5-large` via onnxruntime, ±2,2 GB in `~/.cache/hint-meet/models/`, downloadt bij eerste gebruik) plus BM25 voor exacte termen als bedragen en artikelnummers. Embeddings worden per stukje gecachet in `<kb>/.hint-meet-cache/`.
+`kb.py` zoekt hybride: een lokaal embeddingmodel (`intfloat/multilingual-e5-large`, op Apple Silicon via MLX op de GPU, anders via onnxruntime; downloadt bij eerste gebruik) plus BM25 voor exacte termen als bedragen en artikelnummers. Embeddings worden per stukje gecachet in `<kb>/.hint-meet-cache/`.
 
 ```bash
 hint-meet eval-kb data/eval/acme-vragen.yaml
 ```
+
+Een nieuwe of flink gegroeide KB vooraf indexeren, zodat een meeting direct start: `hint-meet --project <naam> index` (Contoso, 4.000 stukjes: ±8 minuten, eenmalig; daarna alleen nieuwe stukjes).
 
 Een vragenlijst is YAML met per vraag de stukken waar het antwoord staat; zie `data/eval/` (staat niet in git, want bevat dossierinhoud).
 

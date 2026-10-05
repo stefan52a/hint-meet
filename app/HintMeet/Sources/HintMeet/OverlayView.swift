@@ -49,7 +49,7 @@ struct OverlayView: View {
     @ViewBuilder private var idle: some View {
         switch backend.state {
         case .running:
-            Text(store.connected ? "Luistert…" : "Pijplijn start… (modellen laden)")
+            Text(store.connected ? (store.status.isEmpty ? "Luistert…" : store.status) : "Pijplijn start…")
                 .font(.callout).foregroundStyle(.secondary)
         case .stopping:
             Text("Stopt… verslag wordt gemaakt").font(.callout).foregroundStyle(.secondary)

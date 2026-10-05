@@ -142,3 +142,26 @@ def test_superseded_passage_is_flagged_for_the_models():
                             Hit(Chunk("i.md", "Index", "€ 600.000"), 1, 0, 0)])
     assert text.index("⚠ VERVALLEN") < text.index("€ 650.000")
     assert text.count("⚠ VERVALLEN") == 1
+
+
+def test_embeddings_saved_per_batch_with_progress(tmp_path, monkeypatch):
+    for i in range(5):
+        write(tmp_path, f"d{i}.md", f"# D{i}\n\ntekst {i}")
+    seen = []
+    monkeypatch.setattr(KB, "BATCH_SAVE", 2)
+    KB(tmp_path, FakeEmbedder(), progress=lambda d, t, left: seen.append((d, t)))
+    assert seen == [(2, 5), (4, 5), (5, 5)]
+
+    class Breaks(FakeEmbedder):  # afbreken halverwege: wat klaar was, blijft bewaard
+        def passages(self, texts):
+            if self.calls >= 2:
+                raise KeyboardInterrupt
+            return super().passages(texts)
+
+    for i in range(5, 9):
+        write(tmp_path, f"d{i}.md", f"# D{i}\n\nnieuw {i}")
+    with pytest.raises(KeyboardInterrupt):
+        KB(tmp_path, Breaks())
+    emb = FakeEmbedder()
+    KB(tmp_path, emb)
+    assert emb.calls == 2   # alleen de 2 die nog ontbraken

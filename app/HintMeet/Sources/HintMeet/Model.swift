@@ -31,6 +31,7 @@ final class HintStore: ObservableObject {
     @Published var utterances: [Utterance] = []  // laatste paar
     @Published var summaryPath: String?
     @Published var stopped = false
+    @Published var status = ""      // wat de pijplijn aan het doen is (KB laden, luistert…)
     private(set) var session = ""
 
     var current: Hint? { hints.last { $0.state != .retracted || Date().timeIntervalSince($0.updated) < 4 } }
@@ -45,7 +46,7 @@ final class HintStore: ObservableObject {
             // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
             let new = msg["session"] as? String ?? ""
             if new != session {
-                hints = []; utterances = []; summaryPath = nil
+                hints = []; utterances = []; summaryPath = nil; status = ""
                 session = new
             }
             project = msg["project"] as? String ?? ""
@@ -70,6 +71,8 @@ final class HintStore: ObservableObject {
             hints.removeAll { $0.id == id }
             hints.append(hint)
             hints = Array(hints.suffix(20))
+        case "status":
+            status = msg["text"] as? String ?? ""
         case "summary":
             summaryPath = msg["path"] as? String
         case "stopped":

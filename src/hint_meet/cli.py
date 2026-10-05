@@ -1,12 +1,13 @@
 """Entrypoint: hint-meet live | replay <opname.wav>"""
 import argparse
+import threading
 import time
 from pathlib import Path
 import sys
 
 from dotenv import find_dotenv, load_dotenv
 
-from .kb import DEFAULT_MODEL, KB, OnnxEmbedder, kb_dir
+from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,6 +15,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="hint-meet")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
+    sub.add_parser("index", help="KB vooraf indexeren (embeddings), met voortgang; daarna start live direct")
     lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
     lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
@@ -52,6 +54,17 @@ def main(argv: list[str] | None = None) -> int:
         return calibrate_cmd(a)
     if a.cmd == "live":
         return live_cmd(a)
+    if a.cmd == "index":
+        try:
+            root = kb_dir(a.project)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        print(f"KB: {root}")
+        t = time.perf_counter()
+        kb = KB(root, progress=print_progress)
+        print(f"\r\033[K{len(kb.chunks)} stukjes klaar in {time.perf_counter() - t:.0f} s")
+        return 0
     if a.cmd == "kb":
         try:
             print(f"KB: {kb_dir(a.project)}")
@@ -186,6 +199,19 @@ def replay_cmd(a) -> int:
     return 0
 
 
+def fmt_left(seconds: float) -> str:
+    return f"{seconds:.0f} s" if seconds < 90 else f"{seconds / 60:.0f} min"
+
+
+def print_progress(done: int, total: int, left: float) -> None:
+    line = f"KB voorbereiden: {done}/{total} stukjes · nog ~{fmt_left(left)}"
+    if sys.stdout.isatty():
+        sys.stdout.write("\r\033[K" + line)
+        sys.stdout.flush()
+    else:
+        print(line, flush=True)
+
+
 def live_cmd(a) -> int:
     import shutil
     import statistics
@@ -209,7 +235,39 @@ def live_cmd(a) -> int:
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
-    kb = KB(root)
+    started = time.time()
+    hub = feedback = None
+    sources_by_ref = {}
+    stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
+    if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
+        from .server import FeedbackLog, Hub, source_paths
+        sources_by_ref = source_paths(root)
+        feedback = FeedbackLog(Path("logs") / "feedback.jsonl")
+
+        def on_message(msg):
+            if msg.get("type") == "feedback" and msg.get("session") in (None, hub.session):
+                feedback.record(msg.get("id"), msg.get("rating"))
+            elif msg.get("type") == "stop":
+                stop_requested.set()
+
+        hub = Hub(port=a.port, on_message=on_message)
+        hub.start()
+        hub.send(type="hello", project=root.name, version=1)
+        print(f"Overlay-server op ws://127.0.0.1:{a.port}", flush=True)
+
+    def status(text: str):
+        if hub:
+            hub.send(type="status", text=text)
+
+    def kb_progress(done, total, left):
+        print_progress(done, total, left)
+        status(f"KB voorbereiden: {done}/{total} stukjes · nog ~{fmt_left(left)}")
+
+    status("KB laden…")
+    kb = KB(root, progress=kb_progress)
+    if stop_requested.is_set():
+        return 0
+    status("Spraakherkenning laden…")
     transcriber = Transcriber(kb_terms(kb.chunks))
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
     if a.wav:
@@ -225,24 +283,6 @@ def live_cmd(a) -> int:
             sources.append(DeviceSource(a.system, a.other))
         until = None
     cols = shutil.get_terminal_size((100, 20)).columns - 1
-    started = time.time()
-    hub = feedback = None
-    sources_by_ref = {}
-    if a.ui:
-        from .server import FeedbackLog, Hub, source_paths
-        sources_by_ref = source_paths(root)
-        feedback = FeedbackLog(Path("logs") / "feedback.jsonl")
-
-        def on_message(msg):
-            if msg.get("type") == "feedback" and msg.get("session") in (None, hub.session):
-                feedback.record(msg.get("id"), msg.get("rating"))
-            elif msg.get("type") == "stop":
-                session.stop()
-
-        hub = Hub(port=a.port, on_message=on_message)
-        hub.start()
-        hub.send(type="hello", project=root.name, version=1)
-        print(f"Overlay-server op ws://127.0.0.1:{a.port}")
     print(f"KB: {root}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
           + "\nStoppen met Ctrl-C.\n")
 
@@ -286,6 +326,8 @@ def live_cmd(a) -> int:
         print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
 
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text)
+    threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
+    status("Luistert…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
     try:
         if session.run(until=until):
@@ -366,7 +408,7 @@ def eval_kb_cmd(a) -> int:
         print(e, file=sys.stderr)
         return 2
     print(f"KB: {root}")
-    kb = KB(root, OnnxEmbedder(a.model or DEFAULT_MODEL))
+    kb = KB(root, default_embedder(a.model or DEFAULT_MODEL))
     print(f"{len(kb.chunks)} stukjes\n")
     print(report(eval_kb(kb, data["vragen"], k), k))
     return 0
