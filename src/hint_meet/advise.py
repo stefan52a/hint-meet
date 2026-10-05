@@ -50,12 +50,26 @@ class Advice:
         return bool(self.text.strip()) and bool(self.sources)
 
 
-def parse_reply(reply: str, hits) -> Advice:
+def limit_points(text: str, max_points: int) -> str:
+    """Hooguit max_points punten ("- ..."); wat het model daarna nog opsomt, valt weg."""
+    out, points = [], 0
+    for line in text.splitlines():
+        if line.lstrip().startswith(("- ", "* ")):
+            points += 1
+            if points > max_points:
+                break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def parse_reply(reply: str, hits, max_points: int | None = None) -> Advice:
     reply = reply.strip()
     if is_none(reply):  # alleen "GEEN"; een hint die met "Geen VPB ..." begint is gewoon een hint
         return Advice("")
     m = SOURCES_LINE.search(reply)
     text = reply[:m.start()].strip() if m else reply
+    if max_points:
+        text = limit_points(text, max_points)
     numbers = [int(n) for n in re.findall(r"\d+", m.group(1))] if m else []
     refs: list[str] = []
     for n in numbers:  # alleen nummers van echte passages; verzonnen nummers tellen niet
@@ -74,7 +88,8 @@ class ClaudeAdvisor:
         self.effort = config["advise"].get("effort", "low")
         thinking = config["advise"].get("thinking")
         self.extra = {"thinking": {"type": thinking}} if thinking else {}
-        self.system = ADVISE_SYSTEM.format(max_points=config["advise"].get("max_points", 4),
+        self.max_points = config["advise"].get("max_points", 4)
+        self.system = ADVISE_SYSTEM.format(max_points=self.max_points,
                                            max_words=config["advise"].get("max_words", 40))
 
     def advise(self, window, moment: str, hits, on_text=None) -> Advice:
@@ -105,6 +120,6 @@ class ClaudeAdvisor:
             final = stream.get_final_message()
         if final.stop_reason == "refusal":
             return Advice("", first_ms=first_ms)
-        advice = parse_reply(reply, hits)
+        advice = parse_reply(reply, hits, self.max_points)
         advice.first_ms = first_ms
         return advice
