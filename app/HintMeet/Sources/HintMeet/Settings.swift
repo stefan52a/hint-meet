@@ -27,8 +27,10 @@ final class Settings: ObservableObject {
         summary = d.object(forKey: "summary") as? Bool ?? true
     }
 
-    /// De app staat in <repo>/app/build/HintMeet.app; de pijplijn draait uit <repo>/.venv.
+    /// De pijplijn draait uit <repo>/.venv. build-app.sh zet het repo-pad in Info.plist (ook voor de kopie in
+    /// ~/Applications); anders aannemen dat de app in <repo>/app/build/HintMeet.app staat.
     static func guessRepo() -> String {
+        if let repo = Bundle.main.object(forInfoDictionaryKey: "HintMeetRepo") as? String, !repo.isEmpty { return repo }
         let repo = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return repo.path
     }
