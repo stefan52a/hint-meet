@@ -24,7 +24,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.zoof-it.hintmeet</string>
   <key>CFBundleExecutable</key><string>HintMeet</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>HintMeetRepo</key><string>$REPO</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
@@ -33,6 +32,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+# via plutil, zodat tekens als & of < in het pad de plist niet breken
+plutil -insert HintMeetRepo -string "$REPO" "$APP/Contents/Info.plist"
 # ad-hoc ondertekenen: nodig voor microfoontoestemming; Developer ID en notarisatie volgen later
 codesign --force --deep --sign - "$APP"
 echo "Gebouwd: $(cd ../build && pwd)/HintMeet.app"
@@ -40,7 +41,10 @@ echo "Gebouwd: $(cd ../build && pwd)/HintMeet.app"
 # installeren: een draaiende HintMeet blijft draaien; Herstarten in het 💡-menu pakt de nieuwe versie op
 DEST="$HOME/Applications/HintMeet.app"
 mkdir -p "$HOME/Applications"
+# eerst ernaast kopiëren, dan pas vervangen: mislukt het kopiëren, dan blijft de oude app staan
+rm -rf "$DEST.new"
+cp -R "$APP" "$DEST.new"
 rm -rf "$DEST"
-cp -R "$APP" "$DEST"
+mv "$DEST.new" "$DEST"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
 echo "Geïnstalleerd: $DEST"
