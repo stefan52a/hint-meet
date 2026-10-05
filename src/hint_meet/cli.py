@@ -8,7 +8,7 @@ import sys
 
 from dotenv import find_dotenv, load_dotenv
 
-from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dir
+from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,18 +62,18 @@ def main(argv: list[str] | None = None) -> int:
         return prepare_cmd(a)
     if a.cmd == "index":
         try:
-            root = kb_dir(a.project)
+            roots = kb_dirs(a.project)
         except ValueError as e:
             print(e, file=sys.stderr)
             return 2
-        print(f"KB: {root}")
+        print("KB: " + ", ".join(map(str, roots)))
         t = time.perf_counter()
-        kb = KB(root, progress=print_progress)
+        kb = KB(roots, progress=print_progress)
         print(f"\r\033[K{len(kb.chunks)} stukjes klaar in {time.perf_counter() - t:.0f} s")
         return 0
     if a.cmd == "kb":
         try:
-            print(f"KB: {kb_dir(a.project)}")
+            print("KB: " + ", ".join(map(str, kb_dirs(a.project))))
         except ValueError as e:
             print(e, file=sys.stderr)
             return 2
@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4"}
 
 
-def audio_replay_cmd(a, config, root) -> int:
+def audio_replay_cmd(a, config, roots) -> int:
     import json
     import statistics
 
@@ -101,10 +101,10 @@ def audio_replay_cmd(a, config, root) -> int:
     script = load(script_path) if script_path.exists() else []
     tl_path = wav.with_suffix(".tijdlijn.json")
     timeline = json.loads(tl_path.read_text(encoding="utf-8")) if tl_path.exists() else []
-    kb = KB(root)
+    kb = KB(roots)
     t = time.perf_counter()
     transcriber = Transcriber(kb_terms(kb.chunks))
-    print(f"KB: {root}\nWhisper geladen in {time.perf_counter() - t:.1f} s; woordenlijst: {transcriber.prompt}\n")
+    print(f"KB: {', '.join(map(str, roots))}\nWhisper geladen in {time.perf_counter() - t:.1f} s; woordenlijst: {transcriber.prompt}\n")
     try:
         segments = segments_from_wav(wav, a.channels.split(","))
     except ValueError as e:
@@ -158,16 +158,16 @@ def replay_cmd(a) -> int:
 
     config = yaml.safe_load(open(a.config, encoding="utf-8"))
     try:
-        root = kb_dir(a.project)
+        roots = kb_dirs(a.project)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
     if Path(a.transcript).suffix.lower() in AUDIO_EXTS:
-        return audio_replay_cmd(a, config, root)
+        return audio_replay_cmd(a, config, roots)
     utterances = load(a.transcript)
-    print(f"KB: {root}\nTranscript: {len(utterances)} beurten, "
+    print(f"KB: {', '.join(map(str, roots))}\nTranscript: {len(utterances)} beurten, "
           f"{sum(1 for u in utterances if u.expect)} gemarkeerde momenten\n")
-    pipeline = Pipeline(KB(root), make_gate(config), ClaudeAdvisor(config), config)
+    pipeline = Pipeline(KB(roots), make_gate(config), ClaudeAdvisor(config), config)
 
     def show(u, step):
         mark = "◆" if u.expect else " "
@@ -209,52 +209,59 @@ def fmt_left(seconds: float) -> str:
     return f"{seconds:.0f} s" if seconds < 90 else f"{seconds / 60:.0f} min"
 
 
+def run_kb_prep(args: list[str]) -> int:
+    """tools/kb_prep.py als kindproces, met voortgang als @progress-regels; Ctrl-C (Stop in de app)
+    stuurt kb_prep zelf ook netjes weg, zodat het manifest klopt."""
+    import signal
+    import subprocess
+    tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
+    proc = subprocess.Popen([sys.executable, str(tool), *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
+    try:
+        for line in proc.stdout:
+            print(line.rstrip("\n"), flush=True)
+    except KeyboardInterrupt:
+        proc.send_signal(signal.SIGINT)
+        proc.wait()
+        raise
+    return proc.wait()
+
+
 def prepare_cmd(a) -> int:
     """Voor de knop "KB voorbereiden" in HintMeet. Regels die met @ beginnen leest de app:
     "@step <sleutel> <tekst>" (duur onbekend; de app schat hem uit de vorige keer, per sleutel) en
     "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
     import json
-    import subprocess
 
     def step(key, text):
         print(f"@step {key} {text}", flush=True)
 
     try:
-        root = kb_dir(a.project)
+        roots = kb_dirs(a.project)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
     t0 = time.perf_counter()
-    manifest = root / "_manifest.json"
-    source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
-    if source and Path(source).is_dir():
-        step("docs", f"Documenten bijwerken uit {source}…")
-        tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
-        proc = subprocess.Popen([sys.executable, str(tool), source, str(root)], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
-        try:
-            for line in proc.stdout:
-                print(line.rstrip("\n"), flush=True)
-        except KeyboardInterrupt:  # Stop in de app: kb_prep ook netjes laten stoppen (manifest bijgewerkt)
-            import signal
-            proc.send_signal(signal.SIGINT)
-            proc.wait()
-            raise
-        code = proc.wait()
+    for root in roots:
+        manifest = root / "_manifest.json"
+        source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
+        if not (source and Path(source).is_dir()):
+            step(f"nodocs-{root.name}", f"{root.name}: geen bronmap bekend; documenten niet bijgewerkt")
+            continue
+        step(f"docs-{root.name}", f"{root.name}: documenten bijwerken uit {source}…")
+        code = run_kb_prep([source, str(root)])
         if code == 3:
             print("Er draait al een kb_prep op deze KB; documenten niet bijgewerkt.", file=sys.stderr)
         elif code not in (0, 1):  # 1 = sommige bestanden mislukt: de rest is wel bijgewerkt
             print(f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
-    else:
-        step("nodocs", "Geen bronmap bekend; documenten niet bijgewerkt")
 
     step("kb", "KB laden…")
 
     def progress(done, total, left):
         print(f"@progress {done} {total} KB indexeren: {done}/{total} stukjes · nog ~{fmt_left(left)}", flush=True)
 
-    kb = KB(root, progress=progress)
+    kb = KB(roots, progress=progress)
     step("asr", "Spraakherkenning laden…")
     from .audio import Transcriber, kb_terms
     Transcriber(kb_terms(kb.chunks))
@@ -290,7 +297,7 @@ def live_cmd(a) -> int:
 
     config = yaml.safe_load(open(a.config, encoding="utf-8"))
     try:
-        root = kb_dir(a.project)
+        roots = kb_dirs(a.project)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
@@ -300,7 +307,9 @@ def live_cmd(a) -> int:
     stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
     if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
         from .server import FeedbackLog, Hub, source_paths
-        sources_by_ref = source_paths(root)
+        for r in roots:   # bij meerdere projecten begint elke referentie met de projectnaam
+            prefix = f"{r.name}/" if len(roots) > 1 else ""
+            sources_by_ref.update({prefix + k: v for k, v in source_paths(r).items()})
         feedback = FeedbackLog(Path("logs") / "feedback.jsonl")
 
         def on_message(msg):
@@ -311,7 +320,7 @@ def live_cmd(a) -> int:
 
         hub = Hub(port=a.port, on_message=on_message)
         hub.start()
-        hub.send(type="hello", project=root.name, version=1)
+        hub.send(type="hello", project=" + ".join(r.name for r in roots), version=1)
         print(f"Overlay-server op ws://127.0.0.1:{a.port}", flush=True)
 
     def status(text: str):
@@ -329,7 +338,7 @@ def live_cmd(a) -> int:
 
     status("KB laden…")
     try:
-        kb = KB(root, progress=kb_progress)
+        kb = KB(roots, progress=kb_progress)
     except (Stopped, KeyboardInterrupt):
         print("\nGestopt tijdens het voorbereiden van de KB; de volgende start gaat verder.")
         if hub:
@@ -352,7 +361,7 @@ def live_cmd(a) -> int:
             sources.append(DeviceSource(a.system, a.other))
         until = None
     cols = shutil.get_terminal_size((100, 20)).columns - 1
-    print(f"KB: {root}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
+    print(f"KB: {', '.join(map(str, roots))}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
           + "\nStoppen met Ctrl-C.\n")
 
     shown_hints: list[str] = []
@@ -371,7 +380,7 @@ def live_cmd(a) -> int:
                      speaker=u.speaker, text=u.text)
             if st is not None and st.advice is not None:
                 if st.shown:
-                    srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(root / r)} for r in st.advice.sources]
+                    srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(ref_path(roots, r))} for r in st.advice.sources]
                     # eerst de context vastleggen: een snelle 👍 moet er al bij kunnen
                     feedback.remember(uid, utterance=u.text, hint=st.advice.text, sources=st.advice.sources,
                                       gate=round(st.gate.intervene, 3), moment=st.gate.moment)
@@ -424,8 +433,9 @@ def live_cmd(a) -> int:
         try:
             md = summarize(session.utterances, config)
             # een testrun (--wav) hoort niet als echte meeting in de KB
-            note = write_note(Path("logs") if a.wav else root, session.utterances, shown_hints, md, started,
-                              project=root.name, partner=a.met)
+            # bij meerdere projecten komt het verslag bij het eerste
+            note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
+                              project="+".join(r.name for r in roots), partner=a.met)
             print(f"\n{md}\n\nVerslag: {note}")
             status("Verslag klaar")
             if hub:
@@ -453,13 +463,13 @@ def calibrate_cmd(a) -> int:
         config["gate"]["provider"] = a.gate
     provider = config["gate"]["provider"]
     try:
-        root = kb_dir(a.project)
+        roots = kb_dirs(a.project)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
     utterances = load(a.transcript)
     gate = make_gate(config)
-    rows = run_gate(utterances, KB(root), gate, config)
+    rows = run_gate(utterances, KB(roots), gate, config)
     out = a.out or f"logs/gate-{provider}.csv"
     write_rows(Path(out), utterances, rows)
     model = getattr(gate, "last_model", None) or config["gate"].get("model")
@@ -476,12 +486,12 @@ def eval_kb_cmd(a) -> int:
     data = load_questions(a.questions)
     k = a.k or data.get("k", 5)
     try:
-        root = kb_dir(a.project or data.get("project"))
+        roots = kb_dirs(a.project or data.get("project"))
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
-    print(f"KB: {root}")
-    kb = KB(root, default_embedder(a.model or DEFAULT_MODEL))
+    print("KB: " + ", ".join(map(str, roots)))
+    kb = KB(roots, default_embedder(a.model or DEFAULT_MODEL))
     print(f"{len(kb.chunks)} stukjes\n")
     print(report(eval_kb(kb, data["vragen"], k), k))
     return 0

@@ -27,6 +27,20 @@ final class Settings: ObservableObject {
         summary = d.object(forKey: "summary") as? Bool ?? true
     }
 
+    /// Gekozen projecten; `project` bewaart ze als "Finance,acme" (zo gaat het ook naar --project).
+    var selectedProjects: [String] {
+        project.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Voor in knoppen en menu's: "Finance + acme".
+    var projectLabel: String { selectedProjects.joined(separator: " + ") }
+
+    func toggleProject(_ name: String) {
+        var chosen = selectedProjects
+        if let i = chosen.firstIndex(of: name) { chosen.remove(at: i) } else { chosen.append(name) }
+        project = chosen.joined(separator: ",")
+    }
+
     /// De pijplijn draait uit <repo>/.venv. build-app.sh zet het repo-pad in Info.plist (ook voor de kopie in
     /// ~/Applications); anders aannemen dat de app in <repo>/app/build/HintMeet.app staat.
     static func guessRepo() -> String {

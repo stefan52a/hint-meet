@@ -69,11 +69,8 @@ struct OverlayView: View {
                     Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Picker("Kennisbank", selection: $settings.project) {
-                        Text("— kies een project —").tag("")
-                        ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
-                    }
-                    .disabled(preparer.isRunning)
+                    Text("Kennisbank")
+                    ProjectMenu(settings: settings).disabled(preparer.isRunning)
                     if !settings.project.isEmpty && !preparer.isRunning {
                         Button("KB laden") { preparer.start() }
                             .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
@@ -86,7 +83,7 @@ struct OverlayView: View {
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                 if !settings.project.isEmpty {
                     HStack {
-                        Button("Meeting starten · \(settings.project)") { startMeeting() }
+                        Button("Meeting starten · \(settings.projectLabel)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
                         Button("Opname afspelen…") { playRecording() }
                     }

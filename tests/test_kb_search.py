@@ -210,3 +210,19 @@ def test_term_index_is_saved_and_only_changed_chunks_are_retokenized(tmp_path, m
     changed = KB(tmp_path, FakeEmbedder())
     assert len(calls) == 1 and "vier" in calls[0]
     assert changed.search("rente vier procent", k=1)[0].chunk.ref == "b.md"
+
+
+def test_two_projects_are_searched_together(tmp_path, monkeypatch):
+    from hint_meet.kb import kb_dirs, ref_path
+    a, b = tmp_path / "Finance", tmp_path / "acme"
+    write(a, "lening.md", "# Lening\nDe rente op de lening is drie procent.")
+    write(b, "offerte.md", "# Offerte\nDe agio bij de uitgifte is 600.000 euro.")
+    single = KB(b, FakeEmbedder())
+    both = KB([a, b], FakeEmbedder())
+    assert {c.ref for c in both.chunks} == {"Finance/lening.md", "acme/offerte.md"}
+    assert both.search("agio 600k", k=1)[0].chunk.ref == "acme/offerte.md"
+    assert both.search("rente lening", k=1)[0].chunk.ref == "Finance/lening.md"
+    assert single.chunks[0].ref == "offerte.md"   # alleen bij meerdere projecten een voorvoegsel
+    assert ref_path([a, b], "acme/offerte.md") == b / "offerte.md"
+    monkeypatch.setenv("KB_ROOT", str(tmp_path))
+    assert kb_dirs("Finance, acme,Finance") == [a, b]

@@ -157,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let status: String
         switch backend.state {
         case .idle: status = "Geen meeting actief"
-        case .running: status = "Luistert · \(settings.project)"
+        case .running: status = "Luistert · \(settings.projectLabel)"
         case .stopping: status = "Stopt… (verslag wordt gemaakt)"
         case .failed(let why): status = "⚠ \(why)"
         }
@@ -169,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if backend.isRunning {
             menu.addItem(item("Meeting stoppen", #selector(stopMeeting), "s"))
         } else {
-            let start = item(settings.project.isEmpty ? "Meeting starten (kies eerst een project)" : "Meeting starten · \(settings.project)",
+            let start = item(settings.project.isEmpty ? "Meeting starten (kies eerst een project)" : "Meeting starten · \(settings.projectLabel)",
                              #selector(startMeeting), "s")
             start.isEnabled = !settings.project.isEmpty && settings.backendReady
             menu.addItem(start)
@@ -177,12 +177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let replay = item("Opname afspelen…", #selector(playRecording), "o")
         replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady
         menu.addItem(replay)
-        let projectItem = NSMenuItem(title: "Project", action: nil, keyEquivalent: "")
+        let projectItem = NSMenuItem(title: "Projecten (meerdere mogelijk)", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for name in settings.projects {
             let it = item(name, #selector(chooseProject(_:)), "")
             it.representedObject = name
-            it.state = name == settings.project ? .on : .off
+            it.state = settings.selectedProjects.contains(name) ? .on : .off
             it.isEnabled = !backend.isRunning
             sub.addItem(it)
         }
@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Instellingen…", #selector(showSettings), ","))
         menu.addItem(item("Logboek", #selector(openLog), ""))
         menu.addItem(.separator())
-        let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.project)",
+        let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.projectLabel)",
                            #selector(restartApp), "r")
         restart.toolTip = "Sluit HintMeet af (een lopende meeting maakt eerst zijn verslag) en start de nieuwste build opnieuw"
         menu.addItem(restart)
@@ -253,7 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func chooseProject(_ sender: NSMenuItem) {
-        if let name = sender.representedObject as? String { settings.project = name }
+        if let name = sender.representedObject as? String { settings.toggleProject(name) }   // aan/uit vinken
     }
 
     @objc func openLog() { NSWorkspace.shared.open(Backend.logURL) }

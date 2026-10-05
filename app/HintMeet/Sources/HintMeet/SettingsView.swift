@@ -10,10 +10,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Kennisbank") {
-                Picker("Project", selection: $settings.project) {
-                    Text("— kies —").tag("")
-                    ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
-                }
+                LabeledContent("Projecten") { ProjectMenu(settings: settings) }
                 TextField("KB-map", text: $settings.kbRoot)
             }
             Section("Audio") {

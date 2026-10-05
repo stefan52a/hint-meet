@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +47,25 @@ def kb_dir(project: str | None = None) -> Path:
     if not PROJECT_NAME.fullmatch(project) or ".." in project:
         raise ValueError(f"Ongeldige projectnaam: {project!r}")
     return Path(os.environ.get("KB_ROOT", "~/KB_md")).expanduser() / project
+
+
+def kb_dirs(projects: str | None = None) -> list[Path]:
+    """Eén of meer projecten, met komma's: "Finance,acme". Projectnamen bevatten geen komma."""
+    if projects is None:
+        projects = os.environ.get("KB_PROJECT")
+    names = list(dict.fromkeys(p.strip() for p in (projects or "").split(",") if p.strip()))
+    if not names:
+        return [kb_dir(None if projects is None else "")]   # zelfde foutmelding als bij één project
+    return [kb_dir(n) for n in names]
+
+
+def ref_path(roots: list[Path], ref: str) -> Path:
+    """Pad van een KB-referentie; bij meerdere projecten begint ref met de projectnaam."""
+    if len(roots) == 1:
+        return roots[0] / ref
+    name, _, rest = ref.partition("/")
+    root = next((r for r in roots if r.name == name), roots[0])
+    return root / rest
 
 
 # ---------- stukjes ----------
@@ -188,6 +208,24 @@ class TermRows:
         return np.array(self.indptr, dtype=np.int64), cat(self.cols).astype(np.int32), cat(self.counts).astype(np.int32)
 
 
+def merge_rows(parts: list[TermRows]) -> TermRows:
+    """Woordtellingen van meerdere KB's onder elkaar, met één gezamenlijke vocab."""
+    out = TermRows()
+    for rows in parts:
+        mapping = np.empty(len(rows.vocab), dtype=np.int32)
+        for i, t in enumerate(rows.vocab):
+            j = out.ids.get(t)
+            if j is None:
+                j = out.ids[t] = len(out.vocab)
+                out.vocab.append(t)
+            mapping[i] = j
+        indptr, cols, counts = rows.arrays()
+        out.cols.append(mapping[cols])
+        out.counts.append(counts)
+        out.indptr.extend((indptr[1:] + out.indptr[-1]).tolist())
+    return out
+
+
 class BM25:
     """Okapi BM25 op een kolomindex: per woord de stukjes waarin het voorkomt, zodat een zoekvraag alleen
     die stukjes langsgaat in plaats van de hele KB."""
@@ -323,20 +361,35 @@ class Hit:
 class KB:
     BATCH_SAVE = 128   # na zoveel nieuwe stukjes de cache bijwerken: stoppen kost dan hooguit één batch
 
-    def __init__(self, root: Path, embedder=None, progress=None):
-        """progress(done, total, seconds_left) wordt aangeroepen tijdens het maken van nieuwe embeddings."""
-        self.root = Path(root)
-        self.chunks = load_chunks(self.root)
-        self.keys = [c.key for c in self.chunks]
-        self.bm25 = BM25(rows=self._term_rows())
+    def __init__(self, root: Path | list[Path], embedder=None, progress=None):
+        """root: één KB-map, of een lijst voor meerdere projecten tegelijk. Elke map houdt zijn eigen
+        bewaarde embeddings en woordindex; in het geheugen worden ze één zoekindex, met de projectnaam
+        voor elke referentie (acme/offerte.pdf).
+        progress(done, total, seconds_left) wordt aangeroepen tijdens het maken van nieuwe embeddings."""
+        self.roots = [Path(r) for r in root] if isinstance(root, (list, tuple)) else [Path(root)]
+        self.root = self.roots[0]
         self.embedder = embedder or default_embedder()
         self.progress = progress
-        self.vectors = self._vectors()
+        parts = [self._load(r) for r in self.roots]
+        if len(parts) == 1:
+            self.chunks, rows, self.vectors = parts[0]
+        else:
+            self.chunks = [replace(c, ref=f"{r.name}/{c.ref}") for r, (chunks, _, _) in zip(self.roots, parts)
+                           for c in chunks]
+            rows = merge_rows([rows for _, rows, _ in parts])
+            filled = [v for chunks, _, v in parts if chunks]
+            self.vectors = np.vstack(filled) if filled else np.zeros((0, 1), dtype=np.float32)
+        self.bm25 = BM25(rows=rows)
 
-    def _term_rows(self) -> TermRows:
+    def _load(self, root: Path) -> tuple[list[Chunk], TermRows, np.ndarray]:
+        chunks = load_chunks(root)
+        keys = [c.key for c in chunks]
+        return chunks, self._term_rows(root, chunks, keys), self._vectors(root, chunks, keys)
+
+    def _term_rows(self, root: Path, chunks: list[Chunk], keys: list[str]) -> TermRows:
         """Woordtellingen per stukje, bewaard in <kb>/.hint-meet-cache/bm25-v*.npz: alleen nieuwe of
         gewijzigde stukjes worden opnieuw in woorden gesplitst (bij een grote KB het meeste werk)."""
-        cache = self.root / CACHE_DIR / f"bm25-v{TOKEN_VERSION}.npz"
+        cache = root / CACHE_DIR / f"bm25-v{TOKEN_VERSION}.npz"
         old_keys: list[str] = []
         rows = TermRows()
         if cache.exists():
@@ -348,37 +401,41 @@ class KB:
                 indptr, cols, counts = data["indptr"], data["cols"], data["counts"]
             except Exception:  # noqa: BLE001 - kapotte of half geschreven cache: gewoon opnieuw maken
                 old_keys, rows = [], TermRows()
-        if old_keys and old_keys == self.keys:   # niets veranderd: rechtstreeks gebruiken
+        if old_keys and old_keys == keys:   # niets veranderd: rechtstreeks gebruiken
             rows.indptr, rows.cols, rows.counts = indptr.tolist(), [cols], [counts]
             return rows
         where = {k: i for i, k in enumerate(old_keys)}
-        for c, k in zip(self.chunks, self.keys):
+        for c, k in zip(chunks, keys):
             i = where.get(k)
             if i is None:
                 rows.add_tokens(tokenize(c.embed_text))
             else:
                 rows.add_row(cols[indptr[i]:indptr[i + 1]], counts[indptr[i]:indptr[i + 1]])
         indptr_a, cols_a, counts_a = rows.arrays()
-        cache.parent.mkdir(exist_ok=True)
         tmp = cache.with_name(f".{cache.stem}.{os.getpid()}.tmp.npz")
-        np.savez(tmp, keys=np.array(self.keys, dtype="S40"), indptr=indptr_a, cols=cols_a, counts=counts_a,
-                 vocab=np.frombuffer("\n".join(rows.vocab).encode("utf-8"), dtype=np.uint8))
-        os.replace(tmp, cache)
+        try:
+            cache.parent.mkdir(exist_ok=True)
+            np.savez(tmp, keys=np.array(keys, dtype="S40"), indptr=indptr_a, cols=cols_a, counts=counts_a,
+                     vocab=np.frombuffer("\n".join(rows.vocab).encode("utf-8"), dtype=np.uint8))
+            os.replace(tmp, cache)
+        except OSError as e:  # bv. schijf vol: de KB werkt gewoon, alleen de volgende start is trager
+            tmp.unlink(missing_ok=True)
+            print(f"Woordindex niet bewaard: {e}", file=sys.stderr)
         return rows
 
-    def _vectors(self) -> np.ndarray:
-        if not self.chunks:
+    def _vectors(self, root: Path, chunks: list[Chunk], keys: list[str]) -> np.ndarray:
+        if not chunks:
             return np.zeros((0, 1), dtype=np.float32)
         slug = re.sub(r"[^A-Za-z0-9]+", "-", getattr(self.embedder, "name", "model"))
-        cache = self.root / CACHE_DIR / f"embeddings-{slug}-v{EMBED_VERSION}.npz"
+        cache = root / CACHE_DIR / f"embeddings-{slug}-v{EMBED_VERSION}.npz"
         known: dict[str, np.ndarray] = {}
         if cache.exists():
             data = np.load(cache)
             known = dict(zip(data["keys"].tolist(), data["vecs"]))
-        missing = [c for c, k in zip(self.chunks, self.keys) if k not in known]
+        missing = [c for c, k in zip(chunks, keys) if k not in known]
         if missing:
             import time
-            current = set(self.keys)
+            current = set(keys)
             t0 = time.monotonic()
             for start in range(0, len(missing), self.BATCH_SAVE):
                 batch = missing[start:start + self.BATCH_SAVE]
@@ -389,7 +446,7 @@ class KB:
                     done = start + len(batch)
                     rate = (time.monotonic() - t0) / done
                     self.progress(done, len(missing), rate * (len(missing) - done))
-        return np.stack([known[k] for k in self.keys])
+        return np.stack([known[k] for k in keys])
 
     @staticmethod
     def _save(cache: Path, vectors: dict) -> None:
