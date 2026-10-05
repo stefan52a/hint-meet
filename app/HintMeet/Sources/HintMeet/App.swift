@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var hosting: NSHostingView<OverlayView>!
     var settingsWindow: NSWindow?
     var changes: AnyCancellable?
+    private var refit: DispatchWorkItem?
     private let topLeftKey = "overlayTopLeft"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -94,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             [weak self] _ in
             DispatchQueue.main.async { self?.fit() }
             // het regeltje over een ingetrokken hint verdwijnt na een paar seconden: dan opnieuw passen
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6.5) { self?.fit() }
+            self?.refitLater()
         }
         // slepen aan een rand: de inhoud volgt live, en de nieuwe maat wordt onthouden
         NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) {
@@ -264,6 +265,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func resetPanelSize() { layout.reset() }
+
+    /// Eén uitgestelde fit, die bij elke nieuwe wijziging opnieuw begint (geen stapel timers tijdens streamen).
+    private func refitLater() {
+        refit?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.fit() }
+        refit = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.5, execute: work)
+    }
 
     func fit() {
         if panel.inLiveResize { return }   // tijdens slepen bepaalt de gebruiker de maat
