@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let settings = Settings()
     let layout = PanelLayout()
     var backend: Backend!
+    var preparer: Preparer!
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
@@ -82,8 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let port = Int(ProcessInfo.processInfo.environment["HINT_MEET_PORT"] ?? "") ?? 8765
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
+        preparer = Preparer(settings: settings)
 
-        let view = OverlayView(store: store, backend: backend, settings: settings, layout: layout,
+        let view = OverlayView(store: store, backend: backend, preparer: preparer, settings: settings, layout: layout,
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
                                playRecording: { [weak self] in self?.playRecording() },
@@ -98,7 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fit()
         panel.orderFrontRegardless()
         // meegroeien met de inhoud, met de bovenrand vast; en onthouden waar het paneel staat
-        changes = store.objectWillChange.merge(with: backend.objectWillChange, layout.objectWillChange).sink {
+        changes = store.objectWillChange.merge(with: backend.objectWillChange, layout.objectWillChange,
+                                               preparer.objectWillChange).sink {
             [weak self] _ in
             DispatchQueue.main.async { self?.fit() }
             // het regeltje over een ingetrokken hint verdwijnt na een paar seconden: dan opnieuw passen
@@ -143,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        preparer.stop()   // indexeren bewaart per batch; de volgende keer gaat hij verder
         backend.stopNow()   // geen losse pijplijn achterlaten die nog naar de microfoon luistert
     }
 

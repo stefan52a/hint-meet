@@ -637,6 +637,8 @@ class Progress:
     def update(self, i: int, name: str) -> None:
         self.i, self.name = i, name
         self.started = time.monotonic()
+        if os.environ.get("KB_PREP_MACHINE"):  # voor HintMeet (hint-meet prepare): voortgang als regel
+            print(f"@progress {i - 1} {self.total} Documenten bijwerken · {name}", flush=True)
         self._render("")
 
     def tick(self, done: int, total: int, unit: str) -> None:

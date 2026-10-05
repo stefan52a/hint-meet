@@ -1,5 +1,6 @@
 """Entrypoint: hint-meet live | replay <opname.wav>"""
 import argparse
+import os
 import threading
 import time
 from pathlib import Path
@@ -16,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
     sub.add_parser("index", help="KB vooraf indexeren (embeddings), met voortgang; daarna start live direct")
+    sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning laden;"
+                                   " voortgang als @step/@progress-regels voor de app")
     lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
     lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
@@ -55,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         return calibrate_cmd(a)
     if a.cmd == "live":
         return live_cmd(a)
+    if a.cmd == "prepare":
+        return prepare_cmd(a)
     if a.cmd == "index":
         try:
             root = kb_dir(a.project)
@@ -202,6 +207,58 @@ def replay_cmd(a) -> int:
 
 def fmt_left(seconds: float) -> str:
     return f"{seconds:.0f} s" if seconds < 90 else f"{seconds / 60:.0f} min"
+
+
+def prepare_cmd(a) -> int:
+    """Voor de knop "KB voorbereiden" in HintMeet. Regels die met @ beginnen leest de app:
+    "@step <tekst>" (duur onbekend) en "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
+    import json
+    import subprocess
+
+    def step(text):
+        print(f"@step {text}", flush=True)
+
+    try:
+        root = kb_dir(a.project)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    t0 = time.perf_counter()
+    manifest = root / "_manifest.json"
+    source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
+    if source and Path(source).is_dir():
+        step(f"Documenten bijwerken uit {source}…")
+        tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
+        proc = subprocess.Popen([sys.executable, str(tool), source, str(root)], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
+        try:
+            for line in proc.stdout:
+                print(line.rstrip("\n"), flush=True)
+        except KeyboardInterrupt:  # Stop in de app: kb_prep ook netjes laten stoppen (manifest bijgewerkt)
+            import signal
+            proc.send_signal(signal.SIGINT)
+            proc.wait()
+            raise
+        code = proc.wait()
+        if code == 3:
+            print("Er draait al een kb_prep op deze KB; documenten niet bijgewerkt.", file=sys.stderr)
+        elif code not in (0, 1):  # 1 = sommige bestanden mislukt: de rest is wel bijgewerkt
+            print(f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
+            return code
+    else:
+        step("Geen bronmap bekend; documenten niet bijgewerkt")
+
+    step("KB laden…")
+
+    def progress(done, total, left):
+        print(f"@progress {done} {total} KB indexeren: {done}/{total} stukjes · nog ~{fmt_left(left)}", flush=True)
+
+    kb = KB(root, progress=progress)
+    step("Spraakherkenning laden…")
+    from .audio import Transcriber, kb_terms
+    Transcriber(kb_terms(kb.chunks))
+    step(f"Klaar: {len(kb.chunks)} stukjes in {fmt_left(time.perf_counter() - t0)}")
+    return 0
 
 
 def print_progress(done: int, total: int, left: float) -> None:

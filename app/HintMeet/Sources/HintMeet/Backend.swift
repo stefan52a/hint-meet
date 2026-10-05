@@ -23,6 +23,26 @@ final class Backend: ObservableObject {
 
     var isRunning: Bool { process?.isRunning ?? false }
 
+    /// Python uit de repo-.venv met de omgeving die de pijplijn nodig heeft (ook voor "KB voorbereiden").
+    static func pythonProcess(_ settings: Settings, _ args: [String]) -> Process {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: settings.python)
+        p.arguments = args
+        p.currentDirectoryURL = URL(fileURLWithPath: settings.repoPath)
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONPATH"] = settings.repoPath + "/src"
+        env["PYTHONUNBUFFERED"] = "1"
+        env["KB_ROOT"] = settings.kbRoot
+        // vanuit de Finder gestart kent de app het Homebrew-pad niet; ffmpeg en tesseract staan daar
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
+        for name in Settings.keyNames {   // Keychain gaat voor .env
+            let value = settings.key(name)
+            if !value.isEmpty { env[name] = value }
+        }
+        p.environment = env
+        return p
+    }
+
     /// recording: een opname (mp3, m4a, wav, …) in echte tijd afspelen in plaats van de apparaten.
     func start(recording: String? = nil) {
         guard !isRunning else { return }
@@ -47,21 +67,7 @@ final class Backend: ObservableObject {
         let partner = settings.partner.trimmingCharacters(in: .whitespacesAndNewlines)
         if !partner.isEmpty { args += ["--met", partner] }
 
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: settings.python)
-        p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: settings.repoPath)
-        var env = ProcessInfo.processInfo.environment
-        env["PYTHONPATH"] = settings.repoPath + "/src"
-        env["PYTHONUNBUFFERED"] = "1"
-        env["KB_ROOT"] = settings.kbRoot
-        // vanuit de Finder gestart kent de app het Homebrew-pad niet; ffmpeg en tesseract staan daar
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
-        for name in Settings.keyNames {   // Keychain gaat voor .env
-            let value = settings.key(name)
-            if !value.isEmpty { env[name] = value }
-        }
-        p.environment = env
+        let p = Backend.pythonProcess(settings, args)
 
         try? FileManager.default.createDirectory(at: Backend.logURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)

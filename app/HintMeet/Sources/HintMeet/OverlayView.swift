@@ -4,6 +4,7 @@ import SwiftUI
 struct OverlayView: View {
     @ObservedObject var store: HintStore
     @ObservedObject var backend: Backend
+    @ObservedObject var preparer: Preparer
     @ObservedObject var settings: Settings
     @ObservedObject var layout: PanelLayout
     let send: ([String: Any]) -> Void
@@ -79,10 +80,44 @@ struct OverlayView: View {
                         Button("Meeting starten · \(settings.project)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
                         Button("Opname afspelen…") { playRecording() }
+                        if !preparer.isRunning {
+                            Button("KB voorbereiden") { preparer.start() }
+                                .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
+                                      + "laden, zodat de meeting daarna snel start")
+                        }
                     }
                     .controlSize(.small)
+                    .disabled(preparer.isRunning)
+                    preparation
                 }
             }
+        }
+    }
+
+    /// Voortgang of uitkomst van "KB voorbereiden".
+    @ViewBuilder private var preparation: some View {
+        switch preparer.state {
+        case .idle:
+            EmptyView()
+        case .running:
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    if let f = preparer.fraction {
+                        ProgressView(value: f).frame(maxWidth: .infinity)
+                    } else {
+                        ProgressView().controlSize(.small)
+                        Spacer()
+                    }
+                    Button("Stop") { preparer.stop() }.controlSize(.small)
+                        .help("Stoppen; wat klaar is blijft bewaard en de volgende keer gaat hij verder")
+                }
+                Text(preparer.step + (preparer.since.map { " · " + elapsed(since: $0) } ?? ""))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        case .done(let msg):
+            Text("✓ " + msg).font(.caption).foregroundStyle(.secondary)
+        case .failed(let why):
+            Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 
