@@ -209,22 +209,26 @@ def fmt_left(seconds: float) -> str:
     return f"{seconds:.0f} s" if seconds < 90 else f"{seconds / 60:.0f} min"
 
 
-def run_kb_prep(args: list[str]) -> int:
+def run_kb_prep(args: list[str]) -> tuple[int, str]:
     """tools/kb_prep.py als kindproces, met voortgang als @progress-regels; Ctrl-C (Stop in de app)
-    stuurt kb_prep zelf ook netjes weg, zodat het manifest klopt."""
+    stuurt kb_prep zelf ook netjes weg, zodat het manifest klopt. Geeft de exitcode en de laatste regel."""
     import signal
     import subprocess
     tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
     proc = subprocess.Popen([sys.executable, str(tool), *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
+    last = ""
     try:
         for line in proc.stdout:
-            print(line.rstrip("\n"), flush=True)
+            line = line.rstrip("\n")
+            print(line, flush=True)
+            if line.strip() and not line.startswith("@"):
+                last = line.strip()
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)
         proc.wait()
         raise
-    return proc.wait()
+    return proc.wait(), last
 
 
 def prepare_cmd(a) -> int:
@@ -249,11 +253,11 @@ def prepare_cmd(a) -> int:
             step(f"nodocs-{root.name}", f"{root.name}: geen bronmap bekend; documenten niet bijgewerkt")
             continue
         step(f"docs-{root.name}", f"{root.name}: documenten bijwerken uit {source}…")
-        code = run_kb_prep([source, str(root)])
-        if code == 3:
-            print("Er draait al een kb_prep op deze KB; documenten niet bijgewerkt.", file=sys.stderr)
+        code, last = run_kb_prep([source, str(root)])
+        if code == 3:   # een andere kb_prep is bezig: met de KB zoals hij is verder, wel melden
+            print(f"@warn {root.name}: documenten niet bijgewerkt. {last}", flush=True)
         elif code not in (0, 1):  # 1 = sommige bestanden mislukt: de rest is wel bijgewerkt
-            print(f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
+            print(last or f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
 
     step("kb", "KB laden…")

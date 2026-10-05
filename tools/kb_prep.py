@@ -558,6 +558,16 @@ def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
     return out / rel.parent / shadow_name(rel.name)
 
 
+def lock_holder(text: str) -> str:
+    """" (sinds 11:42, gestart vanuit de terminal, bron …, proces 4711)" uit het lockbestand, of ""."""
+    try:
+        info = json.loads(text)
+        since = datetime.fromtimestamp(info["started"]).strftime("%H:%M")
+        return f" (sinds {since}, gestart vanuit {info['from']}, bron {info['source']}, proces {info['pid']})"
+    except (ValueError, KeyError, TypeError):
+        return ""   # oud of leeg lockbestand
+
+
 def default_root() -> Path:
     """KB_ROOT uit de omgeving of een .env vanaf de werkmap, anders ~/KB_md."""
     if "KB_ROOT" not in os.environ:
@@ -599,12 +609,20 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     a.out.mkdir(parents=True, exist_ok=True)
 
-    with (a.out / LOCK_NAME).open("a") as lock:  # "a": nooit iets leegmaken
+    with (a.out / LOCK_NAME).open("a+") as lock:  # "a+": pas leegmaken als we de lock hebben
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print(f"Er draait al een kb_prep op {a.out}", file=sys.stderr)
+            lock.seek(0)
+            print(f"Er draait al een kb_prep op {a.out}{lock_holder(lock.read())}. Wacht tot die klaar is "
+                  "of stop hem, en probeer het daarna opnieuw.", file=sys.stderr)
             return 3
+        # wie de lock heeft, zodat een tweede kb_prep kan zeggen welke run er al bezig is
+        lock.truncate(0)
+        lock.write(json.dumps({"pid": os.getpid(), "started": time.time(), "source": str(a.src),
+                               "from": "HintMeet" if os.environ.get("KB_PREP_MACHINE")
+                               else "de terminal" if sys.stdin.isatty() else "een script"}))
+        lock.flush()
         try:
             return run(a)
         except KeyboardInterrupt:

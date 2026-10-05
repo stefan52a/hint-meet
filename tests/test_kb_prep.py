@@ -302,6 +302,20 @@ def test_concurrent_run_is_refused(tmp_path):
     assert main([str(src), str(out)]) == 0
 
 
+def test_refusal_says_which_run_holds_the_lock(tmp_path, capsys):
+    import fcntl
+    src, out = make_kb(tmp_path, {"a.txt": "x"})
+    out.mkdir()
+    assert main([str(src), str(out)]) == 0   # schrijft eigen gegevens in het lockbestand
+    capsys.readouterr()
+    with (out / ".kb_prep.lock").open("r+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert main([str(src), str(out)]) == 3
+    err = capsys.readouterr().err
+    assert "Er draait al een kb_prep" in err and "gestart vanuit" in err and str(src.resolve()) in err
+    assert "probeer het daarna opnieuw" in err
+
+
 def test_manifest_saved_after_each_conversion(tmp_path, monkeypatch):
     src, out = make_kb(tmp_path, {"a.txt": "x", "b.txt": "y"})
     real = kb_prep.convert_one

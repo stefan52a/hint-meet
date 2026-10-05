@@ -14,6 +14,8 @@ final class ProgressTask: ObservableObject {
     private var process: Process?
     private var stopRequested = false
     private var summary: String?   // "Klaar: 3 omgezet, …" van kb_prep
+    private var warnings: [String] = []   // "@warn …": klaar, maar met een kanttekening
+    private var lastMessage = ""          // laatste gewone regel: bij een fout de uitleg van het script zelf
     private var stepKey = ""
     private var stepStart = Date()
     private var durations: [String: Double] = [:]
@@ -63,7 +65,10 @@ final class ProgressTask: ObservableObject {
                 if self.stopRequested {
                     self.state = .failed("Gestopt; wat klaar was blijft bewaard, de volgende keer gaat hij verder")
                 } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
-                    self.state = .done(self.summary ?? (self.step.isEmpty ? "Klaar" : self.step))
+                    let done = self.summary ?? (self.step.isEmpty ? "Klaar" : self.step)
+                    self.state = .done(([done] + self.warnings.map { "⚠ " + $0 }).joined(separator: "\n"))
+                } else if proc.terminationReason == .exit && !self.lastMessage.isEmpty {
+                    self.state = .failed("\(what) niet gelukt: \(self.lastMessage)")   // bv. al een kb_prep bezig
                 } else {
                     self.state = .failed("\(what) mislukt (code \(proc.terminationStatus)); zie \(logName)")
                 }
@@ -75,6 +80,8 @@ final class ProgressTask: ObservableObject {
             state = .running
             stopRequested = false
             summary = nil
+            warnings = []
+            lastMessage = ""
             durationsKey = estimateKey
             durations = UserDefaults.standard.dictionary(forKey: durationsKey) as? [String: Double] ?? [:]
             stepKey = "start"
@@ -116,8 +123,12 @@ final class ProgressTask: ObservableObject {
                 fraction = done / total
                 step = parts[2]
             }
+        } else if line.hasPrefix("@warn ") {
+            warnings.append(String(line.dropFirst(6)))
         } else if line.hasPrefix("Klaar:") {
             summary = line
+        } else if !line.trimmingCharacters(in: .whitespaces).isEmpty && !line.hasPrefix("  ✓") {
+            lastMessage = line.trimmingCharacters(in: .whitespaces)
         }
     }
 }
