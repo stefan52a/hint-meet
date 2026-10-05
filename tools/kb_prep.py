@@ -564,8 +564,8 @@ def lock_holder(text: str) -> str:
         info = json.loads(text)
         since = datetime.fromtimestamp(info["started"]).strftime("%H:%M")
         return f" (sinds {since}, gestart vanuit {info['from']}, bron {info['source']}, proces {info['pid']})"
-    except (ValueError, KeyError, TypeError):
-        return ""   # oud of leeg lockbestand
+    except Exception:  # noqa: BLE001 - oud, leeg of vreemd lockbestand: dan zonder details melden
+        return ""
 
 
 def default_root() -> Path:
