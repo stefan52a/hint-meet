@@ -97,10 +97,10 @@ python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/a
 
 `KB_ROOT` komt uit de omgeving, of uit de eerste `.env` in de werkmap of een map daarboven. kb_prep print bij de start de bron- en doelmap. In een terminal toont het één voortgangsregel (`[ 7/18] bestand · pagina 23/80 · nog ~2 min`; pagina's bij PDF en TIFF, slides bij presentaties) en alleen meldingen als eigen regel; naar een pipe of logbestand blijft elke regel staan.
 
-| Optie       | Wat                                                                                       |
-|-------------|-------------------------------------------------------------------------------------------|
-| `--project` | naam van de submap; standaard de naam van de bronmap als je geen doelmap opgeeft         |
-| `--no-ocr`  | OCR uitzetten. Standaard leest kb_prep gescande PDF-pagina's (zonder tekstlaag) uit met Tesseract |
+| Optie         | Wat                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--project` | naam van de submap; standaard de naam van de bronmap als je geen doelmap opgeeft                                                                                          |
+| `--no-ocr`  | OCR uitzetten. Standaard leest kb_prep gescande PDF-pagina's (zonder tekstlaag) uit met Tesseract                                                                         |
 | `--force`   | alles opnieuw omzetten, ook ongewijzigde bronnen, en eigen schaduwbestanden overschrijven die je hebt aangepast. Bestanden die niet van kb_prep zijn blijven altijd staan |
 
 ### Bestanden uitsluiten met `.kbignore`
@@ -191,10 +191,10 @@ In de KB markeert een kopje met `[VERVALLEN]` die sectie als vervallen; hint-mee
 
 `PROVIDER` in `.env` kiest de beslissingslaag:
 
-| Waarde    | Wat                                                                 |
-|-----------|---------------------------------------------------------------------|
-| `jev`     | TypeSafe Jev via de API (key nodig)                                 |
-| `laya`    | Laya lokaal via `laya-serve`, zelfde endpoint, geen cloud-call      |
+| Waarde      | Wat                                                                          |
+| ----------- | ---------------------------------------------------------------------------- |
+| `jev`     | TypeSafe Jev via de API (key nodig)                                          |
+| `laya`    | Laya lokaal via `laya-serve`, zelfde endpoint, geen cloud-call             |
 | `adapter` | TypeSafe's system-one-adapter op een gewone LLM, om zonder Jev-key te testen |
 
 ## Drempels kalibreren
