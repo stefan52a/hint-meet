@@ -35,7 +35,7 @@ struct OverlayView: View {
             if !store.earlier.isEmpty {
                 Divider()
                 ForEach(store.earlier) { h in
-                    Text(h.text).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    Text(HintCard.bullets(h.text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
             if let last = store.utterances.last {
@@ -152,10 +152,18 @@ struct HintCard: View {
     let hint: Hint
     let rate: (Int) -> Void
 
+    /// "- punt" van het model als "• punt" tonen.
+    static func bullets(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return t.hasPrefix("- ") || t.hasPrefix("* ") ? "• " + t.dropFirst(2) : String(line)
+        }.joined(separator: "\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // wat je kunt zeggen: groot, met een accentbalk ervoor zodat het in één blik te vinden is
-            Text(hint.text + (hint.state == .streaming ? " …" : ""))
+            Text(HintCard.bullets(hint.text) + (hint.state == .streaming ? " …" : ""))
                 .font(.system(size: 19, weight: hint.state == .final ? .semibold : .regular))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)

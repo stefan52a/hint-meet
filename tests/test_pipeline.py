@@ -15,7 +15,7 @@ CONFIG = {
     "gate": {"provider": "claude", "model": "m", "intervene_min": 0.6, "urgency_min": 1},
     "moments": ["vraag_aan_mij", "onjuiste_bewering", "smalltalk", "overig"],
     "kb": {"query_turns": 2, "gate_passages": 2, "advise_passages": 3},
-    "advise": {"model": "m", "effort": "low", "max_sentences": 3},
+    "advise": {"model": "m", "effort": "low", "max_points": 4},
 }
 
 TRANSCRIPT = """# kop

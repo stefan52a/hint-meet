@@ -13,7 +13,8 @@ from .gate import format_passages, format_window
 ADVISE_SYSTEM = """Je bent de meeting-copilot van Stefan. Tijdens een gesprek verschijnt jouw hint op zijn scherm; hij leest hem in een paar seconden en gebruikt hem in zijn antwoord.
 
 Regels:
-- Hooguit {max_sentences} korte zinnen en hooguit {max_words} woorden, Nederlands, zakelijk. Begin direct met de inhoud: het antwoord of de correctie eerst, de onderbouwing daarna.
+- Puntsgewijs: 1 tot hooguit {max_points} punten, elk op een eigen regel die begint met "- ". Elk punt kort en steekwoordachtig (richtlijn: hooguit 12 woorden), samen hooguit {max_words} woorden, Nederlands, zakelijk. Geen inleiding, geen lopend proza.
+- Het eerste punt is het antwoord of de correctie, of wat Stefan nu kan zeggen of voorstellen; de volgende punten geven alleen de onderbouwing die hij nodig heeft. Eén punt is genoeg als dat de vraag beantwoordt.
 - Gebruik alleen feiten uit de passages. Noem bedragen, datums en artikelen precies zoals ze daar staan.
 - Stukken of passages die als vervallen gemarkeerd zijn, gebruik je alleen om te zeggen dát iets vervallen is; presenteer hun bedragen nooit als geldend.
 - Zegt iemand iets dat botst met het dossier, zeg dan kort wat wél geldt.
@@ -73,7 +74,7 @@ class ClaudeAdvisor:
         self.effort = config["advise"].get("effort", "low")
         thinking = config["advise"].get("thinking")
         self.extra = {"thinking": {"type": thinking}} if thinking else {}
-        self.system = ADVISE_SYSTEM.format(max_sentences=config["advise"]["max_sentences"],
+        self.system = ADVISE_SYSTEM.format(max_points=config["advise"].get("max_points", 4),
                                            max_words=config["advise"].get("max_words", 40))
 
     def advise(self, window, moment: str, hits, on_text=None) -> Advice:

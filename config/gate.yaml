@@ -26,5 +26,5 @@ advise:
   model: claude-sonnet-5-5 # gekozen 5-10-2026: eerste woorden ±1,1 s (Opus 5.5: ±4,3 s)
   thinking: between_tools  # Sonnet 5.5: thinking uit; alleen bij effort high of lager
   effort: low              # snelheid boven diepgang; het advies is kort
-  max_sentences: 3
+  max_points: 4            # puntsgewijs, 1 tot 4 korte punten
   max_words: 40            # in een paar seconden te lezen
