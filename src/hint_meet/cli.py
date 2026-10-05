@@ -211,12 +211,13 @@ def fmt_left(seconds: float) -> str:
 
 def prepare_cmd(a) -> int:
     """Voor de knop "KB voorbereiden" in HintMeet. Regels die met @ beginnen leest de app:
-    "@step <tekst>" (duur onbekend) en "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
+    "@step <sleutel> <tekst>" (duur onbekend; de app schat hem uit de vorige keer, per sleutel) en
+    "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
     import json
     import subprocess
 
-    def step(text):
-        print(f"@step {text}", flush=True)
+    def step(key, text):
+        print(f"@step {key} {text}", flush=True)
 
     try:
         root = kb_dir(a.project)
@@ -227,7 +228,7 @@ def prepare_cmd(a) -> int:
     manifest = root / "_manifest.json"
     source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
     if source and Path(source).is_dir():
-        step(f"Documenten bijwerken uit {source}…")
+        step("docs", f"Documenten bijwerken uit {source}…")
         tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
         proc = subprocess.Popen([sys.executable, str(tool), source, str(root)], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
@@ -246,18 +247,18 @@ def prepare_cmd(a) -> int:
             print(f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
     else:
-        step("Geen bronmap bekend; documenten niet bijgewerkt")
+        step("nodocs", "Geen bronmap bekend; documenten niet bijgewerkt")
 
-    step("KB laden…")
+    step("kb", "KB laden…")
 
     def progress(done, total, left):
         print(f"@progress {done} {total} KB indexeren: {done}/{total} stukjes · nog ~{fmt_left(left)}", flush=True)
 
     kb = KB(root, progress=progress)
-    step("Spraakherkenning laden…")
+    step("asr", "Spraakherkenning laden…")
     from .audio import Transcriber, kb_terms
     Transcriber(kb_terms(kb.chunks))
-    step(f"Klaar: {len(kb.chunks)} stukjes in {fmt_left(time.perf_counter() - t0)}")
+    step("done", f"Klaar: {len(kb.chunks)} stukjes in {fmt_left(time.perf_counter() - t0)}")
     return 0
 
 

@@ -68,11 +68,20 @@ struct OverlayView: View {
                 if case .failed(let why) = backend.state {
                     Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
-                Picker("Kennisbank", selection: $settings.project) {
-                    Text("— kies een project —").tag("")
-                    ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
+                HStack {
+                    Picker("Kennisbank", selection: $settings.project) {
+                        Text("— kies een project —").tag("")
+                        ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
+                    }
+                    .disabled(preparer.isRunning)
+                    if !settings.project.isEmpty && !preparer.isRunning {
+                        Button("KB laden") { preparer.start() }
+                            .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
+                                  + "laden, zodat de meeting daarna snel start")
+                    }
                 }
                 .controlSize(.small)
+                preparation
                 TextField("Met wie? (komt in de naam van het verslag)", text: $settings.partner)
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                 if !settings.project.isEmpty {
@@ -80,29 +89,25 @@ struct OverlayView: View {
                         Button("Meeting starten · \(settings.project)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
                         Button("Opname afspelen…") { playRecording() }
-                        if !preparer.isRunning {
-                            Button("KB voorbereiden") { preparer.start() }
-                                .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
-                                      + "laden, zodat de meeting daarna snel start")
-                        }
                     }
                     .controlSize(.small)
                     .disabled(preparer.isRunning)
-                    preparation
                 }
             }
         }
     }
 
-    /// Voortgang of uitkomst van "KB voorbereiden".
+    /// Voortgang of uitkomst van "KB laden": echte voortgang als de stap die meldt, anders een schatting
+    /// uit de vorige keer, en alleen de allereerste keer een wieltje.
     @ViewBuilder private var preparation: some View {
         switch preparer.state {
         case .idle:
             EmptyView()
         case .running:
             VStack(alignment: .leading, spacing: 4) {
+                let guess = preparer.estimate(at: tick)
                 HStack(spacing: 8) {
-                    if let f = preparer.fraction {
+                    if let f = preparer.fraction ?? guess?.fraction {
                         ProgressView(value: f).frame(maxWidth: .infinity)
                     } else {
                         ProgressView().controlSize(.small)
@@ -111,7 +116,8 @@ struct OverlayView: View {
                     Button("Stop") { preparer.stop() }.controlSize(.small)
                         .help("Stoppen; wat klaar is blijft bewaard en de volgende keer gaat hij verder")
                 }
-                Text(preparer.step + (preparer.since.map { " · " + elapsed(since: $0) } ?? ""))
+                Text(preparer.step + (guess.map { " · nog ~" + seconds($0.left) + " (schatting)" } ?? "")
+                     + (preparer.since.map { " · " + elapsed(since: $0) } ?? ""))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
         case .done(let msg):
@@ -141,6 +147,10 @@ struct OverlayView: View {
     private var stoppingStep: String {
         // tot de pijplijn iets nieuws meldt, staat er nog "Luistert…"
         store.status.isEmpty || store.status == "Luistert…" ? "Laatste uitspraak verwerken…" : store.status
+    }
+
+    private func seconds(_ s: Double) -> String {
+        s < 90 ? "\(Int(s.rounded())) s" : "\(Int((s / 60).rounded())) min"
     }
 
     private func elapsed(since start: Date) -> String {

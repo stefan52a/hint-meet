@@ -12,6 +12,11 @@ final class Preparer: ObservableObject {
     @Published private(set) var since: Date?
     private var process: Process?
     private var stopRequested = false
+    // stappen zonder eigen voortgang: duur van de vorige keer (per project) als schatting
+    private var stepKey = ""
+    private var stepStart = Date()
+    private var durations: [String: Double] = [:]
+    private var durationsKey: String { "prepareDurations." + settings.project }
     private let settings: Settings
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
@@ -66,6 +71,9 @@ final class Preparer: ObservableObject {
             process = p
             state = .running
             stopRequested = false
+            durations = UserDefaults.standard.dictionary(forKey: durationsKey) as? [String: Double] ?? [:]
+            stepKey = "start"
+            stepStart = Date()
             step = "Starten…"
             fraction = nil
             since = Date()
@@ -80,9 +88,22 @@ final class Preparer: ObservableObject {
         p.interrupt()
     }
 
+    /// Geschatte voortgang van de huidige stap op tijdstip `now`, als die stap geen eigen voortgang meldt
+    /// en de vorige keer is gemeten. Blijft onder 95%: een schatting mag niet "klaar" beloven.
+    func estimate(at now: Date) -> (fraction: Double, left: Double)? {
+        guard isRunning, fraction == nil, let expected = durations[stepKey], expected >= 2 else { return nil }
+        let elapsed = now.timeIntervalSince(stepStart)
+        return (min(elapsed / expected, 0.95), max(expected - elapsed, 0))
+    }
+
     private func read(_ line: String) {
         if line.hasPrefix("@step ") {
-            step = String(line.dropFirst(6))
+            let parts = line.dropFirst(6).split(separator: " ", maxSplits: 1).map(String.init)
+            durations[stepKey] = Date().timeIntervalSince(stepStart)   // de vorige stap is klaar: duur onthouden
+            UserDefaults.standard.set(durations, forKey: durationsKey)
+            stepKey = parts.first ?? ""
+            stepStart = Date()
+            step = parts.count > 1 ? parts[1] : ""
             fraction = nil
         } else if line.hasPrefix("@progress ") {
             let parts = line.dropFirst(10).split(separator: " ", maxSplits: 2).map(String.init)

@@ -165,3 +165,48 @@ def test_embeddings_saved_per_batch_with_progress(tmp_path, monkeypatch):
     emb = FakeEmbedder()
     KB(tmp_path, emb)
     assert emb.calls == 2   # alleen de 2 die nog ontbraken
+
+
+def reference_bm25(docs, query, k1=1.5, b=0.75):
+    """De oorspronkelijke BM25 (per stukje een Counter), als maatstaf voor de kolomindex."""
+    import math
+    from collections import Counter
+    tf = [Counter(d) for d in docs]
+    lens = np.array([len(d) for d in docs], dtype=float)
+    avg = lens.mean()
+    df = Counter(t for d in docs for t in set(d))
+    out = np.zeros(len(docs))
+    for t in set(query):
+        if t not in df:
+            continue
+        idf = math.log(1 + (len(docs) - df[t] + 0.5) / (df[t] + 0.5))
+        f = np.array([c.get(t, 0) for c in tf], dtype=float)
+        out += idf * f * (k1 + 1) / (f + k1 * (1 - b + b * lens / avg))
+    return out
+
+
+def test_bm25_matches_reference():
+    from hint_meet.kb import BM25
+    docs = [tokenize(t) for t in ["agio op aandelen agio", "rente drie procent", "agio en rente", ""]]
+    for q in (["agio"], ["rente", "agio"], ["onbekend"]):
+        assert np.allclose(BM25(docs).scores(q), reference_bm25(docs, q))
+
+
+def test_term_index_is_saved_and_only_changed_chunks_are_retokenized(tmp_path, monkeypatch):
+    import hint_meet.kb as kbmod
+    write(tmp_path, "a.md", "# A\nDe agio is 600.000 euro.")
+    write(tmp_path, "b.md", "# B\nDe rente is drie procent.")
+    first = KB(tmp_path, FakeEmbedder())
+    assert list((tmp_path / kbmod.CACHE_DIR).glob("bm25-v*.npz"))
+
+    calls = []
+    real = kbmod.tokenize
+    monkeypatch.setattr(kbmod, "tokenize", lambda text: calls.append(text) or real(text))
+    again = KB(tmp_path, FakeEmbedder())
+    assert calls == []   # alles uit de bewaarde index
+    assert np.allclose(again.bm25.scores(["agio"]), first.bm25.scores(["agio"]))
+
+    write(tmp_path, "b.md", "# B\nDe rente is vier procent.")
+    changed = KB(tmp_path, FakeEmbedder())
+    assert len(calls) == 1 and "vier" in calls[0]
+    assert changed.search("rente vier procent", k=1)[0].chunk.ref == "b.md"

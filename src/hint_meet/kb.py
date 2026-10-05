@@ -10,7 +10,6 @@ fusion. Embeddings worden per stukje gecachet in <kb>/.hint-meet-cache/; het mod
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import re
 from collections import Counter
@@ -28,6 +27,8 @@ RRF_K = 60
 # Ophogen als de tekst die naar het model gaat verandert (chunking, voorvoegsels, pooling):
 # dan worden gecachte embeddings niet meer gebruikt.
 EMBED_VERSION = 1
+# Ophogen als tokenize() verandert: dan wordt de bewaarde woordindex (bm25-v*.npz) opnieuw gemaakt.
+TOKEN_VERSION = 1
 
 STOPWORDS = set("""
 de het een en van in op te dat die is voor met aan er niet zijn om ook als bij of door naar uit
@@ -155,24 +156,72 @@ def tokenize(text: str) -> list[str]:
     return [t for t in re.findall(r"[a-z0-9à-ÿ]+(?:\.[0-9]+)?", text) if t not in STOPWORDS]
 
 
+class TermRows:
+    """Woordtellingen per stukje, compact: rij i heeft de woorden cols[indptr[i]:indptr[i+1]] (ids in vocab)
+    met aantallen counts[...]. Zo te bewaren in een .npz en snel te laden; de vocab groeit alleen aan."""
+
+    def __init__(self, vocab: list[str] | None = None):
+        self.vocab = vocab or []
+        self.ids = {t: i for i, t in enumerate(self.vocab)}
+        self.indptr = [0]
+        self.cols: list[np.ndarray] = []
+        self.counts: list[np.ndarray] = []
+
+    def add_tokens(self, tokens: list[str]) -> None:
+        tf = Counter(tokens)
+        ids = np.empty(len(tf), dtype=np.int32)
+        for n, t in enumerate(tf):
+            i = self.ids.get(t)
+            if i is None:
+                i = self.ids[t] = len(self.vocab)
+                self.vocab.append(t)
+            ids[n] = i
+        self.add_row(ids, np.fromiter(tf.values(), dtype=np.int32, count=len(tf)))
+
+    def add_row(self, cols: np.ndarray, counts: np.ndarray) -> None:
+        self.cols.append(cols)
+        self.counts.append(counts)
+        self.indptr.append(self.indptr[-1] + len(cols))
+
+    def arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        cat = (lambda xs: np.concatenate(xs)) if self.cols else (lambda xs: np.zeros(0, dtype=np.int32))
+        return np.array(self.indptr, dtype=np.int64), cat(self.cols).astype(np.int32), cat(self.counts).astype(np.int32)
+
+
 class BM25:
-    def __init__(self, docs: list[list[str]], k1: float = 1.5, b: float = 0.75):
+    """Okapi BM25 op een kolomindex: per woord de stukjes waarin het voorkomt, zodat een zoekvraag alleen
+    die stukjes langsgaat in plaats van de hele KB."""
+
+    def __init__(self, docs: list[list[str]] | None = None, k1: float = 1.5, b: float = 0.75, *,
+                 rows: TermRows | None = None):
+        if rows is None:
+            rows = TermRows()
+            for d in docs or []:
+                rows.add_tokens(d)
         self.k1, self.b = k1, b
-        self.tf = [Counter(d) for d in docs]
-        self.len = np.array([len(d) for d in docs], dtype=float)
-        self.avg = float(self.len.mean()) if len(docs) else 0.0
-        df = Counter(t for d in docs for t in set(d))
-        n = len(docs)
-        self.idf = {t: math.log(1 + (n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
+        self.ids = rows.ids
+        indptr, cols, counts = rows.arrays()
+        self.n = len(indptr) - 1
+        row_of = np.repeat(np.arange(self.n, dtype=np.int32), np.diff(indptr))
+        self.len = np.bincount(row_of, weights=counts, minlength=self.n).astype(float)
+        self.avg = float(self.len.mean()) if self.n else 0.0
+        df = np.bincount(cols, minlength=len(rows.vocab))
+        self.idf = np.log(1 + (self.n - df + 0.5) / (df + 0.5))
+        order = np.argsort(cols, kind="stable")
+        self.col_rows = row_of[order]
+        self.col_counts = counts[order].astype(float)
+        self.col_ptr = np.concatenate([[0], np.cumsum(df)])
 
     def scores(self, query: list[str]) -> np.ndarray:
-        out = np.zeros(len(self.tf))
+        out = np.zeros(self.n)
         for t in set(query):
-            idf = self.idf.get(t)
-            if idf is None:
+            j = self.ids.get(t)
+            if j is None:
                 continue
-            f = np.array([tf.get(t, 0) for tf in self.tf], dtype=float)
-            out += idf * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * self.len / self.avg))
+            start, end = self.col_ptr[j], self.col_ptr[j + 1]
+            rows, f = self.col_rows[start:end], self.col_counts[start:end]
+            norm = self.k1 * (1 - self.b + self.b * self.len[rows] / self.avg)
+            out[rows] += self.idf[j] * f * (self.k1 + 1) / (f + norm)
         return out
 
 
@@ -278,10 +327,44 @@ class KB:
         """progress(done, total, seconds_left) wordt aangeroepen tijdens het maken van nieuwe embeddings."""
         self.root = Path(root)
         self.chunks = load_chunks(self.root)
-        self.bm25 = BM25([tokenize(c.embed_text) for c in self.chunks])
+        self.keys = [c.key for c in self.chunks]
+        self.bm25 = BM25(rows=self._term_rows())
         self.embedder = embedder or default_embedder()
         self.progress = progress
         self.vectors = self._vectors()
+
+    def _term_rows(self) -> TermRows:
+        """Woordtellingen per stukje, bewaard in <kb>/.hint-meet-cache/bm25-v*.npz: alleen nieuwe of
+        gewijzigde stukjes worden opnieuw in woorden gesplitst (bij een grote KB het meeste werk)."""
+        cache = self.root / CACHE_DIR / f"bm25-v{TOKEN_VERSION}.npz"
+        old_keys: list[str] = []
+        rows = TermRows()
+        if cache.exists():
+            try:
+                data = np.load(cache)
+                vocab = data["vocab"].tobytes().decode("utf-8")
+                rows = TermRows(vocab.split("\n") if vocab else [])
+                old_keys = data["keys"].astype(str).tolist()
+                indptr, cols, counts = data["indptr"], data["cols"], data["counts"]
+            except Exception:  # noqa: BLE001 - kapotte of half geschreven cache: gewoon opnieuw maken
+                old_keys, rows = [], TermRows()
+        if old_keys and old_keys == self.keys:   # niets veranderd: rechtstreeks gebruiken
+            rows.indptr, rows.cols, rows.counts = indptr.tolist(), [cols], [counts]
+            return rows
+        where = {k: i for i, k in enumerate(old_keys)}
+        for c, k in zip(self.chunks, self.keys):
+            i = where.get(k)
+            if i is None:
+                rows.add_tokens(tokenize(c.embed_text))
+            else:
+                rows.add_row(cols[indptr[i]:indptr[i + 1]], counts[indptr[i]:indptr[i + 1]])
+        indptr_a, cols_a, counts_a = rows.arrays()
+        cache.parent.mkdir(exist_ok=True)
+        tmp = cache.with_name(f".{cache.stem}.{os.getpid()}.tmp.npz")
+        np.savez(tmp, keys=np.array(self.keys, dtype="S40"), indptr=indptr_a, cols=cols_a, counts=counts_a,
+                 vocab=np.frombuffer("\n".join(rows.vocab).encode("utf-8"), dtype=np.uint8))
+        os.replace(tmp, cache)
+        return rows
 
     def _vectors(self) -> np.ndarray:
         if not self.chunks:
@@ -292,10 +375,10 @@ class KB:
         if cache.exists():
             data = np.load(cache)
             known = dict(zip(data["keys"].tolist(), data["vecs"]))
-        missing = [c for c in self.chunks if c.key not in known]
+        missing = [c for c, k in zip(self.chunks, self.keys) if k not in known]
         if missing:
             import time
-            current = {c.key for c in self.chunks}
+            current = set(self.keys)
             t0 = time.monotonic()
             for start in range(0, len(missing), self.BATCH_SAVE):
                 batch = missing[start:start + self.BATCH_SAVE]
@@ -306,7 +389,7 @@ class KB:
                     done = start + len(batch)
                     rate = (time.monotonic() - t0) / done
                     self.progress(done, len(missing), rate * (len(missing) - done))
-        return np.stack([known[c.key] for c in self.chunks])
+        return np.stack([known[k] for k in self.keys])
 
     @staticmethod
     def _save(cache: Path, vectors: dict) -> None:
