@@ -3,7 +3,12 @@ import SwiftUI
 
 struct OverlayView: View {
     @ObservedObject var store: HintStore
+    @ObservedObject var backend: Backend
+    @ObservedObject var settings: Settings
     let send: ([String: Any]) -> Void
+    let startMeeting: () -> Void
+    let playRecording: () -> Void
+    let stopMeeting: () -> Void
     @State private var tick = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -16,9 +21,7 @@ struct OverlayView: View {
                     send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
                 })
             } else {
-                Text(store.connected ? "Luistert…" : "Wacht op hint-meet (hint-meet live --ui)")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                idle
             }
             if !store.earlier.isEmpty {
                 Divider()
@@ -41,15 +44,42 @@ struct OverlayView: View {
         .onReceive(timer) { tick = $0 }   // laat ingetrokken hints na een paar seconden verdwijnen
     }
 
+    /// Geen hint in beeld: wat de pijplijn doet, of knoppen om te beginnen.
+    @ViewBuilder private var idle: some View {
+        switch backend.state {
+        case .running:
+            Text(store.connected ? "Luistert…" : "Pijplijn start… (modellen laden)")
+                .font(.callout).foregroundStyle(.secondary)
+        case .stopping:
+            Text("Stopt… verslag wordt gemaakt").font(.callout).foregroundStyle(.secondary)
+        case .idle, .failed:
+            VStack(alignment: .leading, spacing: 8) {
+                if case .failed(let why) = backend.state {
+                    Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                if settings.project.isEmpty {
+                    Text("Kies een project via 💡 → Instellingen.").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        Button("Meeting starten · \(settings.project)") { startMeeting() }
+                            .buttonStyle(.borderedProminent)
+                        Button("Opname afspelen…") { playRecording() }
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
     private var header: some View {
         HStack(spacing: 6) {
-            Circle().fill(store.connected ? (store.stopped ? Color.gray : Color.green) : Color.orange)
+            Circle().fill(backend.state == .running ? (store.connected ? Color.green : Color.orange) : Color.gray)
                 .frame(width: 7, height: 7)
             Text("hint-meet").font(.caption.weight(.semibold))
             if !store.project.isEmpty { Text("· \(store.project)").font(.caption).foregroundStyle(.secondary) }
             Spacer()
-            if store.connected && !store.stopped {
-                Button("Stop") { send(["type": "stop"]) }.buttonStyle(.borderless).font(.caption)
+            if backend.state == .running {
+                Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)
             }
         }
     }

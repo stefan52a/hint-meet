@@ -41,14 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
 
-        let view = OverlayView(store: store) { [weak self] msg in self?.connection.send(msg) }
+        let view = OverlayView(store: store, backend: backend, settings: settings,
+                               send: { [weak self] msg in self?.connection.send(msg) },
+                               startMeeting: { [weak self] in self?.startMeeting() },
+                               playRecording: { [weak self] in self?.playRecording() },
+                               stopMeeting: { [weak self] in self?.stopMeeting() })
         hosting = NSHostingView(rootView: view)
         panel = OverlayPanel(content: hosting)
         panel.setFrameTopLeftPoint(initialTopLeft())
         fit()
         panel.orderFrontRegardless()
         // meegroeien met de inhoud, met de bovenrand vast; en onthouden waar het paneel staat
-        changes = store.objectWillChange.sink { [weak self] _ in
+        changes = store.objectWillChange.merge(with: backend.objectWillChange).sink { [weak self] _ in
             DispatchQueue.main.async { self?.fit() }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
