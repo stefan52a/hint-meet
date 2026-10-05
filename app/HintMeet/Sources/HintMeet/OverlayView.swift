@@ -4,7 +4,7 @@ import SwiftUI
 struct OverlayView: View {
     @ObservedObject var store: HintStore
     @ObservedObject var backend: Backend
-    @ObservedObject var preparer: Preparer
+    @ObservedObject var preparer: ProgressTask
     @ObservedObject var settings: Settings
     @ObservedObject var layout: PanelLayout
     let send: ([String: Any]) -> Void
@@ -72,7 +72,7 @@ struct OverlayView: View {
                     Text("Kennisbank")
                     ProjectMenu(settings: settings).disabled(preparer.isRunning)
                     if !settings.project.isEmpty && !preparer.isRunning {
-                        Button("KB laden") { preparer.start() }
+                        Button("KB laden") { preparer.startPrepare(settings) }
                             .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
                                   + "laden, zodat de meeting daarna snel start")
                     }
@@ -96,33 +96,7 @@ struct OverlayView: View {
 
     /// Voortgang of uitkomst van "KB laden": echte voortgang als de stap die meldt, anders een schatting
     /// uit de vorige keer, en alleen de allereerste keer een wieltje.
-    @ViewBuilder private var preparation: some View {
-        switch preparer.state {
-        case .idle:
-            EmptyView()
-        case .running:
-            VStack(alignment: .leading, spacing: 4) {
-                let guess = preparer.estimate(at: tick)
-                HStack(spacing: 8) {
-                    if let f = preparer.fraction ?? guess?.fraction {
-                        ProgressView(value: f).frame(maxWidth: .infinity)
-                    } else {
-                        ProgressView().controlSize(.small)
-                        Spacer()
-                    }
-                    Button("Stop") { preparer.stop() }.controlSize(.small)
-                        .help("Stoppen; wat klaar is blijft bewaard en de volgende keer gaat hij verder")
-                }
-                Text(preparer.step + (guess.map { " · nog ~" + seconds($0.left) + " (schatting)" } ?? "")
-                     + (preparer.since.map { " · " + elapsed(since: $0) } ?? ""))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-        case .done(let msg):
-            Text("✓ " + msg).font(.caption).foregroundStyle(.secondary)
-        case .failed(let why):
-            Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    private var preparation: some View { TaskProgressView(task: preparer, tick: tick) }
 
     /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
     private var stopping: some View {

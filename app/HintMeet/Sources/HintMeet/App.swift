@@ -67,7 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let settings = Settings()
     let layout = PanelLayout()
     var backend: Backend!
-    var preparer: Preparer!
+    var preparer: ProgressTask!
+    let kbPrep = ProgressTask(logName: "kb_prep")
+    var kbPrepWindow: NSWindow?
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
@@ -83,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let port = Int(ProcessInfo.processInfo.environment["HINT_MEET_PORT"] ?? "") ?? 8765
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
-        preparer = Preparer(settings: settings)
+        preparer = ProgressTask(logName: "prepare")
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, settings: settings, layout: layout,
                                send: { [weak self] msg in self?.connection.send(msg) },
@@ -147,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         preparer.stop()   // indexeren bewaart per batch; de volgende keer gaat hij verder
+        kbPrep.stop()     // kb_prep legt bij Ctrl-C het manifest vast
         backend.stopNow()   // geen losse pijplijn achterlaten die nog naar de microfoon luistert
     }
 
@@ -192,6 +195,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), "h"))
         menu.addItem(item("Overlay standaardgrootte", #selector(resetPanelSize), ""))
+        menu.addItem(item(kbPrep.isRunning ? "Documenten omzetten (bezig…)" : "Documenten omzetten (kb_prep)…",
+                          #selector(showKBPrep), ""))
         menu.addItem(item("Instellingen…", #selector(showSettings), ","))
         menu.addItem(item("Logboek", #selector(openLog), ""))
         menu.addItem(.separator())
@@ -270,6 +275,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func showKBPrep() {
+        if kbPrepWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            w.title = "Documenten omzetten"
+            w.contentView = NSHostingView(rootView: KBPrepView(settings: settings, task: kbPrep))
+            w.isReleasedWhenClosed = false   // sluiten verbergt alleen; het omzetten loopt door
+            w.center()
+            kbPrepWindow = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        kbPrepWindow?.makeKeyAndOrderFront(nil)
     }
 
     private var stateWatch: AnyCancellable?

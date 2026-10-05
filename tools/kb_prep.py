@@ -650,6 +650,9 @@ class Progress:
             left = (time.monotonic() - self.started) / done * (total - done)
             if left >= 5:
                 tail += f" · nog ~{fmt_duration(left)}"
+        if os.environ.get("KB_PREP_MACHINE"):  # deelvoortgang binnen het bestand, als breuk van het geheel
+            print(f"@progress {self.i - 1 + done / total:.3f} {self.total} Documenten bijwerken · {self.name}{tail}",
+                  flush=True)
         self._render(tail)
 
     def _render(self, tail: str) -> None:

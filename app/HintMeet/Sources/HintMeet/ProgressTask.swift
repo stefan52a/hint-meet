@@ -1,43 +1,45 @@
 import Foundation
 
-/// "KB voorbereiden": draait `hint-meet prepare` (documenten bijwerken, indexeren, spraakherkenning laden),
-/// zodat een meeting daarna snel start. Leest de @step/@progress-regels voor de voortgang in het paneel.
+/// Een Python-taak met voortgang in beeld: "KB laden" (`hint-meet prepare`) en "Documenten omzetten"
+/// (tools/kb_prep.py). Leest de regels "@step <sleutel> <tekst>" en "@progress <klaar> <totaal> <tekst>";
+/// de rest gaat naar het logboek. Stappen zonder eigen voortgang krijgen een schatting uit de vorige keer.
 @MainActor
-final class Preparer: ObservableObject {
+final class ProgressTask: ObservableObject {
     enum State: Equatable { case idle, running, done(String), failed(String) }
 
     @Published private(set) var state: State = .idle
     @Published private(set) var step = ""
-    @Published private(set) var fraction: Double?   // nil: duur onbekend (wieltje)
+    @Published private(set) var fraction: Double?   // nil: duur onbekend (schatting of wieltje)
     @Published private(set) var since: Date?
     private var process: Process?
     private var stopRequested = false
-    // stappen zonder eigen voortgang: duur van de vorige keer (per project) als schatting
+    private var summary: String?   // "Klaar: 3 omgezet, …" van kb_prep
     private var stepKey = ""
     private var stepStart = Date()
     private var durations: [String: Double] = [:]
-    private var durationsKey: String { "prepareDurations." + settings.project }
-    private let settings: Settings
+    private var durationsKey = ""
+    let logURL: URL
 
-    static let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/HintMeet/prepare.log")
-
-    init(settings: Settings) { self.settings = settings }
+    init(logName: String) {
+        logURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/HintMeet/\(logName).log")
+    }
 
     var isRunning: Bool { state == .running }
 
-    func start() {
-        guard !isRunning, settings.backendReady, !settings.project.isEmpty else { return }
-        let p = Backend.pythonProcess(settings, ["-m", "hint_meet.cli", "--project", settings.project, "prepare"])
-        try? FileManager.default.createDirectory(at: Preparer.logURL.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: Preparer.logURL.path, contents: nil)
-        let log = try? FileHandle(forWritingTo: Preparer.logURL)
+    /// okCodes: exitcodes die als geslaagd tellen (kb_prep: 1 = enkele bestanden mislukt, de rest is klaar).
+    func start(_ settings: Settings, args: [String], estimateKey: String, okCodes: Set<Int32> = [0], what: String) {
+        guard !isRunning, settings.backendReady else { return }
+        let p = Backend.pythonProcess(settings, args)
+        p.environment?["KB_PREP_MACHINE"] = "1"
+        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let log = try? FileHandle(forWritingTo: logURL)
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
         var pending = ""   // regels kunnen over twee blokken verdeeld binnenkomen
-        let queue = DispatchQueue(label: "hintmeet.prepare")
+        let queue = DispatchQueue(label: "hintmeet.task")
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
@@ -49,6 +51,7 @@ final class Preparer: ObservableObject {
                 Task { @MainActor [weak self] in lines.forEach { self?.read($0) } }
             }
         }
+        let logName = logURL.lastPathComponent
         p.terminationHandler = { [weak self] proc in
             pipe.fileHandleForReading.readabilityHandler = nil
             queue.async { try? log?.close() }
@@ -57,12 +60,12 @@ final class Preparer: ObservableObject {
                 self.process = nil
                 self.fraction = nil
                 self.since = nil
-                if proc.terminationReason == .exit && proc.terminationStatus == 0 {
-                    self.state = .done(self.step.isEmpty ? "Klaar" : self.step)
-                } else if self.stopRequested {
+                if self.stopRequested {
                     self.state = .failed("Gestopt; wat klaar was blijft bewaard, de volgende keer gaat hij verder")
+                } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
+                    self.state = .done(self.summary ?? (self.step.isEmpty ? "Klaar" : self.step))
                 } else {
-                    self.state = .failed("Voorbereiden mislukt (code \(proc.terminationStatus)); zie prepare.log")
+                    self.state = .failed("\(what) mislukt (code \(proc.terminationStatus)); zie \(logName)")
                 }
             }
         }
@@ -71,6 +74,8 @@ final class Preparer: ObservableObject {
             process = p
             state = .running
             stopRequested = false
+            summary = nil
+            durationsKey = estimateKey
             durations = UserDefaults.standard.dictionary(forKey: durationsKey) as? [String: Double] ?? [:]
             stepKey = "start"
             stepStart = Date()
@@ -82,7 +87,7 @@ final class Preparer: ObservableObject {
         }
     }
 
-    func stop() {   // KB bewaart per batch: de volgende keer verder waar hij was
+    func stop() {   // beide taken bewaren tussendoor: de volgende keer verder waar hij was
         guard let p = process, p.isRunning else { return }
         stopRequested = true
         p.interrupt()
@@ -111,6 +116,26 @@ final class Preparer: ObservableObject {
                 fraction = done / total
                 step = parts[2]
             }
+        } else if line.hasPrefix("Klaar:") {
+            summary = line
         }
+    }
+}
+
+extension ProgressTask {
+    /// "KB laden": documenten bijwerken, indexeren, spraakherkenning laden voor de gekozen projecten.
+    func startPrepare(_ settings: Settings) {
+        guard !settings.project.isEmpty else { return }
+        start(settings, args: ["-m", "hint_meet.cli", "--project", settings.project, "prepare"],
+              estimateKey: "prepareDurations." + settings.project, what: "KB laden")
+    }
+
+    /// tools/kb_prep.py met zijn opties: bronmap → KB_ROOT/<project>.
+    func startKBPrep(_ settings: Settings, source: String, project: String, force: Bool, noOCR: Bool) {
+        var args = [settings.repoPath + "/tools/kb_prep.py", source, "--project", project]
+        if force { args.append("--force") }
+        if noOCR { args.append("--no-ocr") }
+        start(settings, args: args, estimateKey: "kbprepDurations." + project, okCodes: [0, 1],
+              what: "Documenten omzetten")
     }
 }
