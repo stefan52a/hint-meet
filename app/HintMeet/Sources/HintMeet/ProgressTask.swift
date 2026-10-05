@@ -42,40 +42,37 @@ final class ProgressTask: ObservableObject {
         p.standardError = pipe
         let lines = LineSplitter()
         let queue = DispatchQueue(label: "hintmeet.task")   // alle toegang tot `lines` en `log` via deze rij
-        let handle: @Sendable (Data, Bool) -> Void = { [weak self] data, atEnd in
+        // regels en de eindstatus gaan in volgorde via de wachtrij naar de hoofdthread (FIFO): zo is
+        // "Klaar: …" altijd gelezen voordat de taak als klaar wordt gemarkeerd
+        let handle: @Sendable (Data, Bool) -> [String] = { data, atEnd in
             let complete = lines.feed(data, atEnd: atEnd)
             // @-regels zijn alleen voor de voortgangsbalk; het logboek blijft leesbaar
             let readable = complete.filter { !$0.hasPrefix("@") }
             if !readable.isEmpty { log?.write(Data((readable.joined(separator: "\n") + "\n").utf8)) }
-            Task { @MainActor [weak self] in complete.forEach { self?.read($0) } }
+            return complete
         }
         pipe.fileHandleForReading.readabilityHandler = { h in
             let data = h.availableData
             guard !data.isEmpty else { return }
-            queue.async { handle(data, false) }
+            queue.async {
+                let complete = handle(data, false)
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated { complete.forEach { self?.read($0) } }
+                }
+            }
         }
         let logName = logURL.lastPathComponent
         p.terminationHandler = { [weak self] proc in
             pipe.fileHandleForReading.readabilityHandler = nil
             let rest = pipe.fileHandleForReading.readDataToEndOfFile()   // wat nog in de pijp zat
             queue.async {
-                handle(rest, true)
+                let complete = handle(rest, true)
                 try? log?.close()
-            }
-            Task { @MainActor in
-                guard let self, self.process === proc else { return }
-                self.process = nil
-                self.fraction = nil
-                self.since = nil
-                if self.stopRequested {
-                    self.state = .failed("Gestopt; wat klaar was blijft bewaard, de volgende keer gaat hij verder")
-                } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
-                    let done = self.summary ?? (self.step.isEmpty ? "Klaar" : self.step)
-                    self.state = .done(([done] + self.warnings.map { "⚠ " + $0 }).joined(separator: "\n"))
-                } else if proc.terminationReason == .exit && !self.lastMessage.isEmpty {
-                    self.state = .failed("\(what) niet gelukt: \(self.lastMessage)")   // bv. al een kb_prep bezig
-                } else {
-                    self.state = .failed("\(what) mislukt (code \(proc.terminationStatus)); zie \(logName)")
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        complete.forEach { self?.read($0) }
+                        self?.finish(proc, okCodes: okCodes, what: what, logName: logName)
+                    }
                 }
             }
         }
@@ -96,6 +93,23 @@ final class ProgressTask: ObservableObject {
             since = Date()
         } catch {
             state = .failed("Kon niet starten: \(error.localizedDescription)")
+        }
+    }
+
+    private func finish(_ proc: Process, okCodes: Set<Int32>, what: String, logName: String) {
+        guard process === proc else { return }   // een oude run mag een nieuwe niet overschrijven
+        process = nil
+        fraction = nil
+        since = nil
+        if stopRequested {
+            state = .failed("Gestopt; wat klaar was blijft bewaard, de volgende keer gaat hij verder")
+        } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
+            let done = summary ?? (step.isEmpty ? "Klaar" : step)
+            state = .done(([done] + warnings.map { "⚠ " + $0 }).joined(separator: "\n"))
+        } else if proc.terminationReason == .exit && !lastMessage.isEmpty {
+            state = .failed("\(what) niet gelukt: \(lastMessage)")   // bv. al een kb_prep bezig
+        } else {
+            state = .failed("\(what) mislukt (code \(proc.terminationStatus)); zie \(logName)")
         }
     }
 
