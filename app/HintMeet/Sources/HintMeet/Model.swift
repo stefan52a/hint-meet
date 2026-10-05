@@ -34,7 +34,13 @@ final class HintStore: ObservableObject {
     @Published var status = ""      // wat de pijplijn aan het doen is (KB laden, luistert…)
     private(set) var session = ""
 
-    var current: Hint? { hints.last { $0.state != .retracted || Date().timeIntervalSince($0.updated) < 4 } }
+    /// De hint die je kunt gebruiken; ingetrokken hints krijgen nooit de hoofdplek.
+    var current: Hint? { hints.last { $0.state != .retracted } }
+    /// Net ingetrokken (na de huidige hint): een paar seconden als klein regeltje, zodat je weet waarom hij weg is.
+    var justRetracted: Hint? {
+        guard let last = hints.last, last.state == .retracted, Date().timeIntervalSince(last.updated) < 6 else { return nil }
+        return last
+    }
     var earlier: [Hint] {
         guard let cur = current else { return Array(hints.filter { $0.state == .final }.suffix(3)) }
         return Array(hints.filter { $0.state == .final && $0.id != cur.id }.suffix(3))

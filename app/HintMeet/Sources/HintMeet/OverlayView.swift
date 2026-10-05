@@ -5,6 +5,7 @@ struct OverlayView: View {
     @ObservedObject var store: HintStore
     @ObservedObject var backend: Backend
     @ObservedObject var settings: Settings
+    @ObservedObject var layout: PanelLayout
     let send: ([String: Any]) -> Void
     let startMeeting: () -> Void
     let playRecording: () -> Void
@@ -24,15 +25,20 @@ struct OverlayView: View {
             } else {
                 idle
             }
+            if let r = store.justRetracted {
+                // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
+                Text("Ingetrokken (\(r.reason)): \(r.text)")
+                    .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
+            }
             if !store.earlier.isEmpty {
                 Divider()
                 ForEach(store.earlier) { h in
-                    Text(h.text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(h.text).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
             if let last = store.utterances.last {
                 Divider()
-                Text("\(last.speaker): \(last.text)").font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                Text("\(last.speaker): \(last.text)").font(.caption).foregroundStyle(.tertiary).lineLimit(2)
             }
             if let path = store.summaryPath {
                 Button("Verslag met actiepunten openen") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
@@ -40,9 +46,10 @@ struct OverlayView: View {
             }
         }
         .padding(14)
-        .frame(width: 380, alignment: .topLeading)
+        .frame(width: layout.width, alignment: .topLeading)
+        .frame(minHeight: layout.minHeight, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .onReceive(timer) { tick = $0 }   // laat ingetrokken hints na een paar seconden verdwijnen
+        .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
     }
 
     /// Geen hint in beeld: wat de pijplijn doet, of knoppen om te beginnen.
@@ -97,15 +104,22 @@ struct HintCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // wat je kunt zeggen: groot, met een accentbalk ervoor zodat het in één blik te vinden is
             Text(hint.text + (hint.state == .streaming ? " …" : ""))
-                .font(.system(size: 15, weight: hint.state == .final ? .medium : .regular))
-                .strikethrough(hint.state == .retracted)
-                .foregroundStyle(hint.state == .retracted ? .secondary : .primary)
+                .font(.system(size: 19, weight: hint.state == .final ? .semibold : .regular))
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+                .padding(.vertical, 8).padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(hint.state == .final ? 0.14 : 0.06),
+                            in: RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2).fill(Color.accentColor).frame(width: 4).padding(.vertical, 4)
+                }
             switch hint.state {
             case .retracted:
-                Text("Ingetrokken: \(hint.reason)").font(.caption).foregroundStyle(.orange)
+                EmptyView()  // komt hier niet: ingetrokken hints staan als regeltje in de overlay
             case .streaming:
                 Text("bron wordt gecontroleerd").font(.caption).foregroundStyle(.secondary)
             case .final:

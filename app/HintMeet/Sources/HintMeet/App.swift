@@ -3,12 +3,38 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Afmetingen die je zelf aan het paneel geeft door aan een rand te slepen; de hoogte is een minimum,
+/// want meer inhoud laat het paneel nog steeds meegroeien.
+@MainActor
+final class PanelLayout: ObservableObject {
+    static let defaultWidth: CGFloat = 440
+    static let minWidth: CGFloat = 320
+    @Published var width: CGFloat
+    @Published var minHeight: CGFloat
+    private let key = "overlaySize"
+
+    init() {
+        let saved = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        width = saved.count == 2 ? max(saved[0], Self.minWidth) : Self.defaultWidth
+        minHeight = saved.count == 2 ? saved[1] : 0
+    }
+
+    func save() { UserDefaults.standard.set([width, minHeight], forKey: key) }
+
+    func reset() {
+        width = Self.defaultWidth
+        minHeight = 0
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 /// Zwevend paneel dat geen focus steelt: klikken erop haalt je toetsenbord niet uit de meeting.
 final class OverlayPanel: NSPanel {
     init(content: NSView) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
-                   styleMask: [.nonactivatingPanel, .borderless],
+        super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
+                   styleMask: [.nonactivatingPanel, .borderless, .resizable],
                    backing: .buffered, defer: false)
+        minSize = NSSize(width: PanelLayout.minWidth, height: 80)
         isFloatingPanel = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -27,6 +53,7 @@ final class OverlayPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = HintStore()
     let settings = Settings()
+    let layout = PanelLayout()
     var backend: Backend!
     var connection: Connection!
     var panel: OverlayPanel!
@@ -41,20 +68,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
 
-        let view = OverlayView(store: store, backend: backend, settings: settings,
+        let view = OverlayView(store: store, backend: backend, settings: settings, layout: layout,
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
                                playRecording: { [weak self] in self?.playRecording() },
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() })
         hosting = NSHostingView(rootView: view)
+        hosting.sizingOptions = []   // het paneel bepaalt zijn maat zelf (fit), anders kun je niet slepen
         panel = OverlayPanel(content: hosting)
         panel.setFrameTopLeftPoint(initialTopLeft())
         fit()
         panel.orderFrontRegardless()
         // meegroeien met de inhoud, met de bovenrand vast; en onthouden waar het paneel staat
-        changes = store.objectWillChange.merge(with: backend.objectWillChange).sink { [weak self] _ in
-            DispatchQueue.main.async { self?.fit() }
+        changes = store.objectWillChange.merge(with: backend.objectWillChange, layout.objectWillChange).sink {
+            [weak self] _ in DispatchQueue.main.async { self?.fit() }
+        }
+        // slepen aan een rand: de inhoud volgt live, en de nieuwe maat wordt onthouden
+        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.panel.inLiveResize else { return }
+                self.layout.width = self.panel.frame.width
+                self.layout.minHeight = self.panel.frame.height
+            }
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: panel,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.layout.save()
+                self.fit()
+            }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
             [weak self] _ in
@@ -124,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(projectItem)
         menu.addItem(.separator())
         menu.addItem(item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), "h"))
+        menu.addItem(item("Overlay standaardgrootte", #selector(resetPanelSize), ""))
         menu.addItem(item("Instellingen…", #selector(showSettings), ","))
         menu.addItem(item("Logboek", #selector(openLog), ""))
         menu.addItem(.separator())
@@ -201,15 +247,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -20, dy: -20).contains(p) }) { return p }
         }
         let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        return NSPoint(x: f.maxX - 400, y: f.maxY - 20)
+        return NSPoint(x: f.maxX - layout.width - 20, y: f.maxY - 20)
     }
 
+    @objc func resetPanelSize() { layout.reset() }
+
     func fit() {
+        if panel.inLiveResize { return }   // tijdens slepen bepaalt de gebruiker de maat
         hosting.layoutSubtreeIfNeeded()
         let size = hosting.fittingSize
         var frame = panel.frame
         let top = frame.maxY
-        frame.size = NSSize(width: max(size.width, 380), height: size.height)
+        frame.size = NSSize(width: max(size.width, PanelLayout.minWidth), height: size.height)
         frame.origin.y = top - frame.height
         panel.setFrame(frame, display: true)
     }
