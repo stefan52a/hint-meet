@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Afmetingen die je zelf aan het paneel geeft door aan een rand te slepen; de hoogte is een minimum,
+/// Afmetingen die je zelf aan het paneel geeft met de greep rechtsonder (ResizeGrip); de hoogte is een minimum,
 /// want meer inhoud laat het paneel nog steeds meegroeien.
 @MainActor
 final class PanelLayout: ObservableObject {
@@ -41,7 +41,7 @@ final class PanelLayout: ObservableObject {
 final class OverlayPanel: NSPanel {
     init(content: NSView) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
-                   styleMask: [.nonactivatingPanel, .borderless, .resizable],
+                   styleMask: [.nonactivatingPanel, .borderless],
                    backing: .buffered, defer: false)
         minSize = NSSize(width: PanelLayout.minWidth, height: 80)
         isFloatingPanel = true
@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() })
         hosting = NSHostingView(rootView: view)
-        // alleen de gemeten maat doorgeven (voor fit); min/max zouden het slepen aan de randen blokkeren
+        // alleen de gemeten maat doorgeven (voor fit); min/max zouden het venster op de inhoud vastzetten
         hosting.sizingOptions = [.intrinsicContentSize]
         panel = OverlayPanel(content: hosting)
         panel.setFrameTopLeftPoint(initialTopLeft())
@@ -97,24 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { self?.fit() }
             // het regeltje over een ingetrokken hint verdwijnt na een paar seconden: dan opnieuw passen
             self?.refitLater()
-        }
-        // slepen aan een rand: de inhoud volgt live, en de nieuwe maat wordt onthouden
-        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) {
-            [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.panel.inLiveResize else { return }
-                self.layout.width = self.panel.frame.width
-                self.layout.minHeight = self.panel.frame.height
-            }
-        }
-        NotificationCenter.default.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: panel,
-                                               queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.layout.clamp(to: self.panel.screen?.visibleFrame.size)
-                self.layout.save()
-                self.fit()
-            }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
             [weak self] _ in
@@ -276,7 +258,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func fit() {
-        if panel.inLiveResize { return }   // tijdens slepen bepaalt de gebruiker de maat
         hosting.layoutSubtreeIfNeeded()
         let size = hosting.fittingSize
         var frame = panel.frame

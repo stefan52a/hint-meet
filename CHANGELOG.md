@@ -9,7 +9,7 @@ Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details sta
 - De hint met wat je kunt zeggen staat altijd bovenaan: groter (19 pt), vet en in een gekleurd vak met een accentbalk.
 - Een ingetrokken hint neemt die plek niet meer over. Hij verschijnt ongeveer 6 seconden als klein grijs regeltje met de reden, en daarna krimpt het paneel weer.
 - Eerdere hints en de laatste uitspraak staan in een iets grotere letter.
-- Het paneel is aan de randen te vergroten. De maat wordt onthouden; **Overlay standaardgrootte** in het 💡-menu zet hem terug. Het paneel blijft binnen het scherm.
+- Het paneel is te vergroten met de greep rechtsonder (drie schuine streepjes). De maat wordt onthouden; **Overlay standaardgrootte** in het 💡-menu zet hem terug. Het paneel blijft binnen het scherm.
 
 ### kb_prep
 
