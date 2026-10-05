@@ -7,6 +7,7 @@ struct KBPrepView: View {
     @ObservedObject var task: ProgressTask
     @State private var source = ""
     @State private var project = ""
+    @State private var projectEdited = false   // zelf getypt: dan niet meer de bronmap volgen
     @State private var force = false
     @State private var noOCR = false
     @State private var tick = Date()
@@ -19,7 +20,8 @@ struct KBPrepView: View {
                     TextField("Bronmap", text: $source, prompt: Text("map met documenten"))
                     Button("Kies…") { chooseSource() }
                 }
-                TextField("Project", text: $project, prompt: Text("naam van de kennisbank"))
+                TextField("Project", text: Binding(get: { project }, set: { project = $0; projectEdited = true }),
+                          prompt: Text("naam van de kennisbank"))
                 LabeledContent("Doel") {
                     Text(project.isEmpty ? "—" : "\(settings.kbRoot)/\(project)")
                         .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -49,6 +51,9 @@ struct KBPrepView: View {
         .frame(width: 520)
         .onReceive(timer) { tick = $0 }
         .onAppear(perform: prefill)
+        .onChange(of: source) { _, new in
+            if !projectEdited { project = Self.projectName(for: new) }   // standaard: laatste deel van de bronmap
+        }
     }
 
     private var valid: Bool {
@@ -57,16 +62,24 @@ struct KBPrepView: View {
             && project.range(of: #"^[A-Za-z0-9][A-Za-z0-9._ -]*$"#, options: .regularExpression) != nil
     }
 
+    /// Projectnaam uit de bronmap, zoals kb_prep zelf doet: de laatste mapnaam, met tekens die in een
+    /// projectnaam niet mogen vervangen door een streepje.
+    static func projectName(for source: String) -> String {
+        let last = (source as NSString).lastPathComponent
+        let cleaned = last.replacingOccurrences(of: #"[^A-Za-z0-9._ -]"#, with: "-", options: .regularExpression)
+        return cleaned.replacingOccurrences(of: #"^[^A-Za-z0-9]+"#, with: "", options: .regularExpression)
+    }
+
     /// Standaard: de bronmap van het (eerste) gekozen project, uit zijn manifest.
     private func prefill() {
         guard source.isEmpty, let name = settings.selectedProjects.first else { return }
-        project = name
         let manifest = URL(fileURLWithPath: settings.kbRoot).appendingPathComponent(name)
             .appendingPathComponent("_manifest.json")
         if let data = try? Data(contentsOf: manifest),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let root = json["source_root"] as? String {
             source = root
+            project = Self.projectName(for: root)
         }
     }
 
@@ -76,9 +89,6 @@ struct KBPrepView: View {
         panel.canChooseFiles = false
         panel.prompt = "Kies"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        source = url.path
-        if project.isEmpty || !settings.projects.contains(project) {
-            project = url.lastPathComponent   // zoals kb_prep zelf: de naam van de bronmap
-        }
+        source = url.path   // de projectnaam volgt via onChange, tenzij je hem zelf hebt aangepast
     }
 }
