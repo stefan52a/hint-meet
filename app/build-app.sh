@@ -27,7 +27,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>LSUIElement</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>HintMeet luistert mee tijdens je meeting om op het juiste moment een hint uit je dossier te tonen. Audio en transcriptie blijven op deze Mac.</string>
 </dict>
 </plist>

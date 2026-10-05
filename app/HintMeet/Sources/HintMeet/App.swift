@@ -70,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var preparer: ProgressTask!
     let kbPrep = ProgressTask(logName: "kb_prep")
     var kbPrepWindow: NSWindow?
+    private let meetingMenu = NSMenu(title: "Meeting")
+    private let kbMenu = NSMenu(title: "Kennisbank")
+    private let windowMenu = NSMenu(title: "Venster")
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
@@ -118,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "💡"
         let menu = NSMenu()
@@ -147,6 +151,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return .terminateLater
     }
 
+    /// Klik op het Dock-icoon: het paneel tevoorschijn halen (het enige "venster" dat er altijd is).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panel.orderFrontRegardless()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         preparer.stop()   // indexeren bewaart per batch; de volgende keer gaat hij verder
         kbPrep.stop()     // kb_prep legt bij Ctrl-C het manifest vast
@@ -155,56 +165,127 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: menu
 
+    /// Alle menu's worden bij het openen opnieuw opgebouwd, met de actuele stand. Het 💡-menu en de menubalk
+    /// linksboven gebruiken dezelfde onderdelen.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let status: String
-        switch backend.state {
-        case .idle: status = "Geen meeting actief"
-        case .running: status = "Luistert · \(settings.projectLabel)"
-        case .stopping: status = "Stopt… (verslag wordt gemaakt)"
-        case .failed(let why): status = "⚠ \(why)"
+        let parts: [[NSMenuItem]]
+        switch menu {
+        case meetingMenu: parts = [meetingItems()]
+        case kbMenu: parts = [kbItems()]
+        case windowMenu: parts = [overlayItems()]
+        default:   // het 💡-menu
+            let header = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.projectLabel)",
+                               #selector(restartApp), "r")
+            restart.toolTip = "Sluit HintMeet af (een lopende meeting maakt eerst zijn verslag) en start de nieuwste build opnieuw"
+            parts = [[header], meetingItems(), kbItems(), overlayItems(),
+                     [item("Instellingen…", #selector(showSettings), ","), item("Logboek", #selector(openLog), "")],
+                     [restart, item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q")]]
         }
-        let header = NSMenuItem(title: status, action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        menu.addItem(.separator())
+        for (i, group) in parts.enumerated() {
+            if i > 0 { menu.addItem(.separator()) }
+            group.forEach(menu.addItem)
+        }
+    }
 
+    private var statusText: String {
+        switch backend.state {
+        case .idle: return "Geen meeting actief"
+        case .running: return "Luistert · \(settings.projectLabel)"
+        case .stopping: return "Stopt… (verslag wordt gemaakt)"
+        case .failed(let why): return "⚠ \(why)"
+        }
+    }
+
+    private func meetingItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
         if backend.isRunning {
-            menu.addItem(item("Meeting stoppen", #selector(stopMeeting), "s"))
+            items.append(item("Meeting stoppen", #selector(stopMeeting), "s"))
         } else {
             let start = item(settings.project.isEmpty ? "Meeting starten (kies eerst een project)" : "Meeting starten · \(settings.projectLabel)",
                              #selector(startMeeting), "s")
-            start.isEnabled = !settings.project.isEmpty && settings.backendReady
-            menu.addItem(start)
+            start.isEnabled = !settings.project.isEmpty && settings.backendReady && !preparer.isRunning
+            items.append(start)
         }
         let replay = item("Opname afspelen…", #selector(playRecording), "o")
-        replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady
-        menu.addItem(replay)
+        replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady && !preparer.isRunning
+        items.append(replay)
+        return items
+    }
+
+    private func kbItems() -> [NSMenuItem] {
         let projectItem = NSMenuItem(title: "Projecten (meerdere mogelijk)", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for name in settings.projects {
             let it = item(name, #selector(chooseProject(_:)), "")
             it.representedObject = name
             it.state = settings.selectedProjects.contains(name) ? .on : .off
-            it.isEnabled = !backend.isRunning
+            it.isEnabled = !backend.isRunning && !preparer.isRunning
             sub.addItem(it)
         }
         if sub.items.isEmpty { sub.addItem(NSMenuItem(title: "Geen projecten in \(settings.kbRoot)", action: nil, keyEquivalent: "")) }
         projectItem.submenu = sub
-        menu.addItem(projectItem)
-        menu.addItem(.separator())
-        menu.addItem(item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), "h"))
-        menu.addItem(item("Overlay standaardgrootte", #selector(resetPanelSize), ""))
-        menu.addItem(item(kbPrep.isRunning ? "Documenten omzetten (bezig…)" : "Documenten omzetten (kb_prep)…",
-                          #selector(showKBPrep), ""))
-        menu.addItem(item("Instellingen…", #selector(showSettings), ","))
-        menu.addItem(item("Logboek", #selector(openLog), ""))
-        menu.addItem(.separator())
-        let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.projectLabel)",
-                           #selector(restartApp), "r")
-        restart.toolTip = "Sluit HintMeet af (een lopende meeting maakt eerst zijn verslag) en start de nieuwste build opnieuw"
-        menu.addItem(restart)
-        menu.addItem(item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q"))
+        let load = item(preparer.isRunning ? "KB laden (bezig…)" : "KB laden", #selector(prepareKB), "l")
+        load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
+        let prep = item(kbPrep.isRunning ? "Documenten omzetten (bezig…)" : "Documenten omzetten (kb_prep)…",
+                        #selector(showKBPrep), "")
+        return [projectItem, load, prep]
+    }
+
+    private func overlayItems() -> [NSMenuItem] {
+        [item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), ""),
+         item("Overlay standaardgrootte", #selector(resetPanelSize), "")]
+    }
+
+    @objc func prepareKB() { preparer.startPrepare(settings) }
+
+    /// Menubalk linksboven, zoals bij andere apps: HintMeet, Bewerk, Meeting, Kennisbank, Venster, Help.
+    private func buildMainMenu() {
+        let main = NSMenu()
+        func top(_ title: String, _ menu: NSMenu) {
+            let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            it.submenu = menu
+            main.addItem(it)
+        }
+        func fixed(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
+            let m = NSMenu(title: title)
+            items.forEach(m.addItem)
+            return m
+        }
+        func standard(_ title: String, _ action: Selector, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let it = NSMenuItem(title: title, action: action, keyEquivalent: key)   // naar de responder chain
+            it.keyEquivalentModifierMask = mods
+            return it
+        }
+        let about = NSMenuItem(title: "Over HintMeet", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                               keyEquivalent: "")
+        top("HintMeet", fixed("HintMeet", [
+            about, .separator(),
+            item("Instellingen…", #selector(showSettings), ","), .separator(),
+            standard("Verberg HintMeet", #selector(NSApplication.hide(_:)), "h"),
+            standard("Verberg andere", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            standard("Toon alles", #selector(NSApplication.unhideAllApplications(_:)), ""), .separator(),
+            item("HintMeet herstarten", #selector(restartApp), "r"),
+            item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q"),
+        ]))
+        // nodig voor knippen en plakken in tekstvelden, zoals "Met wie?"
+        top("Bewerk", fixed("Bewerk", [
+            standard("Herstel", Selector(("undo:")), "z"), standard("Opnieuw", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            standard("Knip", #selector(NSText.cut(_:)), "x"), standard("Kopieer", #selector(NSText.copy(_:)), "c"),
+            standard("Plak", #selector(NSText.paste(_:)), "v"), standard("Selecteer alles", #selector(NSText.selectAll(_:)), "a"),
+        ]))
+        for (title, menu) in [("Meeting", meetingMenu), ("Kennisbank", kbMenu), ("Venster", windowMenu)] {
+            menu.delegate = self
+            top(title, menu)
+        }
+        NSApp.windowsMenu = windowMenu   // macOS zet de open vensters er zelf onder
+        let help = fixed("Help", [item("Logboek", #selector(openLog), "")])
+        top("Help", help)
+        NSApp.helpMenu = help
+        NSApp.mainMenu = main
     }
 
     private func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
@@ -349,7 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 struct HintMeetMain {
     static func main() {
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)   // geen Dock-icoon, wel menubalk
+        app.setActivationPolicy(.regular)   // gewone app: Dock-icoon en menubalk linksboven, plus het 💡-menu
         let delegate = AppDelegate()
         app.delegate = delegate
         app.run()
