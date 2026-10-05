@@ -39,6 +39,9 @@ final class PanelLayout: ObservableObject {
 
 /// Zwevend paneel dat geen focus steelt: klikken erop haalt je toetsenbord niet uit de meeting.
 final class OverlayPanel: NSPanel {
+    /// Alleen buiten een meeting mag het paneel toetsen ontvangen (invoerveld "Met wie?").
+    var acceptsKeyboard: () -> Bool = { false }
+
     init(content: NSView) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
                    styleMask: [.nonactivatingPanel, .borderless],
@@ -54,7 +57,7 @@ final class OverlayPanel: NSPanel {
         hasShadow = true
         contentView = content
     }
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { acceptsKeyboard() }
     override var canBecomeMain: Bool { false }
 }
 
@@ -71,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var settingsWindow: NSWindow?
     var changes: AnyCancellable?
     private var refit: DispatchWorkItem?
+    private var quitWatch: AnyCancellable?
     private let topLeftKey = "overlayTopLeft"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -88,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // alleen de gemeten maat doorgeven (voor fit); min/max zouden het venster op de inhoud vastzetten
         hosting.sizingOptions = [.intrinsicContentSize]
         panel = OverlayPanel(content: hosting)
+        panel.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
         panel.setFrameTopLeftPoint(initialTopLeft())
         fit()
         panel.orderFrontRegardless()
@@ -119,6 +124,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if settings.project.isEmpty || !settings.backendReady {
             showSettings()
         }
+    }
+
+    /// Afsluiten (ook via Herstarten) wacht tot de pijplijn het verslag heeft gemaakt; het paneel toont de voortgang.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard backend.isRunning else { return .terminateNow }
+        backend.stop()
+        panel.orderFrontRegardless()
+        quitWatch = backend.$state.sink { [weak self] state in
+            guard state != .stopping, state != .running else { return }
+            DispatchQueue.main.async {
+                self?.quitWatch = nil
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -170,6 +190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Instellingen…", #selector(showSettings), ","))
         menu.addItem(item("Logboek", #selector(openLog), ""))
         menu.addItem(.separator())
+        let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.project)",
+                           #selector(restartApp), "r")
+        restart.toolTip = "Sluit HintMeet af (een lopende meeting maakt eerst zijn verslag) en start de nieuwste build opnieuw"
+        menu.addItem(restart)
         menu.addItem(item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q"))
     }
 
@@ -180,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func startMeeting() {
+        panel.resignKey()   // na typen in "Met wie?": toetsenbord terug naar de meeting
         backend.start()
         statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
         panel.orderFrontRegardless()
@@ -187,6 +212,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func stopMeeting() { backend.stop() }
+
+    /// Afsluiten en opnieuw openen (pakt een nieuwe build op); het gekozen project blijft staan, er start
+    /// geen meeting. Een hulpproces wacht tot deze app echt weg is, ook als het verslag nog even duurt.
+    @objc func restartApp() {
+        let bundle = Bundle.main.bundlePath
+        let script = "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; "
+            + "open -n \"$0\""
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c", script, bundle]
+        do {
+            try helper.run()
+        } catch {
+            NSSound.beep()
+            return
+        }
+        NSApp.terminate(nil)   // applicationShouldTerminate wacht eerst op het verslag van een lopende meeting
+    }
 
     /// Een eerdere opname (bv. van de Plaud) afspelen alsof het een live meeting is.
     @objc func playRecording() {

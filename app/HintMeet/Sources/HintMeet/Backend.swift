@@ -8,6 +8,7 @@ final class Backend: ObservableObject {
 
     @Published var state: State = .idle
     @Published var lastLines: [String] = []
+    @Published private(set) var stoppingSince: Date?
     private var process: Process?
     private let settings: Settings
     let port: Int
@@ -43,6 +44,8 @@ final class Backend: ObservableObject {
             if !settings.system.isEmpty { args += ["--system", settings.system] }
         }
         if !settings.summary { args.append("--no-summary") }
+        let partner = settings.partner.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !partner.isEmpty { args += ["--met", partner] }
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: settings.python)
@@ -90,6 +93,7 @@ final class Backend: ObservableObject {
                 self.state = clean ? .idle
                     : .failed("Pijplijn gestopt (\(proc.terminationReason == .exit ? "code \(proc.terminationStatus)" : "signaal \(proc.terminationStatus)")); zie het logboek")
                 self.process = nil
+                self.stoppingSince = nil
             }
         }
         do {
@@ -103,23 +107,26 @@ final class Backend: ObservableObject {
     }
 
     /// Netjes stoppen met SIGINT aan ons eigen kindproces: de pijplijn verwerkt de laatste uitspraak
-    /// en maakt het verslag. Lukt dat niet binnen 60 s, dan beëindigen.
+    /// en maakt het verslag. Geen tijdslimiet: het verslag gaat voor; hangt het, dan is er abort().
     func stop() {
-        guard let p = process, p.isRunning else { return }
+        guard let p = process, p.isRunning, state != .stopping else { return }
         state = .stopping
+        stoppingSince = Date()
         p.interrupt()
+    }
+
+    /// "Nu afbreken" tijdens het stoppen: niet langer op het verslag wachten.
+    func abort() {
+        guard let p = process, p.isRunning else { return }
+        p.terminate()
         Task { @MainActor in
-            for _ in 0..<120 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if !p.isRunning { return }
-            }
-            p.terminate()
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if p.isRunning { kill(p.processIdentifier, SIGKILL) }
         }
     }
 
-    /// Bij afsluiten van de app: hooguit 10 s wachten (verslag), dan beëindigen, desnoods hard.
+    /// Vangnet bij het echt afsluiten (bv. uitschakelen van de Mac): normaal heeft applicationShouldTerminate
+    /// al op het verslag gewacht en draait er niets meer. Anders hooguit 10 s, dan beëindigen, desnoods hard.
     func stopNow() {
         guard let p = process, p.isRunning else { return }
         p.interrupt()

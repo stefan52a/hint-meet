@@ -17,6 +17,7 @@ struct OverlayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
+            if backend.state == .stopping { stopping }
             if let hint = store.current {
                 HintCard(hint: hint, rate: { r in
                     store.rate(hint.id, r)
@@ -60,7 +61,7 @@ struct OverlayView: View {
             Text(store.connected ? (store.status.isEmpty ? "Luistert…" : store.status) : "Pijplijn start…")
                 .font(.callout).foregroundStyle(.secondary)
         case .stopping:
-            Text("Stopt… verslag wordt gemaakt").font(.callout).foregroundStyle(.secondary)
+            EmptyView()   // staat bovenaan in `stopping`, ook als er nog een hint in beeld is
         case .idle, .failed:
             VStack(alignment: .leading, spacing: 8) {
                 if case .failed(let why) = backend.state {
@@ -71,6 +72,8 @@ struct OverlayView: View {
                     ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
                 }
                 .controlSize(.small)
+                TextField("Met wie? (komt in de naam van het verslag)", text: $settings.partner)
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
                 if !settings.project.isEmpty {
                     HStack {
                         Button("Meeting starten · \(settings.project)") { startMeeting() }
@@ -83,12 +86,42 @@ struct OverlayView: View {
         }
     }
 
+    /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
+    private var stopping: some View {
+        HStack(alignment: .center, spacing: 10) {
+            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Afsluiten – wacht op het verslag").font(.callout.weight(.medium))
+                Text(stoppingStep + (backend.stoppingSince.map { " · " + elapsed(since: $0) } ?? ""))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Spacer()
+            Button("Nu afbreken") { backend.abort() }
+                .controlSize(.small).help("Niet op het verslag wachten; het transcript is al opgeslagen of gaat verloren")
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var stoppingStep: String {
+        // tot de pijplijn iets nieuws meldt, staat er nog "Luistert…"
+        store.status.isEmpty || store.status == "Luistert…" ? "Laatste uitspraak verwerken…" : store.status
+    }
+
+    private func elapsed(since start: Date) -> String {
+        let s = max(0, Int(tick.timeIntervalSince(start)))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     private var header: some View {
         HStack(spacing: 6) {
             Circle().fill(backend.state == .running ? (store.connected ? Color.green : Color.orange) : Color.gray)
                 .frame(width: 7, height: 7)
             Text("hint-meet").font(.caption.weight(.semibold))
             if !store.project.isEmpty { Text("· \(store.project)").font(.caption).foregroundStyle(.secondary) }
+            if backend.isRunning && !settings.partner.isEmpty {
+                Text("· met \(settings.partner)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
             Spacer()
             if backend.state == .running {
                 Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)

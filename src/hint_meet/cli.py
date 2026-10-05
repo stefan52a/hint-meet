@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
     lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
+    lv.add_argument("--met", default="", help="met wie je spreekt; komt in de naam en kop van het verslag")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -343,6 +344,7 @@ def live_cmd(a) -> int:
         if session.run(until=until):
             print("\nGestopt.")
     finally:
+        status("Transcript opslaan…")  # de app toont tijdens het afsluiten waar de pijplijn is
         session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
     if session.overflows:
         print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
@@ -360,11 +362,14 @@ def live_cmd(a) -> int:
     print(f"Transcript: {out}")
     if not a.no_summary and len(session.utterances) >= 3:
         from .summary import summarize, write_note
+        status(f"Verslag maken ({len(session.utterances)} uitspraken)…")
         try:
             md = summarize(session.utterances, config)
             # een testrun (--wav) hoort niet als echte meeting in de KB
-            note = write_note(Path("logs") if a.wav else root, session.utterances, shown_hints, md, started)
+            note = write_note(Path("logs") if a.wav else root, session.utterances, shown_hints, md, started,
+                              project=root.name, partner=a.met)
             print(f"\n{md}\n\nVerslag: {note}")
+            status("Verslag klaar")
             if hub:
                 hub.send(type="summary", markdown=md, path=str(note))
         except Exception as e:  # noqa: BLE001 - het verslag mag het transcript niet kosten

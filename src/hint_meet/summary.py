@@ -4,6 +4,7 @@ De notitie komt in <kb>/meetings/, zodat ze bij een volgende meeting zelf kennis
 die map met rust (alleen eigen schaduwbestanden worden opgeruimd)."""
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -34,19 +35,30 @@ def summarize(utterances, config, client=None) -> str:
     return next((b.text for b in response.content if b.type == "text"), "").strip()
 
 
-def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float) -> Path:
+def name_part(text: str, limit: int = 60) -> str:
+    """Stukje bestandsnaam uit vrije tekst: geen / : en dergelijke, witruimte samengevoegd, niet te lang."""
+    text = re.sub(r'[\x00-\x1f/\\:*?"<>|]+', "-", text)
+    return re.sub(r"\s+", " ", text).strip(" .-")[:limit].strip(" .-")
+
+
+def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float,
+               project: str = "", partner: str = "") -> Path:
+    """Verslag als <datum-tijd>-<project>-met-<wie>.md (of ...-<project>-gesprek.md zonder naam)."""
     stamp = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(started))
+    project, partner = name_part(project), name_part(partner)
+    base = "-".join(p for p in (stamp, project, f"met-{partner}" if partner else "gesprek") if p)
     folder = kb_root / "meetings"
     folder.mkdir(parents=True, exist_ok=True)
     n = 1
     while True:   # exclusief aanmaken: nooit een eerder verslag overschrijven, ook niet tegelijk
-        path = folder / (f"{stamp}-gesprek.md" if n == 1 else f"{stamp}-gesprek-{n}.md")
+        path = folder / (f"{base}.md" if n == 1 else f"{base}-{n}.md")
         try:
             handle = path.open("x", encoding="utf-8")
             break
         except FileExistsError:
             n += 1
-    lines = [f"# Gesprek {time.strftime('%d-%m-%Y %H:%M', time.localtime(started))}", "",
+    title = "Gesprek" + (f" met {partner}" if partner else "") + (f" · {project}" if project else "")
+    lines = [f"# {title} · {time.strftime('%d-%m-%Y %H:%M', time.localtime(started))}", "",
              "> Automatisch verslag door hint-meet; transcript via spraakherkenning.", "", summary_md, "",
              "## Getoonde hints",
              "", "> Suggesties van hint-meet tijdens het gesprek, geen afspraken of besluiten.", ""]
