@@ -154,8 +154,8 @@ def ocr_image(img, what: str) -> str:
             img = img.convert("RGB")
         if img.width > OCR_STRIP * 4:
             img = img.resize((OCR_STRIP * 4, max(1, img.height * OCR_STRIP * 4 // img.width)))
-        strips = [img.crop((0, y, img.width, min(y + OCR_STRIP, img.height)))
-                  for y in range(0, img.height, OCR_STRIP)]
+        strips = (img.crop((0, y, img.width, min(y + OCR_STRIP, img.height)))
+                  for y in range(0, img.height, OCR_STRIP))  # één strook tegelijk in het geheugen
         return "\n".join(pytesseract.image_to_string(s, lang="nld+eng", timeout=OCR_TIMEOUT).strip()
                          for s in strips).strip()
     except Exception as e:  # noqa: BLE001
@@ -215,13 +215,15 @@ def repaired_ooxml(path: Path):
     """Kopie van een Office-bestand (in het geheugen) waarin elk onderdeel een content-type heeft."""
     import zipfile
     from io import BytesIO
+    from xml.sax.saxutils import escape
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         ct = z.read("[Content_Types].xml").decode("utf-8")
         known = {m.lower() for m in re.findall(r'Extension="([^"]+)"', ct)}
         missing = sorted({n.rsplit(".", 1)[-1].lower() for n in names
                           if "." in n.rsplit("/", 1)[-1] and n != "[Content_Types].xml"} - known)
-        extra = "".join(f'<Default Extension="{e}" ContentType="application/octet-stream"/>' for e in missing)
+        extra = "".join(f'<Default Extension="{escape(e, {chr(34): "&quot;"})}" ContentType="application/octet-stream"/>'
+                        for e in missing)
         buf = BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
             for n in names:
@@ -466,13 +468,18 @@ def readable_chars(body: str) -> int:
 
 # ---------- hoofdloop ----------
 
+def all_zero(path: Path) -> bool:
+    with path.open("rb") as f:
+        return all(not chunk.strip(b"\0") for chunk in iter(lambda: f.read(1 << 20), b""))
+
+
 def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str, tick=no_tick) -> tuple[str, int]:
     """Zet src om naar dst; geeft de sha1 van het geschreven bestand en het aantal leesbare tekens."""
     ext = src.suffix.lower()
     fn = CONVERTERS[ext]
     with src.open("rb") as f:
         head = f.read(4096)
-    if head and not head.strip(b"\0"):
+    if head and not head.strip(b"\0") and all_zero(src):
         raise RuntimeError("bestand bevat alleen nullen (beschadigd, bv. een Dropbox-conflictkopie)")
     if ext in {".docx", ".xlsx", ".xlsm", ".pptx"} and not head.startswith(b"PK"):
         raise RuntimeError(f"geen geldig {ext}-bestand (ander formaat met een {ext}-naam?)")
@@ -671,9 +678,10 @@ def is_build_dir(name: str, siblings: list[str]) -> bool:
             or (name in BUILD_DIRS and not PROJECT_MARKERS.isdisjoint(siblings)))
 
 
-def iter_sources(src_root: Path):
-    """Alle bestanden onder src_root, zonder af te dalen in dependency- en build-mappen."""
-    for dirpath, dirnames, filenames in os.walk(src_root):
+def iter_sources(src_root: Path, unreadable: list[Path]):
+    """Alle bestanden onder src_root, zonder af te dalen in dependency- en build-mappen.
+    Mappen die niet te lezen zijn komen in unreadable: hun bestanden zijn niet weg, alleen onzichtbaar."""
+    for dirpath, dirnames, filenames in os.walk(src_root, onerror=lambda e: unreadable.append(Path(e.filename))):
         dirnames[:] = [d for d in dirnames if not is_build_dir(d, filenames)]
         for name in filenames:
             yield Path(dirpath) / name
@@ -713,7 +721,8 @@ def run(a: argparse.Namespace) -> int:
     todo: list[Path] = []
     ignore = load_ignore(a.src)
     PDF_PASSWORDS[:] = load_passwords(a.src)
-    for src in sorted(iter_sources(a.src)):
+    unreadable: list[Path] = []
+    for src in sorted(iter_sources(a.src, unreadable)):
         if src.name.startswith(("~$", ".")) or is_own_output(src, a.out) or src == a.out / LOCK_NAME:
             continue
         if ignore and ignore.match_file(src.relative_to(a.src).as_posix()):
@@ -724,6 +733,13 @@ def run(a: argparse.Namespace) -> int:
             stats["unsupported"] += 1
             continue
         todo.append(src)
+
+    for d in unreadable:
+        print(f"  ! {d}: map niet te lezen, bestaande schaduwbestanden blijven staan", file=sys.stderr)
+        stats["conflict"] += 1
+    for key, entry in manifest.items():  # niet opruimen wat we alleen niet konden zien
+        if any(Path(entry.get("source", "")).is_relative_to(d) for d in unreadable):
+            expected.add(key)
 
     progress = Progress(len(todo))
     try:

@@ -1127,3 +1127,23 @@ def test_encrypted_pdf_opens_with_password_from_kbpasswords(tmp_path):
     assert main([str(src), str(out)]) == 0
     assert "Contract met voldoende tekst" in (out / ("contract.pdf" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
     assert not (out / (".kbpasswords" + SHADOW_SUFFIX)).exists()
+
+
+def test_zero_prefix_with_content_later_is_not_called_broken(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {})
+    (src / "data.txt").write_bytes(bytes(5000) + b"echte inhoud verderop in het bestand, lang genoeg om te tellen")
+    main([str(src), str(out)])
+    assert "alleen nullen" not in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root kan alles lezen")
+def test_unreadable_dir_keeps_its_shadows(tmp_path):
+    long = "inhoud die lang genoeg is om niet als weinig tekst te tellen"
+    src, out = make_kb(tmp_path, {"a.txt": long, "dicht/b.txt": long})
+    assert main([str(src), str(out)]) == 0
+    (src / "dicht").chmod(0)
+    try:
+        assert main([str(src), str(out)]) == 1  # gemeld als conflict
+        assert "dicht/b.txt" + SHADOW_SUFFIX in shadows(out)
+    finally:
+        (src / "dicht").chmod(0o755)

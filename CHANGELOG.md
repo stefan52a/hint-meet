@@ -1,0 +1,21 @@
+# Changelog
+
+Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details staan in `git log`.
+
+## 2026-10-05
+
+### Overlay
+
+- De hint met wat je kunt zeggen staat altijd bovenaan: groter (19 pt), vet en in een gekleurd vak met een accentbalk.
+- Een ingetrokken hint neemt die plek niet meer over. Hij verschijnt ongeveer 6 seconden als klein grijs regeltje met de reden, en daarna krimpt het paneel weer.
+- Eerdere hints en de laatste uitspraak staan in een iets grotere letter.
+- Het paneel is aan de randen te vergroten. De maat wordt onthouden; **Overlay standaardgrootte** in het 💡-menu zet hem terug. Het paneel blijft binnen het scherm.
+
+### kb_prep
+
+- Bronbestanden met een heel lange naam kunnen weer worden omgezet. De naam van het schaduwbestand wordt dan ingekort, met een hash erachter.
+- Wachtwoorden voor beveiligde PDF's in `.kbpasswords` in de bronmap (zie README).
+- `node_modules`, verborgen mappen (`.git`, `.venv`) en build-mappen naast een projectbestand worden overgeslagen.
+- Robuuster bij lastige bestanden: Word-bestanden met ingesloten fonts of WMF/EMF-plaatjes, heel hoge scans (OCR in stroken) en JSON met commentaar.
+- Duidelijke meldingen voor bestanden die alleen nullen bevatten (zoals kapotte Dropbox-conflictkopieën), voor een `.xlsx` die eigenlijk een ander formaat heeft, en voor PDF's waarvan het wachtwoord ontbreekt.
+- Een map die niet te lezen is, laat zijn bestaande schaduwbestanden staan in plaats van ze op te ruimen.

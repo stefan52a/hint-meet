@@ -14,9 +14,18 @@ final class PanelLayout: ObservableObject {
     private let key = "overlaySize"
 
     init() {
-        let saved = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
-        width = saved.count == 2 ? max(saved[0], Self.minWidth) : Self.defaultWidth
+        let saved = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter(\.isFinite)
+        width = saved.count == 2 ? saved[0] : Self.defaultWidth
         minHeight = saved.count == 2 ? saved[1] : 0
+        clamp(to: NSScreen.main?.visibleFrame.size)
+    }
+
+    /// Nooit kleiner dan het minimum en nooit groter dan het scherm (bv. na wisselen naar een kleiner scherm).
+    func clamp(to screen: NSSize?) {
+        let maxW = screen.map { $0.width - 40 } ?? 2000
+        let maxH = screen.map { $0.height * 0.8 } ?? 1200
+        width = min(max(width, Self.minWidth), max(maxW, Self.minWidth))
+        minHeight = min(max(minHeight, 0), maxH)
     }
 
     func save() { UserDefaults.standard.set([width, minHeight], forKey: key) }
@@ -82,7 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.orderFrontRegardless()
         // meegroeien met de inhoud, met de bovenrand vast; en onthouden waar het paneel staat
         changes = store.objectWillChange.merge(with: backend.objectWillChange, layout.objectWillChange).sink {
-            [weak self] _ in DispatchQueue.main.async { self?.fit() }
+            [weak self] _ in
+            DispatchQueue.main.async { self?.fit() }
+            // het regeltje over een ingetrokken hint verdwijnt na een paar seconden: dan opnieuw passen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.5) { self?.fit() }
         }
         // slepen aan een rand: de inhoud volgt live, en de nieuwe maat wordt onthouden
         NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) {
@@ -97,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.layout.clamp(to: self.panel.screen?.visibleFrame.size)
                 self.layout.save()
                 self.fit()
             }
@@ -260,6 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let top = frame.maxY
         frame.size = NSSize(width: max(size.width, PanelLayout.minWidth), height: size.height)
         frame.origin.y = top - frame.height
+        if let vf = panel.screen?.visibleFrame, frame.minY < vf.minY {
+            frame.origin.y = min(vf.minY, vf.maxY - frame.height)   // onderrand niet buiten beeld laten groeien
+        }
         panel.setFrame(frame, display: true)
     }
 
