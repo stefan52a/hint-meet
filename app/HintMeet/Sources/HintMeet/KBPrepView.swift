@@ -8,6 +8,7 @@ struct KBPrepView: View {
     @State private var source = ""
     @State private var project = ""
     @State private var projectEdited = false   // zelf getypt: dan niet meer de bronmap volgen
+    @State private var prefilledSource = ""     // bronmap uit het manifest: die hoort bij de bestaande KB
     @State private var force = false
     @State private var noOCR = false
     @State private var tick = Date()
@@ -52,7 +53,8 @@ struct KBPrepView: View {
         .onReceive(timer) { tick = $0 }
         .onAppear(perform: prefill)
         .onChange(of: source) { _, new in
-            if !projectEdited { project = Self.projectName(for: new) }   // standaard: laatste deel van de bronmap
+            // standaard: laatste deel van de bronmap; behalve de bronmap van de bestaande KB zelf
+            if !projectEdited && new != prefilledSource { project = Self.projectName(for: new) }
         }
     }
 
@@ -78,8 +80,9 @@ struct KBPrepView: View {
         if let data = try? Data(contentsOf: manifest),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let root = json["source_root"] as? String {
+            prefilledSource = root
             source = root
-            project = Self.projectName(for: root)
+            project = name   // de bestaande KB bijwerken, ook als die anders heet dan de bronmap
         }
     }
 
