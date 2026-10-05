@@ -40,25 +40,28 @@ final class ProgressTask: ObservableObject {
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
-        var pending = ""   // regels kunnen over twee blokken verdeeld binnenkomen
-        let queue = DispatchQueue(label: "hintmeet.task")
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+        let lines = LineSplitter()
+        let queue = DispatchQueue(label: "hintmeet.task")   // alle toegang tot `lines` en `log` via deze rij
+        let handle: @Sendable (Data, Bool) -> Void = { [weak self] data, atEnd in
+            let complete = lines.feed(data, atEnd: atEnd)
+            // @-regels zijn alleen voor de voortgangsbalk; het logboek blijft leesbaar
+            let readable = complete.filter { !$0.hasPrefix("@") }
+            if !readable.isEmpty { log?.write(Data((readable.joined(separator: "\n") + "\n").utf8)) }
+            Task { @MainActor [weak self] in complete.forEach { self?.read($0) } }
+        }
+        pipe.fileHandleForReading.readabilityHandler = { h in
+            let data = h.availableData
             guard !data.isEmpty else { return }
-            queue.async {
-                pending += String(decoding: data, as: UTF8.self)
-                var lines = pending.components(separatedBy: "\n")
-                pending = lines.removeLast()
-                // @-regels zijn alleen voor de voortgangsbalk; het logboek blijft leesbaar
-                let readable = lines.filter { !$0.hasPrefix("@") }
-                if !readable.isEmpty { log?.write(Data((readable.joined(separator: "\n") + "\n").utf8)) }
-                Task { @MainActor [weak self] in lines.forEach { self?.read($0) } }
-            }
+            queue.async { handle(data, false) }
         }
         let logName = logURL.lastPathComponent
         p.terminationHandler = { [weak self] proc in
             pipe.fileHandleForReading.readabilityHandler = nil
-            queue.async { try? log?.close() }
+            let rest = pipe.fileHandleForReading.readDataToEndOfFile()   // wat nog in de pijp zat
+            queue.async {
+                handle(rest, true)
+                try? log?.close()
+            }
             Task { @MainActor in
                 guard let self, self.process === proc else { return }
                 self.process = nil
@@ -150,5 +153,25 @@ extension ProgressTask {
         if noOCR { args.append("--no-ocr") }
         start(settings, args: args, estimateKey: "kbprepDurations." + project, okCodes: [0, 1],
               what: "Documenten omzetten")
+    }
+}
+
+/// Splitst uitvoer op bytes in hele regels en decodeert pas dan: een é of ✓ kan over twee blokken vallen.
+/// Alleen gebruikt vanaf één seriële wachtrij.
+final class LineSplitter: @unchecked Sendable {
+    private var pending = Data()
+
+    func feed(_ data: Data, atEnd: Bool) -> [String] {
+        pending.append(data)
+        var out: [String] = []
+        while let nl = pending.firstIndex(of: 0x0A) {
+            out.append(String(decoding: pending[pending.startIndex..<nl], as: UTF8.self))
+            pending.removeSubrange(pending.startIndex...nl)
+        }
+        if atEnd && !pending.isEmpty {   // laatste regel zonder regeleinde
+            out.append(String(decoding: pending, as: UTF8.self))
+            pending.removeAll()
+        }
+        return out
     }
 }
