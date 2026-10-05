@@ -158,7 +158,7 @@ hint-meet --project acme calibrate gesprek.txt --gate jev  # alleen de gate, dre
 hint-meet live --devices                                    # audioapparaten tonen
 ```
 
-Overlay: bouw de app één keer met `app/build-app.sh`, start `app/build/HintMeet.app` en draai `hint-meet --project acme live --ui`. Het paneel blijft boven je meeting zonder je toetsenbord over te nemen; 💡 in de menubalk toont of verbergt het. 👍/👎 komt in `logs/feedback.jsonl`. Na afloop schrijft hint-meet een verslag met actiepunten in `<KB>/meetings/` (uit te zetten met `--no-summary`).
+App: bouw één keer met `app/build-app.sh` en start `app/build/HintMeet.app`. Kies in het menu 💡 een project en start de meeting; de app start de pijplijn zelf (uit `.venv` in deze map) en stopt hem ook weer. API-keys zet je in Instellingen (Keychain). Zonder app kan het ook: `hint-meet --project acme live --ui` met alleen de overlay. Het paneel blijft boven je meeting zonder je toetsenbord over te nemen; 💡 in de menubalk toont of verbergt het. 👍/👎 komt in `logs/feedback.jsonl`. Na afloop schrijft hint-meet een verslag met actiepunten in `<KB>/meetings/` (uit te zetten met `--no-summary`).
 
 Live bewaart het transcript in `logs/live-<datum>.txt`, in hetzelfde formaat als de testtranscripten: zet er `#! advies:`-regels onder en speel het af met `replay` om drempels te kalibreren.
 

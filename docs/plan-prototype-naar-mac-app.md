@@ -68,6 +68,10 @@ Elke mijlpaal eindigt met een checkpoint: ik laat het resultaat zien, jij beslis
 
 ### M6. Mac-app (2 tot 3 sessies)
 
+**Stand 5-10-2026, deel 1 klaar: menubalk-app die de pijplijn beheert.** Menu: status, meeting starten/stoppen, project kiezen (mappen in KB_ROOT), overlay tonen, instellingen, logboek. Instellingen: project, KB-map, microfoon, systeemaudio (BlackHole), verslag aan/uit, API-keys in de Keychain (gaan voor `.env`), pad van de projectmap. De app start `hint-meet live --ui` als kindproces met de `.venv` van deze map, stopt netjes via de overlay-verbinding (verslag komt nog) en stopt de pijplijn ook bij afsluiten van de app (getest: binnen 9 s, geen proces achtergebleven). Ad-hoc ondertekend met NSMicrophoneUsageDescription. Logboek in `~/Library/Logs/HintMeet/backend.log`.
+
+**Deel 2, nog te doen (vraagt Apple Developer-account):** Python, MLX, modellen en pijplijn in de `.app` verpakken (werkt dan zonder deze projectmap), ondertekenen met Developer ID, notariseren, `.dmg`. Systeemaudio via ScreenCaptureKit in plaats van BlackHole.
+
 - Menubalk-app in SwiftUI; de Python-pijplijn draait daarachter als lokaal proces.
 - Projectkeuze (welke KB), start/stop, rechten voor microfoon en schermopname, instellingen (drempels, provider, keys in de Keychain).
 - Ondertekend en genotariseerd `.app`/`.dmg`, zodat het zonder waarschuwingen installeert.

@@ -23,18 +23,23 @@ final class OverlayPanel: NSPanel {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = HintStore()
+    let settings = Settings()
+    var backend: Backend!
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
     var hosting: NSHostingView<OverlayView>!
+    var settingsWindow: NSWindow?
     var changes: AnyCancellable?
     private let topLeftKey = "overlayTopLeft"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let port = Int(ProcessInfo.processInfo.environment["HINT_MEET_PORT"] ?? "") ?? 8765
         connection = Connection(port: port, store: store)
+        backend = Backend(settings: settings, port: port)
+        backend.sendStop = { [weak self] in self?.connection.send(["type": "stop"]) }
 
         let view = OverlayView(store: store) { [weak self] msg in self?.connection.send(msg) }
         hosting = NSHostingView(rootView: view)
@@ -55,16 +60,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "💡"
         let menu = NSMenu()
-        menu.addItem(withTitle: "Overlay tonen/verbergen", action: #selector(togglePanel), keyEquivalent: "h")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Stop HintMeet", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.delegate = self   // menu wordt bij elke klik opnieuw opgebouwd, met de actuele stand
         statusItem.menu = menu
 
         connection.start()
+        if ProcessInfo.processInfo.environment["HINT_MEET_AUTOSTART"] != nil {
+            startMeeting()
+        } else if settings.project.isEmpty || !settings.backendReady {
+            showSettings()
+        }
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        backend.stopNow()   // geen losse pijplijn achterlaten die nog naar de microfoon luistert
+    }
+
+    // MARK: menu
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let status: String
+        switch backend.state {
+        case .idle: status = "Geen meeting actief"
+        case .running: status = "Luistert · \(settings.project)"
+        case .stopping: status = "Stopt… (verslag wordt gemaakt)"
+        case .failed(let why): status = "⚠ \(why)"
+        }
+        let header = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        menu.addItem(.separator())
+
+        if backend.isRunning {
+            menu.addItem(item("Meeting stoppen", #selector(stopMeeting), "s"))
+        } else {
+            let start = item(settings.project.isEmpty ? "Meeting starten (kies eerst een project)" : "Meeting starten · \(settings.project)",
+                             #selector(startMeeting), "s")
+            start.isEnabled = !settings.project.isEmpty && settings.backendReady
+            menu.addItem(start)
+        }
+        let projectItem = NSMenuItem(title: "Project", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        for name in settings.projects {
+            let it = item(name, #selector(chooseProject(_:)), "")
+            it.representedObject = name
+            it.state = name == settings.project ? .on : .off
+            it.isEnabled = !backend.isRunning
+            sub.addItem(it)
+        }
+        if sub.items.isEmpty { sub.addItem(NSMenuItem(title: "Geen projecten in \(settings.kbRoot)", action: nil, keyEquivalent: "")) }
+        projectItem.submenu = sub
+        menu.addItem(projectItem)
+        menu.addItem(.separator())
+        menu.addItem(item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), "h"))
+        menu.addItem(item("Instellingen…", #selector(showSettings), ","))
+        menu.addItem(item("Logboek", #selector(openLog), ""))
+        menu.addItem(.separator())
+        menu.addItem(item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q"))
+    }
+
+    private func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        it.target = action == #selector(NSApplication.terminate(_:)) ? nil : self
+        return it
+    }
+
+    @objc func startMeeting() {
+        backend.start()
+        statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
+        panel.orderFrontRegardless()
+        watchBackend()
+    }
+
+    @objc func stopMeeting() { backend.stop() }
+
+    @objc func chooseProject(_ sender: NSMenuItem) {
+        if let name = sender.representedObject as? String { settings.project = name }
+    }
+
+    @objc func openLog() { NSWorkspace.shared.open(Backend.logURL) }
+
+    @objc func showSettings() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            w.title = "HintMeet-instellingen"
+            w.contentView = NSHostingView(rootView: SettingsView(settings: settings))
+            w.isReleasedWhenClosed = false
+            w.center()
+            settingsWindow = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private var stateWatch: AnyCancellable?
+    private func watchBackend() {
+        stateWatch = backend.$state.sink { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch state {
+                case .running: self.statusItem.button?.title = "💡●"
+                case .stopping: self.statusItem.button?.title = "💡…"
+                case .failed: self.statusItem.button?.title = "💡⚠"
+                case .idle: self.statusItem.button?.title = "💡"
+                }
+            }
+        }
+    }
+
+    // MARK: paneel
 
     private func initialTopLeft() -> NSPoint {
         if let saved = UserDefaults.standard.array(forKey: topLeftKey) as? [Double], saved.count == 2 {
