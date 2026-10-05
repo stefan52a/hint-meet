@@ -46,10 +46,12 @@ final class ProgressTask: ObservableObject {
             let data = handle.availableData
             guard !data.isEmpty else { return }
             queue.async {
-                log?.write(data)
                 pending += String(decoding: data, as: UTF8.self)
                 var lines = pending.components(separatedBy: "\n")
                 pending = lines.removeLast()
+                // @-regels zijn alleen voor de voortgangsbalk; het logboek blijft leesbaar
+                let readable = lines.filter { !$0.hasPrefix("@") }
+                if !readable.isEmpty { log?.write(Data((readable.joined(separator: "\n") + "\n").utf8)) }
                 Task { @MainActor [weak self] in lines.forEach { self?.read($0) } }
             }
         }
