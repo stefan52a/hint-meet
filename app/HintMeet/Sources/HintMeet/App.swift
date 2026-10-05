@@ -85,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() })
         hosting = NSHostingView(rootView: view)
-        hosting.sizingOptions = []   // het paneel bepaalt zijn maat zelf (fit), anders kun je niet slepen
+        // alleen de gemeten maat doorgeven (voor fit); min/max zouden het slepen aan de randen blokkeren
+        hosting.sizingOptions = [.intrinsicContentSize]
         panel = OverlayPanel(content: hosting)
         panel.setFrameTopLeftPoint(initialTopLeft())
         fit()
