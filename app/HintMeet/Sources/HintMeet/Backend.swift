@@ -22,7 +22,8 @@ final class Backend: ObservableObject {
 
     var isRunning: Bool { process?.isRunning ?? false }
 
-    func start() {
+    /// recording: een opname (mp3, m4a, wav, …) in echte tijd afspelen in plaats van de apparaten.
+    func start(recording: String? = nil) {
         guard !isRunning else { return }
         guard settings.backendReady else {
             state = .failed("Geen Python-omgeving in \(settings.repoPath)/.venv")
@@ -33,7 +34,9 @@ final class Backend: ObservableObject {
             return
         }
         var args = ["-m", "hint_meet.cli", "--project", settings.project, "live", "--ui", "--port", String(port)]
-        if let wav = ProcessInfo.processInfo.environment["HINT_MEET_TEST_WAV"] {
+        if let recording {
+            args += ["--audio", recording]
+        } else if let wav = ProcessInfo.processInfo.environment["HINT_MEET_TEST_WAV"] {
             args += ["--wav", wav, "--speed", "4"]   // test: opname i.p.v. apparaten
         } else {
             if !settings.mic.isEmpty { args += ["--mic", settings.mic] }

@@ -144,20 +144,53 @@ class Transcriber:
 
 
 def read_wav(path: Path) -> np.ndarray:
-    """WAV als float32 (samples, kanalen) bij 16 kHz."""
+    """Een opname als float32 (samples, kanalen) bij 16 kHz. WAV van 16 kHz/16-bit direct; al het andere
+    (mp3, m4a, wav met een andere samplerate) via ffmpeg, met hooguit twee kanalen."""
     import wave
-    with wave.open(str(path)) as w:
-        if w.getframerate() != RATE or w.getsampwidth() != 2:
-            raise ValueError(f"{path}: verwacht 16 kHz, 16-bit (is {w.getframerate()} Hz, {8 * w.getsampwidth()}-bit)")
-        data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, w.getnchannels())
+    path = Path(path)
+    if not path.exists():
+        raise ValueError(f"{path}: bestand niet gevonden")
+    if path.suffix.lower() == ".wav":
+        with wave.open(str(path)) as w:
+            if w.getframerate() == RATE and w.getsampwidth() == 2:
+                data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, w.getnchannels())
+                return data.astype(np.float32) / 32768.0
+    return decode_audio(path)
+
+
+def decode_audio(path: Path) -> np.ndarray:
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        raise ValueError(f"{path}: voor dit formaat is ffmpeg nodig (brew install ffmpeg)")
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels",
+                            "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    try:
+        channels = min(2, max(1, int(probe.stdout.strip().split(",")[0])))
+    except ValueError:
+        raise ValueError(f"{path}: geen audiospoor gevonden") from None
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "s16le", "-acodec", "pcm_s16le",
+                          "-ac", str(channels), "-ar", str(RATE), "-"], capture_output=True)
+    if out.returncode != 0 or not out.stdout:
+        raise ValueError(f"{path}: ffmpeg kon dit bestand niet lezen: {out.stderr.decode(errors='replace')[:200]}")
+    data = np.frombuffer(out.stdout, dtype=np.int16).reshape(-1, channels)
     return data.astype(np.float32) / 32768.0
+
+
+def channel_labels(channels: int, labels: list[str]) -> list[str]:
+    """Spreker per kanaal. Een mono-opname (Plaud, één microfoon aan tafel) heeft alle sprekers
+    door elkaar op één kanaal: dat heet dan 'Gesprek'."""
+    if channels == len(labels):
+        return labels
+    if channels == 1:
+        return ["Gesprek"]
+    raise ValueError(f"{channels} kanalen, maar {len(labels)} sprekers opgegeven")
 
 
 def segments_from_wav(path: Path, labels: list[str], vad_factory=SileroVAD) -> list[Segment]:
     """Alle uitspraken uit een WAV, gesorteerd op het moment dat ze klaar zijn (zoals live)."""
     data = read_wav(path)
-    if data.shape[1] != len(labels):
-        raise ValueError(f"{path}: {data.shape[1]} kanalen, maar {len(labels)} labels")
+    labels = channel_labels(data.shape[1], labels)
     segs: list[Segment] = []
     for ch, label in enumerate(labels):
         seg = Segmenter(label, vad=vad_factory())

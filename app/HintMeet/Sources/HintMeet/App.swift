@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Zwevend paneel dat geen focus steelt: klikken erop haalt je toetsenbord niet uit de meeting.
 final class OverlayPanel: NSPanel {
@@ -101,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             start.isEnabled = !settings.project.isEmpty && settings.backendReady
             menu.addItem(start)
         }
+        let replay = item("Opname afspelen…", #selector(playRecording), "o")
+        replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady
+        menu.addItem(replay)
         let projectItem = NSMenuItem(title: "Project", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for name in settings.projects {
@@ -135,6 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func stopMeeting() { backend.stop() }
+
+    /// Een eerdere opname (bv. van de Plaud) afspelen alsof het een live meeting is.
+    @objc func playRecording() {
+        let panel = NSOpenPanel()
+        panel.title = "Opname afspelen"
+        panel.allowedContentTypes = [.audio, .mpeg4Audio, .mp3, .wav]
+        panel.allowsMultipleSelection = false
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        backend.start(recording: url.path)
+        self.panel.orderFrontRegardless()
+        watchBackend()
+    }
 
     @objc func chooseProject(_ sender: NSMenuItem) {
         if let name = sender.representedObject as? String { settings.project = name }

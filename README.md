@@ -151,7 +151,7 @@ Een vragenlijst is YAML met per vraag de stukken waar het antwoord staat; zie `d
 ```bash
 hint-meet --project acme live                              # microfoon
 hint-meet --project acme live --system "BlackHole 2ch"     # plus systeemaudio van een online meeting
-hint-meet --project acme live --wav opname.wav             # test: WAV in echte tijd
+hint-meet --project acme live --audio opname.mp3          # eerdere opname (mp3, m4a, wav) in echte tijd
 hint-meet --project acme replay gesprek.txt                # transcript met #!-markeringen, met score
 hint-meet --project acme replay gesprek.wav                # opname (stereo: jij links, de ander rechts)
 hint-meet --project acme calibrate gesprek.txt --gate jev  # alleen de gate, drempeltabel

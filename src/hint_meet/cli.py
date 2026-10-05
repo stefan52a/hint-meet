@@ -19,7 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
     lv.add_argument("--me", default="Stefan", help="naam bij de microfoon")
     lv.add_argument("--other", default="Gesprekspartner", help="naam bij de systeemaudio")
-    lv.add_argument("--wav", help="test: speel deze WAV in echte tijd af in plaats van apparaten")
+    lv.add_argument("--wav", "--audio", dest="wav",
+                    help="speel een opname (wav, mp3, m4a, …) in echte tijd af in plaats van apparaten")
     lv.add_argument("--channels", default="Stefan,Gesprekspartner", help="bij --wav: spreker per kanaal")
     lv.add_argument("--speed", type=float, default=1.0, help="bij --wav: afspeelsnelheid")
     lv.add_argument("--devices", action="store_true", help="toon de audioapparaten en stop")
@@ -62,6 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4"}
+
+
 def audio_replay_cmd(a, config, root) -> int:
     import json
     import statistics
@@ -82,7 +86,11 @@ def audio_replay_cmd(a, config, root) -> int:
     t = time.perf_counter()
     transcriber = Transcriber(kb_terms(kb.chunks))
     print(f"KB: {root}\nWhisper geladen in {time.perf_counter() - t:.1f} s; woordenlijst: {transcriber.prompt}\n")
-    segments = segments_from_wav(wav, a.channels.split(","))
+    try:
+        segments = segments_from_wav(wav, a.channels.split(","))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
 
     def show(u, step, timing):
@@ -135,7 +143,7 @@ def replay_cmd(a) -> int:
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
-    if a.transcript.lower().endswith(".wav"):
+    if Path(a.transcript).suffix.lower() in AUDIO_EXTS:
         return audio_replay_cmd(a, config, root)
     utterances = load(a.transcript)
     print(f"KB: {root}\nTranscript: {len(utterances)} beurten, "

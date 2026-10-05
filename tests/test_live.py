@@ -21,9 +21,36 @@ def write_wav(path, channels=2, seconds=0.5):
 
 
 def test_wav_source_rejects_wrong_channel_count(tmp_path):
+    write_wav(tmp_path / "stereo.wav", channels=2)
+    with pytest.raises(ValueError, match="2 kanalen, maar 3"):
+        WavSource(tmp_path / "stereo.wav", ["a", "b", "c"])
+
+
+def test_mono_recording_becomes_one_conversation_channel(tmp_path):
     write_wav(tmp_path / "mono.wav", channels=1)
-    with pytest.raises(ValueError, match="1 kanalen, maar 2"):
-        WavSource(tmp_path / "mono.wav", ["Stefan", "Ander"])
+    assert WavSource(tmp_path / "mono.wav", ["Stefan", "Ander"]).labels == ["Gesprek"]
+
+
+def test_mp3_is_decoded_to_16k(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg ontbreekt")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=44100",
+                    str(tmp_path / "t.mp3")], check=True)
+    from hint_meet.audio import read_wav
+    data = read_wav(tmp_path / "t.mp3")
+    assert data.shape[1] == 1 and 15000 < len(data) < 17500 and data.dtype == np.float32
+    assert WavSource(tmp_path / "t.mp3", ["Stefan", "Ander"]).labels == ["Gesprek"]
+
+
+def test_missing_or_unreadable_file_gives_clear_error(tmp_path):
+    from hint_meet.audio import read_wav
+    with pytest.raises(ValueError, match="niet gevonden"):
+        read_wav(tmp_path / "weg.mp3")
+    (tmp_path / "kapot.mp3").write_bytes(b"geen audio")
+    with pytest.raises(ValueError):
+        read_wav(tmp_path / "kapot.mp3")
 
 
 @pytest.mark.parametrize("speed", [0, -1, float("inf"), float("nan")])

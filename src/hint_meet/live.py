@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .audio import FRAME, RATE, Segmenter, SileroVAD, read_wav
+from .audio import FRAME, RATE, Segmenter, SileroVAD, channel_labels, read_wav
 from .transcript import Utterance
 
 
@@ -61,9 +61,11 @@ class WavSource:
     """Een (meerkanaals) WAV, afgespeeld in echte tijd alsof het apparaten zijn: test voor live."""
 
     def __init__(self, path: Path, labels: list[str], speed: float = 1.0):
-        self.data, self.labels, self.speed = read_wav(path), labels, speed
-        if self.data.shape[1] != len(labels):
-            raise ValueError(f"{path}: {self.data.shape[1]} kanalen, maar {len(labels)} sprekers opgegeven")
+        self.data, self.speed = read_wav(path), speed
+        try:
+            self.labels = channel_labels(self.data.shape[1], labels)
+        except ValueError as e:
+            raise ValueError(f"{path}: {e}") from None
         if not (speed > 0 and np.isfinite(speed)):
             raise ValueError(f"afspeelsnelheid moet positief zijn, niet {speed}")
         self.thread = None
