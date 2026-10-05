@@ -9,6 +9,7 @@ struct OverlayView: View {
     let startMeeting: () -> Void
     let playRecording: () -> Void
     let stopMeeting: () -> Void
+    let openSettings: () -> Void
     @State private var tick = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -57,9 +58,12 @@ struct OverlayView: View {
                 if case .failed(let why) = backend.state {
                     Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
-                if settings.project.isEmpty {
-                    Text("Kies een project via 💡 → Instellingen.").font(.callout).foregroundStyle(.secondary)
-                } else {
+                Picker("Kennisbank", selection: $settings.project) {
+                    Text("— kies een project —").tag("")
+                    ForEach(settings.projects, id: \.self) { Text($0).tag($0) }
+                }
+                .controlSize(.small)
+                if !settings.project.isEmpty {
                     HStack {
                         Button("Meeting starten · \(settings.project)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
@@ -81,6 +85,8 @@ struct OverlayView: View {
             if backend.state == .running {
                 Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)
             }
+            Button { openSettings() } label: { Image(systemName: "gearshape") }
+                .buttonStyle(.borderless).help("Instellingen")
         }
     }
 }

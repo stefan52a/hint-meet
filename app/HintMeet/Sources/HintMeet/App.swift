@@ -45,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
                                playRecording: { [weak self] in self?.playRecording() },
-                               stopMeeting: { [weak self] in self?.stopMeeting() })
+                               stopMeeting: { [weak self] in self?.stopMeeting() },
+                               openSettings: { [weak self] in self?.showSettings() })
         hosting = NSHostingView(rootView: view)
         panel = OverlayPanel(content: hosting)
         panel.setFrameTopLeftPoint(initialTopLeft())
