@@ -281,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.delegate = self
             top(title, menu)
         }
-        NSApp.windowsMenu = windowMenu   // macOS zet de open vensters er zelf onder
+        // geen NSApp.windowsMenu: dat menu bouwen we zelf opnieuw op, en macOS zou er vensters in zetten
         let help = fixed("Help", [item("Logboek", #selector(openLog), "")])
         top("Help", help)
         NSApp.helpMenu = help
