@@ -117,6 +117,25 @@ Zet een `.kbignore` in de root van de bronmap, met gitignore-syntax. Uitgesloten
 
 Commentaar staat altijd op een eigen regel: een `#` achter een patroon hoort bij het patroon.
 
+Zonder `.kbignore` slaat kb_prep al over: dependency-mappen (`node_modules`, `__pycache__`, `venv`, `site-packages`, `Pods`, …), mappen die met een punt beginnen (`.git`, `.venv`) en build-mappen (`build`, `dist`, `target`, `out`, `bin`, `obj`) als er een projectbestand naast staat (`package.json`, `pyproject.toml`, `Makefile`, …). Een gewone map `dist` in je administratie doet dus gewoon mee.
+
+### Beveiligde PDF's met `.kbpasswords`
+
+Een PDF met een wachtwoord kan kb_prep alleen lezen als het wachtwoord bekend is. Zet de wachtwoorden in `.kbpasswords` in de root van de bronmap, één per regel:
+
+```
+# phone contracts
+1234AB
+# loonstroken
+01011970
+```
+
+- Bij elke beveiligde PDF probeert kb_prep eerst een leeg wachtwoord en daarna alle regels uit het bestand, van boven naar beneden. Je hoeft dus niet aan te geven welk wachtwoord bij welk bestand hoort.
+- Regels die met `#` beginnen zijn commentaar; spaties voor en achter een wachtwoord tellen niet mee. Hoofdletters wel: `1234ab` is een ander wachtwoord dan `1234AB`.
+- Past er geen, dan telt de PDF als mislukt met de melding `PDF is beveiligd met een wachtwoord (niet gevonden in .kbpasswords)`. Na het toevoegen van het juiste wachtwoord pakt de volgende run hem vanzelf op.
+- Het bestand begint met een punt en komt dus zelf nooit in de KB. De wachtwoorden komen ook niet in de frontmatter of het manifest; de omgezette tekst van de PDF staat wel onbeveiligd in de KB.
+- Het bestand is platte tekst. Synchroniseert de bronmap via Dropbox of iCloud, dan gaan de wachtwoorden mee. Zet er geen wachtwoorden in die ook ergens anders toegang toe geven.
+
 ### E-mail (`.eml`)
 
 Van, aan, cc, datum en onderwerp staan bovenaan, daarna de tekst (html wordt Markdown). Bijlagen van een ondersteund type worden meegenomen onder `## Bijlage: <naam>`; andere bijlagen staan er met hun naam. Logo's en handtekeningafbeeldingen in de html worden overgeslagen. Een bijlage die niet te lezen is, houdt de mail zelf niet uit de KB.

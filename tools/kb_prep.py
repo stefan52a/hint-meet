@@ -25,6 +25,11 @@ Gebruik:
               schaduwbestanden die na conversie zijn aangepast (vreemde bestanden nooit)
     .kbignore in de root van de bronmap sluit bestanden uit (gitignore-syntax, bv. tmp/ of *.log);
               al bestaande schaduwbestanden daarvan worden opgeruimd
+    .kbpasswords in de root van de bronmap: wachtwoorden (één per regel, # is commentaar) die
+              kb_prep probeert bij beveiligde PDF's; het bestand zelf komt nooit in de KB
+    Altijd overgeslagen: dependency-mappen (node_modules, __pycache__, venv, Pods, ...), mappen die
+              met een punt beginnen (.git, .venv) en build-mappen (build, dist, target, out, bin,
+              obj) als er een projectbestand naast staat (package.json, pyproject.toml, Makefile, ...)
     --no-ocr  geen OCR; standaard leest OCR PDF-pagina's zonder tekstlaag (scans) uit,
               wat pytesseract + tesseract (met taal nld) vereist
 
@@ -69,6 +74,8 @@ def converter_version(ext: str) -> int | str:
     return max(CONVERTER_VERSION, TYPE_VERSION.get(ext, 0))
 MAX_EMAIL_DEPTH = 5  # doorgestuurd in doorgestuurd in ...
 IGNORE_FILE = ".kbignore"  # gitignore-syntax, in de root van de bronmap
+PASSWORD_FILE = ".kbpasswords"  # wachtwoorden voor beveiligde PDF's, één per regel, in de root van de bronmap
+PDF_PASSWORDS: list[str] = []  # gevuld door run()
 LOW_TEXT = 50
 OCR_TIMEOUT = 120  # seconden per afbeelding  # minder leesbare tekens dan dit: waarschuwen
 PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
@@ -77,6 +84,14 @@ LEGACY_INDEX = "_index.json"  # vroeger geschreven, nu overbodig naast het manif
 MANIFEST_NAME = "_manifest.json"
 MANIFEST_VERSION = 1
 LOCK_NAME = ".kb_prep.lock"
+# dependencies en gegenereerde bestanden horen niet in de KB; mappen met een punt (.git, .venv) ook niet
+SKIP_DIRS = {"node_modules", "bower_components", "jspm_packages", "__pycache__", "venv", "site-packages",
+             "Pods", "DerivedData"}
+# gewone woorden: alleen overslaan naast een projectbestand, een map "dist" in de administratie blijft staan
+BUILD_DIRS = {"build", "dist", "target", "out", "bin", "obj"}
+PROJECT_MARKERS = {"package.json", "pyproject.toml", "setup.py", "Cargo.toml", "pom.xml", "build.gradle",
+                   "build.gradle.kts", "Makefile", "CMakeLists.txt", "go.mod", "Package.swift", "composer.json"}
+OCR_STRIP = 8000  # pixels: hogere afbeeldingen in stroken door tesseract (dat weigert bv. 6000x41844)
 # macOS/Linux staan 255 bytes per naam toe; ruimte laten voor ".<naam>.<pid>.tmp" van write_atomic
 MAX_SHADOW_NAME = 255 - len(".99999999.tmp") - 1
 
@@ -137,7 +152,12 @@ def ocr_image(img, what: str) -> str:
             img.alpha_composite(rgba)
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
-        return pytesseract.image_to_string(img, lang="nld+eng", timeout=OCR_TIMEOUT).strip()
+        if img.width > OCR_STRIP * 4:
+            img = img.resize((OCR_STRIP * 4, max(1, img.height * OCR_STRIP * 4 // img.width)))
+        strips = [img.crop((0, y, img.width, min(y + OCR_STRIP, img.height)))
+                  for y in range(0, img.height, OCR_STRIP)]
+        return "\n".join(pytesseract.image_to_string(s, lang="nld+eng", timeout=OCR_TIMEOUT).strip()
+                         for s in strips).strip()
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"OCR mislukt op {what}: {e}") from e
 
@@ -150,7 +170,10 @@ def conv_docx(path: Path, ocr: bool = False, tick=no_tick) -> str:
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
-    doc = Document(str(path))
+    try:
+        doc = Document(str(path))
+    except KeyError:  # onderdeel zonder content-type, bv. ingesloten fonts uit Google Docs
+        doc = Document(repaired_ooxml(path))
     parts: list[str] = []
     for block in doc.element.body.iterchildren():
         tag = block.tag.split("}")[-1]
@@ -179,12 +202,35 @@ def conv_docx(path: Path, ocr: bool = False, tick=no_tick) -> str:
             tick(i - 1, len(blobs), "afbeelding")
             try:
                 img = Image.open(BytesIO(blob))
-            except UnidentifiedImageError:
-                continue
+                img.load()
+            except (UnidentifiedImageError, OSError, ValueError, ZeroDivisionError):
+                continue  # WMF/EMF of kapot plaatje: overslaan, de rest van het document telt
             txt = ocr_image(img, f"afbeelding {i}")
             if txt:
                 parts.append(txt)
     return "\n\n".join(parts)
+
+
+def repaired_ooxml(path: Path):
+    """Kopie van een Office-bestand (in het geheugen) waarin elk onderdeel een content-type heeft."""
+    import zipfile
+    from io import BytesIO
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        ct = z.read("[Content_Types].xml").decode("utf-8")
+        known = {m.lower() for m in re.findall(r'Extension="([^"]+)"', ct)}
+        missing = sorted({n.rsplit(".", 1)[-1].lower() for n in names
+                          if "." in n.rsplit("/", 1)[-1] and n != "[Content_Types].xml"} - known)
+        extra = "".join(f'<Default Extension="{e}" ContentType="application/octet-stream"/>' for e in missing)
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+            for n in names:
+                data = z.read(n)
+                if n == "[Content_Types].xml":
+                    data = ct.replace("</Types>", extra + "</Types>").encode("utf-8")
+                out.writestr(n, data)
+    buf.seek(0)
+    return buf
 
 
 def conv_xlsx(path: Path) -> str:
@@ -274,6 +320,8 @@ def conv_pdf(path: Path, ocr: bool = False, tick=no_tick) -> str:
     import pymupdf as fitz
 
     doc = fitz.open(str(path))
+    if doc.needs_pass and not any(doc.authenticate(pw) for pw in ["", *PDF_PASSWORDS]):
+        raise RuntimeError(f"PDF is beveiligd met een wachtwoord (niet gevonden in {PASSWORD_FILE})")
     parts: list[str] = []
     for i, page in enumerate(doc, 1):
         tick(i - 1, doc.page_count, "pagina")
@@ -384,8 +432,12 @@ def conv_text(path: Path) -> str:
 
 
 def conv_json(path: Path) -> str:
-    data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    return "```json\n" + json.dumps(data, ensure_ascii=False, indent=2) + "\n```"
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        raw = json.dumps(json.loads(raw), ensure_ascii=False, indent=2)
+    except json.JSONDecodeError:
+        pass  # bv. tsconfig met commentaar: dan de tekst zoals hij is
+    return "```json\n" + raw.strip() + "\n```"
 
 
 def conv_rtf(path: Path) -> str:
@@ -418,6 +470,12 @@ def convert_one(src: Path, dst: Path, ocr: bool, src_sha1: str, tick=no_tick) ->
     """Zet src om naar dst; geeft de sha1 van het geschreven bestand en het aantal leesbare tekens."""
     ext = src.suffix.lower()
     fn = CONVERTERS[ext]
+    with src.open("rb") as f:
+        head = f.read(4096)
+    if head and not head.strip(b"\0"):
+        raise RuntimeError("bestand bevat alleen nullen (beschadigd, bv. een Dropbox-conflictkopie)")
+    if ext in {".docx", ".xlsx", ".xlsm", ".pptx"} and not head.startswith(b"PK"):
+        raise RuntimeError(f"geen geldig {ext}-bestand (ander formaat met een {ext}-naam?)")
     body = fn(src, ocr, tick) if ext in OCR_EXTS else fn(src)
     body = clean(body)
     front = {
@@ -608,6 +666,27 @@ class Progress:
         print(msg, file=sys.stderr if err else sys.stdout)
 
 
+def is_build_dir(name: str, siblings: list[str]) -> bool:
+    return (name in SKIP_DIRS or name.startswith(".") or name.endswith(".egg-info")
+            or (name in BUILD_DIRS and not PROJECT_MARKERS.isdisjoint(siblings)))
+
+
+def iter_sources(src_root: Path):
+    """Alle bestanden onder src_root, zonder af te dalen in dependency- en build-mappen."""
+    for dirpath, dirnames, filenames in os.walk(src_root):
+        dirnames[:] = [d for d in dirnames if not is_build_dir(d, filenames)]
+        for name in filenames:
+            yield Path(dirpath) / name
+
+
+def load_passwords(src_root: Path) -> list[str]:
+    path = src_root / PASSWORD_FILE
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
 def load_ignore(src_root: Path):
     """Patronen uit <bron>/.kbignore (gitignore-syntax), of None als er geen bestand is."""
     path = src_root / IGNORE_FILE
@@ -633,7 +712,8 @@ def run(a: argparse.Namespace) -> int:
     failures: list[tuple[Path, str]] = []
     todo: list[Path] = []
     ignore = load_ignore(a.src)
-    for src in sorted(p for p in a.src.rglob("*") if p.is_file()):
+    PDF_PASSWORDS[:] = load_passwords(a.src)
+    for src in sorted(iter_sources(a.src)):
         if src.name.startswith(("~$", ".")) or is_own_output(src, a.out) or src == a.out / LOCK_NAME:
             continue
         if ignore and ignore.match_file(src.relative_to(a.src).as_posix()):

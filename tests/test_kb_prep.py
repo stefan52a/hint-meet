@@ -127,14 +127,17 @@ def test_ocr_failure_raises_from_converter(tmp_path, monkeypatch):
         kb_prep.conv_pdf(pdf, ocr=True)
 
 
-def test_failed_reconversion_drops_old_shadow(tmp_path):
+def test_failed_reconversion_drops_old_shadow(tmp_path, monkeypatch):
     src, out = tmp_path / "kb", tmp_path / "out"
     src.mkdir()
     (src / "data.json").write_text('{"a": 1}', encoding="utf-8")
     assert main([str(src), str(out)]) == 0
     assert shadows(out) == ["data.json" + SHADOW_SUFFIX]
 
-    (src / "data.json").write_text("{kapot", encoding="utf-8")
+    def boom(path):
+        raise ValueError("kapot")
+    monkeypatch.setitem(kb_prep.CONVERTERS, ".json", boom)
+    (src / "data.json").write_text('{"a": 2}', encoding="utf-8")
     assert main([str(src), str(out), "--force"]) == 1
     assert shadows(out) == []
     assert index(out) == []
@@ -150,6 +153,7 @@ def make_kb(tmp_path, files: dict[str, str]):
     src, out = tmp_path / "kb", tmp_path / "out"
     src.mkdir()
     for name, text in files.items():
+        (src / name).parent.mkdir(parents=True, exist_ok=True)
         (src / name).write_text(text, encoding="utf-8")
     return src, out
 
@@ -1053,3 +1057,73 @@ def test_long_source_name_gets_short_unique_shadow(tmp_path):
     assert all(len(n.encode()) <= kb_prep.MAX_SHADOW_NAME and "~" in n for n in names)
     assert main([str(src), str(out)]) == 0  # tweede run: alles actueel, geen conflicten
     assert shadows(out) == names
+
+
+def test_json_with_comments_is_kept_as_text(tmp_path):
+    src, out = make_kb(tmp_path, {"tsconfig.json": '{\n  // commentaar\n  "strict": true, "target": "es2020", "module": "commonjs"\n}'})
+    assert main([str(src), str(out)]) == 0
+    assert "// commentaar" in (out / ("tsconfig.json" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_dependency_and_hidden_dirs_are_skipped(tmp_path):
+    long = "inhoud die lang genoeg is om niet als weinig tekst te tellen"
+    src, out = make_kb(tmp_path, {"a.txt": long, "node_modules/x/b.txt": long, ".git/c.txt": long})
+    assert main([str(src), str(out)]) == 0
+    assert shadows(out) == ["a.txt" + SHADOW_SUFFIX]
+
+
+def test_zero_filled_file_fails_with_clear_message(tmp_path, capsys):
+    src, out = make_kb(tmp_path, {})
+    (src / "kopie.pdf").write_bytes(bytes(5000))
+    assert main([str(src), str(out)]) == 1
+    assert "alleen nullen" in capsys.readouterr().out
+
+
+def test_docx_with_missing_content_type_is_repaired(tmp_path):
+    import zipfile
+    from docx import Document
+    src, out = make_kb(tmp_path, {})
+    good = tmp_path / "goed.docx"
+    d = Document()
+    d.add_paragraph("Overeenkomst van geldlening tussen partijen, met voldoende tekst erin.")
+    d.save(good)
+    with zipfile.ZipFile(good) as zin, zipfile.ZipFile(src / "lening.docx", "w") as zout:
+        for n in zin.namelist():
+            zout.writestr(n, zin.read(n))
+        zout.writestr("word/fonts/Arimo-regular.ttf", b"font")
+    assert main([str(src), str(out)]) == 0
+    assert "geldlening" in (out / ("lening.docx" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_tall_image_is_ocrd_in_strips(monkeypatch):
+    from PIL import Image
+    import pytesseract
+    sizes = []
+    monkeypatch.setattr(pytesseract, "image_to_string", lambda img, **kw: sizes.append(img.size) or "x")
+    kb_prep.ocr_image(Image.new("L", (600, kb_prep.OCR_STRIP * 2 + 10)), "test")
+    assert sizes == [(600, kb_prep.OCR_STRIP)] * 2 + [(600, 10)]
+
+
+def test_build_output_is_skipped_only_next_to_a_project_file(tmp_path):
+    long = "inhoud die lang genoeg is om niet als weinig tekst te tellen"
+    src, out = make_kb(tmp_path, {
+        "app/package.json": '{"name": "app", "version": "1.0.0", "description": "testproject"}',
+        "app/dist/bundle.txt": long, "app/x.egg-info/PKG-INFO.txt": long,
+        "admin/dist/factuur.txt": long,  # geen projectbestand ernaast: gewoon een map
+    })
+    assert main([str(src), str(out)]) == 0
+    assert shadows(out) == ["admin/dist/factuur.txt" + SHADOW_SUFFIX, "app/package.json" + SHADOW_SUFFIX]
+
+
+def test_encrypted_pdf_opens_with_password_from_kbpasswords(tmp_path):
+    import pymupdf as fitz
+    src, out = make_kb(tmp_path, {})
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Contract met voldoende tekst om mee te tellen in de KB.")
+    doc.save(src / "contract.pdf", encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="geheim", owner_pw="eigenaar")
+    assert main([str(src), str(out)]) == 1  # zonder wachtwoord: mislukt
+
+    (src / ".kbpasswords").write_text("# wachtwoorden\nverkeerd\ngeheim\n", encoding="utf-8")
+    assert main([str(src), str(out)]) == 0
+    assert "Contract met voldoende tekst" in (out / ("contract.pdf" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert not (out / (".kbpasswords" + SHADOW_SUFFIX)).exists()
