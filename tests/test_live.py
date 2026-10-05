@@ -127,3 +127,35 @@ def test_transcript_is_saved_in_replayable_format(tmp_path):
     session.save_transcript(tmp_path / "t.txt")
     u = load(tmp_path / "t.txt")
     assert len(u) == 1 and u[0].seconds == 65 and u[0].text == "Wat is de rente?"
+
+
+def test_float_wav_falls_back_to_ffmpeg(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg ontbreekt")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=48000",
+                    "-c:a", "pcm_f32le", str(tmp_path / "f.wav")], check=True)
+    from hint_meet.audio import read_wav
+    data = read_wav(tmp_path / "f.wav")
+    assert data.shape[1] == 1 and 15000 < len(data) < 17000
+
+
+def test_m4a_is_decoded(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg ontbreekt")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-ac", "2", "-c:a", "aac", str(tmp_path / "t.m4a")], check=True)
+    from hint_meet.audio import read_wav
+    assert read_wav(tmp_path / "t.m4a").shape[1] == 2
+
+
+def test_missing_ffmpeg_gives_clear_error(tmp_path, monkeypatch):
+    import shutil
+    from hint_meet.audio import read_wav
+    (tmp_path / "x.mp3").write_bytes(b"x")
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    with pytest.raises(ValueError, match="ffmpeg en ffprobe nodig"):
+        read_wav(tmp_path / "x.mp3")

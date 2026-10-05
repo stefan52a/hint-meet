@@ -151,26 +151,31 @@ def read_wav(path: Path) -> np.ndarray:
     if not path.exists():
         raise ValueError(f"{path}: bestand niet gevonden")
     if path.suffix.lower() == ".wav":
-        with wave.open(str(path)) as w:
-            if w.getframerate() == RATE and w.getsampwidth() == 2:
-                data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, w.getnchannels())
-                return data.astype(np.float32) / 32768.0
+        try:
+            with wave.open(str(path)) as w:
+                if w.getframerate() == RATE and w.getsampwidth() == 2:
+                    data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, w.getnchannels())
+                    return data.astype(np.float32) / 32768.0
+        except (wave.Error, EOFError):
+            pass   # float, gecomprimeerd of afwijkend: ffmpeg kan het vaak wel
     return decode_audio(path)
 
 
 def decode_audio(path: Path) -> np.ndarray:
     import shutil
     import subprocess
-    if not shutil.which("ffmpeg"):
-        raise ValueError(f"{path}: voor dit formaat is ffmpeg nodig (brew install ffmpeg)")
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        raise ValueError(f"{path}: voor dit formaat zijn ffmpeg en ffprobe nodig (brew install ffmpeg)")
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels",
-                            "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+                            "-of", "csv=p=0", str(path)], capture_output=True, text=True, timeout=60)
     try:
         channels = min(2, max(1, int(probe.stdout.strip().split(",")[0])))
     except ValueError:
         raise ValueError(f"{path}: geen audiospoor gevonden") from None
-    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "s16le", "-acodec", "pcm_s16le",
-                          "-ac", str(channels), "-ar", str(RATE), "-"], capture_output=True)
+    # hetzelfde spoor als ffprobe bekeek (a:0); ruim een uur audio duurt hooguit seconden
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le",
+                          "-acodec", "pcm_s16le", "-ac", str(channels), "-ar", str(RATE), "-"],
+                         capture_output=True, timeout=600)
     if out.returncode != 0 or not out.stdout:
         raise ValueError(f"{path}: ffmpeg kon dit bestand niet lezen: {out.stderr.decode(errors='replace')[:200]}")
     data = np.frombuffer(out.stdout, dtype=np.int16).reshape(-1, channels)

@@ -52,6 +52,8 @@ final class Backend: ObservableObject {
         env["PYTHONPATH"] = settings.repoPath + "/src"
         env["PYTHONUNBUFFERED"] = "1"
         env["KB_ROOT"] = settings.kbRoot
+        // vanuit de Finder gestart kent de app het Homebrew-pad niet; ffmpeg en tesseract staan daar
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
         for name in Settings.keyNames {   // Keychain gaat voor .env
             let value = settings.key(name)
             if !value.isEmpty { env[name] = value }
