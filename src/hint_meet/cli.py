@@ -259,13 +259,23 @@ def live_cmd(a) -> int:
         if hub:
             hub.send(type="status", text=text)
 
+    class Stopped(Exception):
+        pass
+
     def kb_progress(done, total, left):
         print_progress(done, total, left)
         status(f"KB voorbereiden: {done}/{total} stukjes · nog ~{fmt_left(left)}")
+        if stop_requested.is_set():
+            raise Stopped   # wat al klaar is, staat in de cache; volgende start gaat verder
 
     status("KB laden…")
-    kb = KB(root, progress=kb_progress)
-    if stop_requested.is_set():
+    try:
+        kb = KB(root, progress=kb_progress)
+    except (Stopped, KeyboardInterrupt):
+        print("\nGestopt tijdens het voorbereiden van de KB; de volgende start gaat verder.")
+        if hub:
+            hub.send(type="stopped")
+            hub.stop()
         return 0
     status("Spraakherkenning laden…")
     transcriber = Transcriber(kb_terms(kb.chunks))

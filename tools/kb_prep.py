@@ -77,6 +77,8 @@ LEGACY_INDEX = "_index.json"  # vroeger geschreven, nu overbodig naast het manif
 MANIFEST_NAME = "_manifest.json"
 MANIFEST_VERSION = 1
 LOCK_NAME = ".kb_prep.lock"
+# macOS/Linux staan 255 bytes per naam toe; ruimte laten voor ".<naam>.<pid>.tmp" van write_atomic
+MAX_SHADOW_NAME = 255 - len(".99999999.tmp") - 1
 
 # ---------- hulpfuncties ----------
 
@@ -476,9 +478,19 @@ def owned_and_unchanged(dst: Path, entry: dict | None) -> bool:
     return entry is not None and dst.exists() and sha1_of(dst) == entry["shadow_sha1"]
 
 
+def shadow_name(name: str) -> str:
+    """<naam>.kb-hint-meet.md, ingekort met een hash als de naam te lang wordt voor het bestandssysteem."""
+    if len((name + SHADOW_SUFFIX).encode()) <= MAX_SHADOW_NAME:
+        return name + SHADOW_SUFFIX
+    tag = "~" + hashlib.sha1(name.encode()).hexdigest()[:8]
+    room = MAX_SHADOW_NAME - len((tag + SHADOW_SUFFIX).encode())
+    head = name.encode()[:room].decode("utf-8", errors="ignore").rstrip()
+    return head + tag + SHADOW_SUFFIX
+
+
 def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
     rel = src.relative_to(src_root)
-    return out / rel.parent / (rel.name + SHADOW_SUFFIX)
+    return out / rel.parent / shadow_name(rel.name)
 
 
 def default_root() -> Path:

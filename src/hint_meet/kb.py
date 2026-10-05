@@ -187,8 +187,7 @@ class OnnxEmbedder:
     """Lokaal embeddingmodel via onnxruntime + tokenizers, in een vaste map met echte bestanden
     (de Hugging Face-cache gebruikt symlinks, die recente onnxruntime-versies weigeren)."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, batch: int = 16):
-        import onnxruntime as ort
+    def __init__(self, model: str = DEFAULT_MODEL, batch: int = 16, session: bool = True):
         from tokenizers import Tokenizer
 
         self.name = model
@@ -203,8 +202,11 @@ class OnnxEmbedder:
         self.tokenizer = Tokenizer.from_file(str(local / "tokenizer.json"))
         self.tokenizer.enable_truncation(512)
         self.tokenizer.enable_padding()
-        self.session = ort.InferenceSession(str(local / "model.onnx"), providers=["CPUExecutionProvider"])
-        self.inputs = {i.name for i in self.session.get_inputs()}
+        self.session = None
+        if session:  # MLX gebruikt alleen de tokenizer; dan niet ook nog 2 GB ONNX laden
+            import onnxruntime as ort
+            self.session = ort.InferenceSession(str(local / "model.onnx"), providers=["CPUExecutionProvider"])
+            self.inputs = {i.name for i in self.session.get_inputs()}
 
     def _embed(self, texts: list[str]) -> np.ndarray:
         out = []
@@ -234,8 +236,8 @@ class MlxEmbedder(OnnxEmbedder):
     van de ONNX-map, zodat beide precies dezelfde invoer zien."""
 
     def __init__(self, model: str = DEFAULT_MODEL, batch: int = 16):
-        super().__init__(model, batch)          # tokenizer (en ONNX-sessie als terugval)
-        from mlx_embeddings.utils import load
+        from mlx_embeddings.utils import load   # eerst: ontbreekt MLX, dan valt default_embedder terug
+        super().__init__(model, batch, session=False)   # alleen de tokenizer
         self.mlx_model, _ = load(model)
 
     def _embed(self, texts: list[str]) -> np.ndarray:

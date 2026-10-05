@@ -1042,3 +1042,14 @@ def test_eml_version_follows_other_converters(monkeypatch, ext):
     before = kb_prep.converter_version(".eml")
     monkeypatch.setitem(kb_prep.TYPE_VERSION, ext, kb_prep.converter_version(ext) + 1)
     assert kb_prep.converter_version(".eml") != before
+
+
+def test_long_source_name_gets_short_unique_shadow(tmp_path):
+    base = "akte_" + "é" * 115  # 235 bytes: past zelf, met suffix niet meer
+    src, out = make_kb(tmp_path, {base + "a.txt": "eerste " * 20, base + "b.txt": "tweede " * 20})
+    assert main([str(src), str(out)]) == 0
+    names = shadows(out)
+    assert len(names) == 2
+    assert all(len(n.encode()) <= kb_prep.MAX_SHADOW_NAME and "~" in n for n in names)
+    assert main([str(src), str(out)]) == 0  # tweede run: alles actueel, geen conflicten
+    assert shadows(out) == names
