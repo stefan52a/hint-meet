@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var changes: AnyCancellable?
     private var refit: DispatchWorkItem?
     private var quitWatch: AnyCancellable?
+    private var restarting = false
     private let topLeftKey = "overlayTopLeft"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -216,6 +217,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Afsluiten en opnieuw openen (pakt een nieuwe build op); het gekozen project blijft staan, er start
     /// geen meeting. Een hulpproces wacht tot deze app echt weg is, ook als het verslag nog even duurt.
     @objc func restartApp() {
+        guard !restarting else { return }   // nog eens klikken tijdens het wachten: geen tweede app
+        restarting = true
         let bundle = Bundle.main.bundlePath
         let script = "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; "
             + "open -n \"$0\""
@@ -225,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try helper.run()
         } catch {
+            restarting = false
             NSSound.beep()
             return
         }
