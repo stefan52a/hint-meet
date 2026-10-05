@@ -17,15 +17,22 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Eerst bijwerken, anders toevoegen: de oude key verdwijnt nooit door een mislukte poging.
     @discardableResult
     static func set(_ account: String, _ value: String) -> Bool {
         let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                    kSecAttrService as String: service,
                                    kSecAttrAccount as String: account]
-        SecItemDelete(base as CFDictionary)
-        if value.isEmpty { return true }
+        if value.isEmpty {
+            let status = SecItemDelete(base as CFDictionary)
+            return status == errSecSuccess || status == errSecItemNotFound
+        }
+        let data = Data(value.utf8)
+        let update = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update == errSecSuccess { return true }
+        guard update == errSecItemNotFound else { return false }
         var add = base
-        add[kSecValueData as String] = Data(value.utf8)
+        add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }

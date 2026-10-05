@@ -5,7 +5,7 @@ struct SettingsView: View {
     @ObservedObject var settings: Settings
     @State private var keys: [String: String] = [:]
     @State private var devices: [String] = []
-    @State private var saved = false
+    @State private var saved: Bool? = nil
 
     var body: some View {
         Form {
@@ -33,14 +33,14 @@ struct SettingsView: View {
             }
             Section("API-keys (Keychain)") {
                 ForEach(Settings.keyNames, id: \.self) { name in
-                    SecureField(name, text: Binding(get: { keys[name] ?? "" }, set: { keys[name] = $0; saved = false }))
+                    SecureField(name, text: Binding(get: { keys[name] ?? "" }, set: { keys[name] = $0; saved = nil }))
                 }
                 HStack {
                     Button("Bewaren") {
-                        for (k, v) in keys { settings.setKey(k, v) }
-                        saved = true
+                        saved = keys.map { settings.setKey($0.key, $0.value) }.allSatisfy { $0 }
                     }
-                    if saved { Text("Bewaard").font(.caption).foregroundStyle(.secondary) }
+                    if saved == true { Text("Bewaard").font(.caption).foregroundStyle(.secondary) }
+                    if saved == false { Text("Bewaren mislukt (Keychain)").font(.caption).foregroundStyle(.red) }
                 }
             }
             Section("Pijplijn") {

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Start en stopt de Python-pijplijn (`hint-meet live --ui`) als kindproces.
@@ -10,7 +11,6 @@ final class Backend: ObservableObject {
     private var process: Process?
     private let settings: Settings
     let port: Int
-    var sendStop: (() -> Void)?
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/HintMeet/backend.log")
@@ -62,24 +62,28 @@ final class Backend: ObservableObject {
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
+        let logQueue = DispatchQueue(label: "hintmeet.backend.log")   // schrijven en sluiten na elkaar
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            log?.write(data)
+            logQueue.async { log?.write(data) }
             let text = String(decoding: data, as: UTF8.self)
             Task { @MainActor in self?.remember(text) }
         }
         p.terminationHandler = { [weak self] proc in
-            Task { @MainActor in
-                guard let self else { return }
-                pipe.fileHandleForReading.readabilityHandler = nil
+            let rest = pipe.fileHandleForReading.readDataToEndOfFile()   // laatste regels niet kwijtraken
+            pipe.fileHandleForReading.readabilityHandler = nil
+            logQueue.async {
+                if !rest.isEmpty { log?.write(rest) }
                 try? log?.close()
-                let code = proc.terminationStatus
-                if self.state == .stopping || code == 0 {
-                    self.state = .idle
-                } else {
-                    self.state = .failed("Pijplijn gestopt (code \(code)); zie het logboek")
-                }
+            }
+            let restText = String(decoding: rest, as: UTF8.self)
+            Task { @MainActor in
+                guard let self, self.process === proc else { return }   // een oude run mag een nieuwe niet wissen
+                if !restText.isEmpty { self.remember(restText) }
+                let clean = proc.terminationReason == .exit && proc.terminationStatus == 0
+                self.state = clean ? .idle
+                    : .failed("Pijplijn gestopt (\(proc.terminationReason == .exit ? "code \(proc.terminationStatus)" : "signaal \(proc.terminationStatus)")); zie het logboek")
                 self.process = nil
             }
         }
@@ -93,26 +97,31 @@ final class Backend: ObservableObject {
         }
     }
 
-    /// Netjes stoppen: via de overlay-verbinding (dan komt het verslag nog), anders na 60 s hard.
+    /// Netjes stoppen met SIGINT aan ons eigen kindproces: de pijplijn verwerkt de laatste uitspraak
+    /// en maakt het verslag. Lukt dat niet binnen 60 s, dan beëindigen.
     func stop() {
         guard let p = process, p.isRunning else { return }
         state = .stopping
-        sendStop?()
+        p.interrupt()
         Task { @MainActor in
             for _ in 0..<120 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if !p.isRunning { return }
             }
-            p.interrupt()
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            if p.isRunning { p.terminate() }
+            p.terminate()
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if p.isRunning { kill(p.processIdentifier, SIGKILL) }
         }
     }
 
+    /// Bij afsluiten van de app: hooguit 10 s wachten (verslag), dan beëindigen, desnoods hard.
     func stopNow() {
         guard let p = process, p.isRunning else { return }
         p.interrupt()
-        p.waitUntilExit()
+        let deadline = Date().addingTimeInterval(10)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        if p.isRunning { p.terminate(); Thread.sleep(forTimeInterval: 2) }
+        if p.isRunning { kill(p.processIdentifier, SIGKILL) }
     }
 
     private func remember(_ text: String) {

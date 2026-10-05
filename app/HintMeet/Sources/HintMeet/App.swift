@@ -39,7 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let port = Int(ProcessInfo.processInfo.environment["HINT_MEET_PORT"] ?? "") ?? 8765
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
-        backend.sendStop = { [weak self] in self?.connection.send(["type": "stop"]) }
 
         let view = OverlayView(store: store) { [weak self] msg in self?.connection.send(msg) }
         hosting = NSHostingView(rootView: view)

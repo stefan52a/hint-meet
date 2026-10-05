@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 
 /// Instellingen: wat in UserDefaults mag (paden, project, apparaten) en de keys via de Keychain.
@@ -55,5 +56,8 @@ final class Settings: ObservableObject {
     }
 
     func key(_ name: String) -> String { Keychain.get(name) ?? "" }
-    func setKey(_ name: String, _ value: String) { Keychain.set(name, value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    @discardableResult
+    func setKey(_ name: String, _ value: String) -> Bool {
+        Keychain.set(name, value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 }
