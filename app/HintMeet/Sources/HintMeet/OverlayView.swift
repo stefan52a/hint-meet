@@ -19,19 +19,17 @@ struct OverlayView: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if backend.state == .stopping { stopping }
-            if store.transcript.isEmpty {
-                hintColumn
+            if store.transcript.isEmpty && store.listHints.isEmpty {
+                hintColumn(height: transcriptHeight)
             } else if layout.width >= Self.twoColumnWidth {
-                // links het gesprek, rechts de hint; de uitspraak waar de hint over gaat staat in het rood
+                // links het gesprek, rechts de hints op volgorde; de uitspraak van de hint in het midden is gemarkeerd
                 HStack(alignment: .top, spacing: 12) {
                     TranscriptView(store: store).frame(width: layout.width * 0.45, height: transcriptHeight)
                     Divider().frame(height: transcriptHeight)
-                    // fixedSize: de echte hoogte van de hint doorgeven, anders valt de onderkant (bronnen, 👍) weg
-                    hintColumn.fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    hintColumn(height: transcriptHeight).frame(maxWidth: .infinity, alignment: .topLeading)
                 }
             } else {
-                hintColumn
+                hintColumn(height: 240)
                 Divider()
                 TranscriptView(store: store).frame(height: min(transcriptHeight, 180))
             }
@@ -54,28 +52,25 @@ struct OverlayView: View {
     /// Hoogte van het transcript: groeit mee als je het paneel met de greep hoger maakt.
     private var transcriptHeight: CGFloat { max(240, layout.minHeight - 70) }
 
-    /// Rechterkolom: bladeren, de hint zelf (of de knoppen om te beginnen), intrekkingen en eerdere hints.
-    @ViewBuilder private var hintColumn: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if store.history.count > 1 || store.isBrowsing { historyBar }
-            if let hint = store.shown {
-                HintCard(hint: hint, rate: { r in
-                    store.rate(hint.id, r)
-                    send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
-                })
-            } else {
+    /// Rechterkolom: bladeren en de hints op volgorde (of de knoppen om te beginnen), en intrekkingen.
+    @ViewBuilder private func hintColumn(height: CGFloat) -> some View {
+        let bar = store.history.count > 1 || store.isBrowsing
+        let retracted = store.justRetracted != nil && !store.isBrowsing
+        VStack(alignment: .leading, spacing: 8) {
+            if store.listHints.isEmpty {
                 idle
+            } else {
+                if bar { historyBar }
+                HintsList(store: store, rate: { id, r in
+                    store.rate(id, r)
+                    send(["type": "feedback", "id": id, "rating": r, "session": store.session])
+                })
+                .frame(height: max(160, height - (bar ? 34 : 0) - (retracted ? 22 : 0)))
             }
             if let r = store.justRetracted, !store.isBrowsing {
                 // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
                 Text("Retracted (\(r.reason)): \(r.text)")
                     .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
-            }
-            if !store.earlier.isEmpty && !store.isBrowsing && store.transcript.isEmpty {
-                Divider()
-                ForEach(store.earlier) { h in
-                    Text(HintCard.bullets(h.text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                }
             }
         }
     }
@@ -104,7 +99,7 @@ struct OverlayView: View {
         .buttonStyle(.borderless)
     }
 
-    private static let clock: DateFormatter = {
+    static let clock: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         return f
@@ -324,8 +319,6 @@ struct TranscriptView: View {
     /// Na een scroll door de app zelf (pijltjes, Latest, nieuwe uitspraak) even niet de hint laten
     /// volgen uit de scrollpositie, anders vechten die twee met elkaar.
     @State private var ignoreScrollUntil = Date.distantPast
-    /// De hint is gekozen door te scrollen: dan het transcript niet zelf laten verspringen.
-    @State private var chosenByScroll: Int?
 
     var body: some View {
         let focus = store.shown?.id
@@ -341,7 +334,7 @@ struct TranscriptView: View {
                                     Color.clear.preference(key: RowFrames.self,
                                                            value: [u.id: g.frame(in: .named("transcript"))])
                                 })
-                                .onTapGesture { store.browse(to: u.id) }
+                                .onTapGesture { store.browse(to: u.id, from: .other) }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(hinted.contains(u.id) ? .isButton : [])
                                 .accessibilityHint(hinted.contains(u.id) ? "Shows the hint for this utterance" : "")
@@ -357,13 +350,12 @@ struct TranscriptView: View {
                     if atBottom && !store.isBrowsing, let last { scroll(proxy, to: last, anchor: .bottom) }
                 }
                 .onChange(of: focus) { _, id in
-                    if let id, chosenByScroll == id { return }   // door jouw scrollen gekozen: niet verspringen
-                    chosenByScroll = nil
+                    if store.selectionSource == .transcript { return }   // door jouw scrollen hier gekozen: niet verspringen
                     guard let id, store.isBrowsing else { return }
                     scroll(proxy, to: id, anchor: .center, animated: true)
                 }
                 .onChange(of: store.isBrowsing) { _, browsing in   // terug naar Latest: weer live meelezen
-                    if !browsing, chosenByScroll == nil, let last = store.transcript.last?.id {
+                    if !browsing, store.selectionSource != .transcript, let last = store.transcript.last?.id {
                         scroll(proxy, to: last, anchor: .bottom)
                     }
                 }
@@ -389,7 +381,7 @@ struct TranscriptView: View {
         if bottom != atBottom { atBottom = bottom }
         guard Date() >= ignoreScrollUntil else { return }
         if bottom {
-            if store.isBrowsing { chosenByScroll = nil; store.latest() }
+            if store.isBrowsing { store.latest(from: .transcript) }
             return
         }
         let hinted = store.hinted
@@ -401,8 +393,7 @@ struct TranscriptView: View {
         // staat; anders springt de selectie heen en weer als de vette regel hoger wordt
         if let current = store.shown?.id, let now = visible[current], let next = visible[best],
            abs(now.midY - middle) - abs(next.midY - middle) < 40 { return }
-        chosenByScroll = best
-        store.browse(to: best)
+        store.browse(to: best, from: .transcript)
     }
 
     private func row(_ u: Utterance, focused: Bool, hasHint: Bool) -> some View {
