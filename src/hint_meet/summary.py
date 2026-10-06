@@ -69,7 +69,8 @@ def hint_lines(number: int, hint: str) -> list[str]:
     points = [re.sub(r"^\s*[-*•]\s+", "", line).strip() for line in hint.splitlines() if line.strip()]
     if not points:
         return []
-    return [f"{number}. {points[0]}"] + [f"   - {p}" for p in points[1:]]
+    head = f"{number}. "
+    return [head + points[0]] + [" " * len(head) + f"- {p}" for p in points[1:]]   # ook bij "10. " goed genest
 
 
 def name_part(text: str, limit: int = 60) -> str:

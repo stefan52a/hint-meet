@@ -147,3 +147,8 @@ def test_bullet_hints_render_as_numbered_points(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "1. No VAT: going concern.\n   - Payment on 1 July 2026.\n2. Single line hint." in text
     assert "- - " not in text
+
+
+def test_nested_points_line_up_after_double_digit_numbers():
+    from hint_meet.summary import hint_lines
+    assert hint_lines(10, "- a\n- b") == ["10. a", "    - b"]
