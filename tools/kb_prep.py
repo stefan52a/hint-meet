@@ -390,9 +390,10 @@ def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
     except Image.UnidentifiedImageError as e:
         raise RuntimeError(f"geen leesbare afbeelding (beschadigd, of een ander formaat met een {path.suffix}-naam)") from e
     with img:
-        frames = [f.copy() for f in ImageSequence.Iterator(img)]
-    if path.suffix.lower() == ".gif":
-        frames = frames[:1]   # bewegende GIF: de beelden zijn geen pagina's
+        if path.suffix.lower() == ".gif":   # bewegende GIF: de beelden zijn geen pagina's, alleen het eerste
+            frames = [img.copy()]
+        else:
+            frames = [f.copy() for f in ImageSequence.Iterator(img)]
     if len(frames) == 1:
         text = ocr_image(frames[0], "afbeelding")
         if readable_chars(text) >= LOW_TEXT:
