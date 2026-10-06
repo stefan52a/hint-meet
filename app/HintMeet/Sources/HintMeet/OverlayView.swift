@@ -320,6 +320,9 @@ struct TranscriptView: View {
     /// Na een scroll door de app zelf (pijltjes, Latest, nieuwe uitspraak) even niet de hint laten
     /// volgen uit de scrollpositie, anders vechten die twee met elkaar.
     @State private var ignoreScrollUntil = Date.distantPast
+    /// Scrollpositie bij de vorige meting: alleen als die verandert heeft er echt gescrold
+    /// (een klik of een regel die hoger wordt, verandert wat er in beeld staat maar niet de positie).
+    @State private var lastOffset: CGFloat?
 
     var body: some View {
         let focus = store.shown?.id
@@ -342,6 +345,9 @@ struct TranscriptView: View {
                         }
                     }
                     .padding(.trailing, 6)
+                    .background(GeometryReader { g in   // de hele inhoud: zijn positie is de scrollpositie
+                        Color.clear.preference(key: RowFrames.self, value: [Int.min: g.frame(in: .named("transcript"))])
+                    })
                 }
                 .coordinateSpace(name: "transcript")
                 .onPreferenceChange(RowFrames.self) { frames in
@@ -376,14 +382,19 @@ struct TranscriptView: View {
 
     /// Wat er in beeld staat bepaalt de hint: helemaal onderaan = live, anders de hint van de uitspraak
     /// met 💡 die het dichtst bij het midden staat. Staat er geen 💡 in beeld, dan blijft de hint staan.
-    private func followScroll(_ frames: [Int: CGRect], height: CGFloat) {
+    private func followScroll(_ all: [Int: CGRect], height: CGFloat) {
         guard !store.transcript.isEmpty else { return }
+        let offset = all[Int.min]?.minY
+        var frames = all
+        frames[Int.min] = nil
+        defer { lastOffset = offset }
+        let scrolled = offset != nil && lastOffset != nil && abs(offset! - lastOffset!) > 0.5
         // onderaan = een van de laatste twee uitspraken staat in beeld; een net binnengekomen uitspraak
         // staat heel even onder de rand, en dat is geen omhoog scrollen
         let lastTwo = store.transcript.suffix(2).map(\.id)
         let bottom = lastTwo.contains { id in frames[id].map { $0.minY < height && $0.maxY > 0 } ?? false }
         if bottom != atBottom { atBottom = bottom }
-        guard Date() >= ignoreScrollUntil else { return }
+        guard scrolled, Date() >= ignoreScrollUntil else { return }   // alleen jouw scrollen kiest een hint
         if bottom {
             if store.isBrowsing { store.latest(from: .transcript) }
             return

@@ -7,6 +7,8 @@ struct HintsList: View {
     @ObservedObject var store: HintStore
     let rate: (Int, Int) -> Void
     @State private var ignoreScrollUntil = Date.distantPast
+    /// Scrollpositie bij de vorige meting: alleen echt scrollen kiest een andere hint.
+    @State private var lastOffset: CGFloat?
 
     var body: some View {
         let focus = store.shown?.id
@@ -28,6 +30,9 @@ struct HintsList: View {
                         Color.clear.frame(height: pad)
                     }
                     .padding(.trailing, 6)
+                    .background(GeometryReader { g in   // de hele inhoud: zijn positie is de scrollpositie
+                        Color.clear.preference(key: HintFrames.self, value: [Int.min: g.frame(in: .named("hints"))])
+                    })
                 }
                 .coordinateSpace(name: "hints")
                 .onPreferenceChange(HintFrames.self) { frames in follow(frames, height: viewport.size.height) }
@@ -73,8 +78,13 @@ struct HintsList: View {
 
     /// De hint die het dichtst bij het midden staat wordt de geselecteerde; met een drempel, zodat de
     /// selectie niet heen en weer springt als de grote kaart van hoogte verandert.
-    private func follow(_ frames: [Int: CGRect], height: CGFloat) {
-        guard Date() >= ignoreScrollUntil else { return }
+    private func follow(_ all: [Int: CGRect], height: CGFloat) {
+        let offset = all[Int.min]?.minY
+        var frames = all
+        frames[Int.min] = nil
+        defer { lastOffset = offset }
+        let scrolled = offset != nil && lastOffset != nil && abs(offset! - lastOffset!) > 0.5
+        guard scrolled, Date() >= ignoreScrollUntil else { return }   // een klik of een kaart die groeit is geen scrollen
         let middle = height / 2
         let visible = frames.filter { $0.value.maxY > 0 && $0.value.minY < height }
         // live blijft live zolang de nieuwste hint in beeld is: een nieuwe kaart of een kaart die van
