@@ -167,7 +167,7 @@ From, to, cc, date and subject are at the top, then the text (html becomes Markd
     └── …
 ```
 
-hint-meet picks the folder via `KB_ROOT` and `KB_PROJECT` in `.env`, or with `hint-meet --project fabrikam live`. Several projects can be searched together: `--project "Finance,acme"` (in the app: check several projects); sources then get the project name in front (`acme/offerte.pdf`). Project names may contain letters, digits, spaces and `. _ -`, but must start with a letter or digit.
+hint-meet picks the folder via `KB_ROOT` and `KB_PROJECT` in `.env`, or with `hint-meet --project fabrikam live`. Several projects can be searched together: `--project "Finance,acme"` (in the app: check several projects); sources then get the project name in front (`acme/offerte.pdf`), and the report goes to the `meetings/` folder of the first project, with all project names in its file name. Project names may contain letters, digits, spaces and `. _ -`, but must start with a letter or digit.
 
 A KB belongs to one source folder; that's recorded in the manifest. If two source folders have the same name (`clientA/docs` and `clientB/docs`), the second run refuses and asks for its own `--project`. With `--force` you deliberately link a KB to a different source folder.
 
