@@ -143,7 +143,8 @@ class Transcriber:
                                         language=self.language, initial_prompt=self.prompt,
                                         condition_on_previous_text=False)
         text = r["text"].strip()
-        if HALLUCINATIONS.search(text) or not re.search(r"\w", text):
+        # verzinsels zijn korte losse zinnen; een echte uitspraak die toevallig "ondertitel" bevat blijft staan
+        if (HALLUCINATIONS.search(text) and len(text.split()) <= 12) or not re.search(r"\w", text):
             text = ""
         return text, (time.perf_counter() - t) * 1000
 
