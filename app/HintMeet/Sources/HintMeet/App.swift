@@ -43,7 +43,7 @@ final class OverlayPanel: NSPanel {
     var acceptsKeyboard: () -> Bool = { false }
     /// App die actief was voordat een klik op het paneel HintMeet actief maakte; krijgt bij de start
     /// van een meeting de focus terug.
-    private(set) var previousApp: NSRunningApplication?
+    var previousApp: NSRunningApplication?
 
     init(content: NSView) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
@@ -322,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if NSApp.isActive, let app = panel.previousApp, !app.isTerminated, app != NSRunningApplication.current {
             app.activate()   // de meeting-app weer voorop, met zijn eigen menubalk
         }
+        panel.previousApp = nil   // één keer gebruiken; een volgende klik op het paneel onthoudt opnieuw
         backend.start()
         statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
         panel.orderFrontRegardless()
