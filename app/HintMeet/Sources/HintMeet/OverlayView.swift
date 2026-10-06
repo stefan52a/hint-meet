@@ -63,7 +63,7 @@ struct OverlayView: View {
     /// Terugbladeren door de hints van deze meeting; nieuwe hints komen binnen zonder je plek te verliezen.
     private var historyBar: some View {
         let history = store.history
-        let index = store.browseIndex ?? (history.lastIndex { $0.id == store.shown?.id } ?? max(history.count - 1, 0))
+        let index = store.shownIndex ?? max(history.count - 1, 0)
         return HStack(spacing: 6) {
             Button { store.back() } label: { Image(systemName: "chevron.left") }
                 .disabled(index == 0 && store.isBrowsing)

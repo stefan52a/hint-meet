@@ -32,8 +32,9 @@ final class HintStore: ObservableObject {
     @Published var summaryPath: String?
     @Published var stopped = false
     @Published var status = ""      // wat de pijplijn aan het doen is (KB laden, luistert…)
-    /// Terugbladeren: positie in `history`; nil = altijd de nieuwste hint.
-    @Published var browseIndex: Int?
+    /// Terugbladeren: id van de hint die je bekijkt (niet zijn plaats: nieuwe of ingetrokken hints
+    /// verschuiven de lijst); nil = altijd de nieuwste hint.
+    @Published var browseID: Int?
     /// Uitspraak waarop een hint reageert (hint-id = id van de uitspraak), voor de geschiedenis.
     private(set) var spoken: [Int: Utterance] = [:]
     private(set) var session = ""
@@ -43,25 +44,29 @@ final class HintStore: ObservableObject {
 
     /// Wat de hoofdplek toont: de hint waar je naartoe hebt gebladerd, anders de nieuwste.
     var shown: Hint? {
-        if let i = browseIndex, history.indices.contains(i) { return history[i] }
+        if let id = browseID, let h = history.first(where: { $0.id == id }) { return h }
         return current
     }
 
-    var isBrowsing: Bool { browseIndex != nil }
+    var isBrowsing: Bool { browseID != nil && history.contains { $0.id == browseID } }
+
+    /// Plaats van de getoonde hint in `history` (voor "Hint 3 of 12").
+    var shownIndex: Int? { history.firstIndex { $0.id == shown?.id } }
 
     func back() {
         let h = history
         guard !h.isEmpty else { return }
-        let i = browseIndex ?? (h.lastIndex { $0.id == current?.id } ?? h.count)
-        browseIndex = max(i - 1, 0)
+        let i = isBrowsing ? (shownIndex ?? 0) : (h.lastIndex { $0.id == current?.id } ?? h.count)
+        browseID = h[max(i - 1, 0)].id
     }
 
     func forward() {
-        guard let i = browseIndex else { return }
-        browseIndex = i + 1 >= history.count ? nil : i + 1   // voorbij de laatste: weer live
+        let h = history
+        guard isBrowsing, let i = shownIndex else { return }
+        browseID = i + 1 >= h.count ? nil : h[i + 1].id   // voorbij de laatste: weer live
     }
 
-    func latest() { browseIndex = nil }
+    func latest() { browseID = nil }
 
     /// De hint die je kunt gebruiken; ingetrokken hints krijgen nooit de hoofdplek.
     var current: Hint? { hints.last { $0.state != .retracted } }
@@ -81,7 +86,7 @@ final class HintStore: ObservableObject {
             // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
             let new = msg["session"] as? String ?? ""
             if new != session {
-                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; browseIndex = nil
+                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; browseID = nil
                 session = new
             }
             project = msg["project"] as? String ?? ""

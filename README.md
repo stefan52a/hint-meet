@@ -10,7 +10,7 @@ HintMeet is een meeting-copilot voor de Mac. Het luistert mee tijdens een gespre
 3. Vul eventueel *Meeting info* in (met wie, waar) en start de meeting. Hints verschijnen in een zwevend paneel boven je meeting, zonder je toetsenbord over te nemen; met ◀ ▶ blader je terug.
 4. Na afloop staat het verslag met actiepunten in `<KB>/meetings/`; het transcript in `logs/`.
 
-Alles behalve de taalmodellen draait lokaal: spraakherkenning (Whisper via MLX), de kennisbank en het zoeken. Alleen het korte fragment van het gesprek plus de gevonden passages gaan naar de poortwachter en Claude.
+Spraakherkenning (Whisper via MLX), de kennisbank en het zoeken draaien lokaal. Naar de taalmodellen gaan tijdens de meeting de laatste paar beurten van het gesprek plus de gevonden passages (poortwachter en Claude), en na afloop het hele transcript voor het verslag (Claude; uit te zetten in Settings of met `--no-summary`).
 
 > Status: werkend prototype (Python-pijplijn + macOS-app). Wijzigingen per dag staan in [CHANGELOG.md](CHANGELOG.md).
 

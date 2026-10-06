@@ -41,6 +41,9 @@ final class PanelLayout: ObservableObject {
 final class OverlayPanel: NSPanel {
     /// Alleen buiten een meeting mag het paneel toetsen ontvangen (invoerveld "Met wie?").
     var acceptsKeyboard: () -> Bool = { false }
+    /// App die actief was voordat een klik op het paneel HintMeet actief maakte; krijgt bij de start
+    /// van een meeting de focus terug.
+    private(set) var previousApp: NSRunningApplication?
 
     init(content: NSView) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
@@ -63,6 +66,7 @@ final class OverlayPanel: NSPanel {
     /// weer van HintMeet is. Tijdens een meeting niet: dan blijft de focus bij de meeting-app.
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown && acceptsKeyboard() && !NSApp.isActive {
+            previousApp = NSWorkspace.shared.frontmostApplication
             NSApp.activate(ignoringOtherApps: true)
         }
         super.sendEvent(event)
@@ -315,6 +319,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func startMeeting() {
         panel.resignKey()   // na typen in "Meeting info": toetsenbord terug naar de meeting
+        if NSApp.isActive, let app = panel.previousApp, !app.isTerminated, app != NSRunningApplication.current {
+            app.activate()   // de meeting-app weer voorop, met zijn eigen menubalk
+        }
         backend.start()
         statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
         panel.orderFrontRegardless()
