@@ -22,9 +22,9 @@ struct TaskProgressView: View {
                         Spacer()
                     }
                     Button("Stop") { task.stop() }.controlSize(.small)
-                        .help("Stoppen; wat klaar is blijft bewaard en de volgende keer gaat hij verder")
+                        .help("Stop; finished work is kept and the next run continues where it left off")
                 }
-                Text(task.step + (guess.map { " · nog ~" + Self.seconds($0.left) + " (schatting)" } ?? "")
+                Text(task.step + (guess.map { " · ~" + Self.seconds($0.left) + " left (estimate)" } ?? "")
                      + (task.since.map { " · " + Self.elapsed(from: $0, to: tick) } ?? ""))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
@@ -44,7 +44,7 @@ struct TaskProgressView: View {
     }
 
     private var logButton: some View {
-        Button("Logboek") { NSWorkspace.shared.open(task.logURL) }.buttonStyle(.link).font(.caption)
+        Button("Log") { NSWorkspace.shared.open(task.logURL) }.buttonStyle(.link).font(.caption)
     }
 
     static func seconds(_ s: Double) -> String {

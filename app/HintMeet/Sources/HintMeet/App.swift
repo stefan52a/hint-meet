@@ -58,6 +58,15 @@ final class OverlayPanel: NSPanel {
         contentView = content
     }
     override var canBecomeKey: Bool { acceptsKeyboard() }
+
+    /// Buiten een meeting maakt een klik op het paneel HintMeet de actieve app, zodat de menubalk linksboven
+    /// weer van HintMeet is. Tijdens een meeting niet: dan blijft de focus bij de meeting-app.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown && acceptsKeyboard() && !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        super.sendEvent(event)
+    }
     override var canBecomeMain: Bool { false }
 }
 
@@ -71,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let kbPrep = ProgressTask(logName: "kb_prep")
     var kbPrepWindow: NSWindow?
     private let meetingMenu = NSMenu(title: "Meeting")
-    private let kbMenu = NSMenu(title: "Kennisbank")
-    private let windowMenu = NSMenu(title: "Venster")
+    private let kbMenu = NSMenu(title: "Knowledge Base")
+    private let windowMenu = NSMenu(title: "Window")
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
@@ -177,12 +186,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         default:   // het 💡-menu
             let header = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
             header.isEnabled = false
-            let restart = item(settings.project.isEmpty ? "HintMeet herstarten" : "HintMeet herstarten · \(settings.projectLabel)",
+            let restart = item(settings.project.isEmpty ? "Restart HintMeet" : "Restart HintMeet · \(settings.projectLabel)",
                                #selector(restartApp), "r")
-            restart.toolTip = "Sluit HintMeet af (een lopende meeting maakt eerst zijn verslag) en start de nieuwste build opnieuw"
+            restart.toolTip = "Quits HintMeet (a running meeting finishes its report first) and starts the latest build"
             parts = [[header], meetingItems(), kbItems(), overlayItems(),
-                     [item("Instellingen…", #selector(showSettings), ","), item("Logboek", #selector(openLog), "")],
-                     [restart, item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q")]]
+                     [item("Settings…", #selector(showSettings), ","), item("Log", #selector(openLog), "")],
+                     [restart, item("Quit HintMeet", #selector(NSApplication.terminate(_:)), "q")]]
         }
         for (i, group) in parts.enumerated() {
             if i > 0 { menu.addItem(.separator()) }
@@ -192,9 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusText: String {
         switch backend.state {
-        case .idle: return "Geen meeting actief"
-        case .running: return "Luistert · \(settings.projectLabel)"
-        case .stopping: return "Stopt… (verslag wordt gemaakt)"
+        case .idle: return "No meeting running"
+        case .running: return "Listening · \(settings.projectLabel)"
+        case .stopping: return "Stopping… (writing report)"
         case .failed(let why): return "⚠ \(why)"
         }
     }
@@ -202,21 +211,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func meetingItems() -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         if backend.isRunning {
-            items.append(item("Meeting stoppen", #selector(stopMeeting), "s"))
+            items.append(item("Stop Meeting", #selector(stopMeeting), "s"))
         } else {
-            let start = item(settings.project.isEmpty ? "Meeting starten (kies eerst een project)" : "Meeting starten · \(settings.projectLabel)",
+            let start = item(settings.project.isEmpty ? "Start Meeting (choose a project first)" : "Start Meeting · \(settings.projectLabel)",
                              #selector(startMeeting), "s")
             start.isEnabled = !settings.project.isEmpty && settings.backendReady && !preparer.isRunning
             items.append(start)
         }
-        let replay = item("Opname afspelen…", #selector(playRecording), "o")
+        let prev = item("Previous Hint", #selector(previousHint), "[")
+        prev.isEnabled = !store.history.isEmpty
+        let next = item("Next Hint", #selector(nextHint), "]")
+        next.isEnabled = store.isBrowsing
+        let live = item("Latest Hint", #selector(latestHint), "")
+        live.isEnabled = store.isBrowsing
+        items += [prev, next, live]
+        let replay = item("Play Recording…", #selector(playRecording), "o")
         replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady && !preparer.isRunning
         items.append(replay)
         return items
     }
 
     private func kbItems() -> [NSMenuItem] {
-        let projectItem = NSMenuItem(title: "Projecten (meerdere mogelijk)", action: nil, keyEquivalent: "")
+        let projectItem = NSMenuItem(title: "Projects (select one or more)", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for name in settings.projects {
             let it = item(name, #selector(chooseProject(_:)), "")
@@ -225,21 +241,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.isEnabled = !backend.isRunning && !preparer.isRunning
             sub.addItem(it)
         }
-        if sub.items.isEmpty { sub.addItem(NSMenuItem(title: "Geen projecten in \(settings.kbRoot)", action: nil, keyEquivalent: "")) }
+        if sub.items.isEmpty { sub.addItem(NSMenuItem(title: "No projects in \(settings.kbRoot)", action: nil, keyEquivalent: "")) }
         projectItem.submenu = sub
-        let load = item(preparer.isRunning ? "KB laden (bezig…)" : "KB laden", #selector(prepareKB), "l")
+        let load = item(preparer.isRunning ? "Load KB (running…)" : "Load KB", #selector(prepareKB), "l")
         load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
-        let prep = item(kbPrep.isRunning ? "Documenten omzetten (bezig…)" : "Documenten omzetten (kb_prep)…",
+        let prep = item(kbPrep.isRunning ? "Convert Documents (running…)" : "Convert Documents (kb_prep)…",
                         #selector(showKBPrep), "")
         return [projectItem, load, prep]
     }
 
     private func overlayItems() -> [NSMenuItem] {
-        [item(panel.isVisible ? "Overlay verbergen" : "Overlay tonen", #selector(togglePanel), ""),
-         item("Overlay standaardgrootte", #selector(resetPanelSize), "")]
+        [item(panel.isVisible ? "Hide Overlay" : "Show Overlay", #selector(togglePanel), ""),
+         item("Reset Overlay Size", #selector(resetPanelSize), "")]
     }
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
+    @objc func previousHint() { store.back() }
+    @objc func nextHint() { store.forward() }
+    @objc func latestHint() { store.latest() }
 
     /// Menubalk linksboven, zoals bij andere apps: HintMeet, Bewerk, Meeting, Kennisbank, Venster, Help.
     private func buildMainMenu() {
@@ -259,30 +278,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.keyEquivalentModifierMask = mods
             return it
         }
-        let about = NSMenuItem(title: "Over HintMeet", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+        let about = NSMenuItem(title: "About HintMeet", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                                keyEquivalent: "")
         top("HintMeet", fixed("HintMeet", [
             about, .separator(),
-            item("Instellingen…", #selector(showSettings), ","), .separator(),
-            standard("Verberg HintMeet", #selector(NSApplication.hide(_:)), "h"),
-            standard("Verberg andere", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
-            standard("Toon alles", #selector(NSApplication.unhideAllApplications(_:)), ""), .separator(),
-            item("HintMeet herstarten", #selector(restartApp), "r"),
-            item("Stop HintMeet", #selector(NSApplication.terminate(_:)), "q"),
+            item("Settings…", #selector(showSettings), ","), .separator(),
+            standard("Hide HintMeet", #selector(NSApplication.hide(_:)), "h"),
+            standard("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            standard("Show All", #selector(NSApplication.unhideAllApplications(_:)), ""), .separator(),
+            item("Restart HintMeet", #selector(restartApp), "r"),
+            item("Quit HintMeet", #selector(NSApplication.terminate(_:)), "q"),
         ]))
         // nodig voor knippen en plakken in tekstvelden, zoals "Met wie?"
-        top("Bewerk", fixed("Bewerk", [
-            standard("Herstel", Selector(("undo:")), "z"), standard("Opnieuw", Selector(("redo:")), "z", [.command, .shift]),
+        top("Edit", fixed("Edit", [
+            standard("Undo", Selector(("undo:")), "z"), standard("Redo", Selector(("redo:")), "z", [.command, .shift]),
             .separator(),
-            standard("Knip", #selector(NSText.cut(_:)), "x"), standard("Kopieer", #selector(NSText.copy(_:)), "c"),
-            standard("Plak", #selector(NSText.paste(_:)), "v"), standard("Selecteer alles", #selector(NSText.selectAll(_:)), "a"),
+            standard("Cut", #selector(NSText.cut(_:)), "x"), standard("Copy", #selector(NSText.copy(_:)), "c"),
+            standard("Paste", #selector(NSText.paste(_:)), "v"), standard("Select All", #selector(NSText.selectAll(_:)), "a"),
         ]))
-        for (title, menu) in [("Meeting", meetingMenu), ("Kennisbank", kbMenu), ("Venster", windowMenu)] {
+        for (title, menu) in [("Meeting", meetingMenu), ("Knowledge Base", kbMenu), ("Window", windowMenu)] {
             menu.delegate = self
             top(title, menu)
         }
         // geen NSApp.windowsMenu: dat menu bouwen we zelf opnieuw op, en macOS zou er vensters in zetten
-        let help = fixed("Help", [item("Logboek", #selector(openLog), "")])
+        let help = fixed("Help", [item("Log", #selector(openLog), "")])
         top("Help", help)
         NSApp.helpMenu = help
         NSApp.mainMenu = main
@@ -295,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func startMeeting() {
-        panel.resignKey()   // na typen in "Met wie?": toetsenbord terug naar de meeting
+        panel.resignKey()   // na typen in "Meeting info": toetsenbord terug naar de meeting
         backend.start()
         statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
         panel.orderFrontRegardless()
@@ -328,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Een eerdere opname (bv. van de Plaud) afspelen alsof het een live meeting is.
     @objc func playRecording() {
         let panel = NSOpenPanel()
-        panel.title = "Opname afspelen"
+        panel.title = "Play Recording"
         panel.allowedContentTypes = [.audio, .mpeg4Audio, .mp3, .wav]
         panel.allowsMultipleSelection = false
         NSApp.activate(ignoringOtherApps: true)
@@ -348,7 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if settingsWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            w.title = "HintMeet-instellingen"
+            w.title = "HintMeet Settings"
             w.contentView = NSHostingView(rootView: SettingsView(settings: settings))
             w.isReleasedWhenClosed = false
             w.center()
@@ -362,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if kbPrepWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            w.title = "Documenten omzetten"
+            w.title = "Convert Documents"
             w.contentView = NSHostingView(rootView: KBPrepView(settings: settings, task: kbPrep))
             w.isReleasedWhenClosed = false   // sluiten verbergt alleen; het omzetten loopt door
             w.center()

@@ -47,11 +47,11 @@ final class Backend: ObservableObject {
     func start(recording: String? = nil) {
         guard !isRunning else { return }
         guard settings.backendReady else {
-            state = .failed("Geen Python-omgeving in \(settings.repoPath)/.venv")
+            state = .failed("No Python environment in \(settings.repoPath)/.venv")
             return
         }
         guard !settings.project.isEmpty else {
-            state = .failed("Kies eerst een project")
+            state = .failed("Choose a project first")
             return
         }
         var args = ["-m", "hint_meet.cli", "--project", settings.project, "live", "--ui", "--port", String(port)]
@@ -64,8 +64,8 @@ final class Backend: ObservableObject {
             if !settings.system.isEmpty { args += ["--system", settings.system] }
         }
         if !settings.summary { args.append("--no-summary") }
-        let partner = settings.partner.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !partner.isEmpty { args += ["--met", partner] }
+        let info = settings.meetingInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !info.isEmpty { args += ["--info", info] }
 
         let p = Backend.pythonProcess(settings, args)
 
@@ -97,7 +97,7 @@ final class Backend: ObservableObject {
                 if !restText.isEmpty { self.remember(restText) }
                 let clean = proc.terminationReason == .exit && proc.terminationStatus == 0
                 self.state = clean ? .idle
-                    : .failed("Pijplijn gestopt (\(proc.terminationReason == .exit ? "code \(proc.terminationStatus)" : "signaal \(proc.terminationStatus)")); zie het logboek")
+                    : .failed("Pipeline stopped (\(proc.terminationReason == .exit ? "code \(proc.terminationStatus)" : "signal \(proc.terminationStatus)")); see the log")
                 self.process = nil
                 self.stoppingSince = nil
             }
@@ -108,7 +108,7 @@ final class Backend: ObservableObject {
             state = .running
             lastLines = []
         } catch {
-            state = .failed("Kon de pijplijn niet starten: \(error.localizedDescription)")
+            state = .failed("Could not start the pipeline: \(error.localizedDescription)")
         }
     }
 

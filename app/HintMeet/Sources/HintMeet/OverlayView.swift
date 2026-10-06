@@ -19,7 +19,12 @@ struct OverlayView: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if backend.state == .stopping { stopping }
-            if let hint = store.current {
+            if store.history.count > 1 || store.isBrowsing { historyBar }
+            if let hint = store.shown {
+                if store.isBrowsing, let u = store.spoken[hint.id] {
+                    Text("In reply to \(u.speaker) [\(u.time)]: \(u.text)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
                 HintCard(hint: hint, rate: { r in
                     store.rate(hint.id, r)
                     send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
@@ -27,12 +32,12 @@ struct OverlayView: View {
             } else {
                 idle
             }
-            if let r = store.justRetracted {
+            if let r = store.justRetracted, !store.isBrowsing {
                 // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
-                Text("Ingetrokken (\(r.reason)): \(r.text)")
+                Text("Retracted (\(r.reason)): \(r.text)")
                     .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
             }
-            if !store.earlier.isEmpty {
+            if !store.earlier.isEmpty && !store.isBrowsing {
                 Divider()
                 ForEach(store.earlier) { h in
                     Text(HintCard.bullets(h.text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -43,7 +48,7 @@ struct OverlayView: View {
                 Text("\(last.speaker): \(last.text)").font(.caption).foregroundStyle(.tertiary).lineLimit(2)
             }
             if let path = store.summaryPath {
-                Button("Verslag met actiepunten openen") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
                     .buttonStyle(.link).font(.caption)
             }
         }
@@ -55,11 +60,41 @@ struct OverlayView: View {
         .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
     }
 
+    /// Terugbladeren door de hints van deze meeting; nieuwe hints komen binnen zonder je plek te verliezen.
+    private var historyBar: some View {
+        let history = store.history
+        let index = store.browseIndex ?? (history.lastIndex { $0.id == store.shown?.id } ?? max(history.count - 1, 0))
+        return HStack(spacing: 6) {
+            Button { store.back() } label: { Image(systemName: "chevron.left") }
+                .disabled(index == 0 && store.isBrowsing)
+                .help("Previous hint (⌘[)")
+            Text("Hint \(min(index + 1, history.count)) of \(history.count)"
+                 + (store.shown.map { " · " + Self.clock.string(from: $0.updated) } ?? ""))
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            Button { store.forward() } label: { Image(systemName: "chevron.right") }
+                .disabled(!store.isBrowsing)
+                .help("Next hint (⌘])")
+            Spacer()
+            if store.isBrowsing {
+                let newer = history.count - 1 - index
+                Button(newer > 0 ? "Latest (\(newer) newer)" : "Latest") { store.latest() }
+                    .controlSize(.small)
+            }
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     /// Geen hint in beeld: wat de pijplijn doet, of knoppen om te beginnen.
     @ViewBuilder private var idle: some View {
         switch backend.state {
         case .running:
-            Text(store.connected ? (store.status.isEmpty ? "Luistert…" : store.status) : "Pijplijn start…")
+            Text(store.connected ? (store.status.isEmpty ? "Listening…" : store.status) : "Starting pipeline…")
                 .font(.callout).foregroundStyle(.secondary)
         case .stopping:
             EmptyView()   // staat bovenaan in `stopping`, ook als er nog een hint in beeld is
@@ -69,23 +104,23 @@ struct OverlayView: View {
                     Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Text("Kennisbank")
+                    Text("Knowledge base")
                     ProjectMenu(settings: settings).disabled(preparer.isRunning)
                     if !settings.project.isEmpty && !preparer.isRunning {
-                        Button("KB laden") { preparer.startPrepare(settings) }
-                            .help("Vooraf: documenten bijwerken uit de bronmap, KB indexeren en spraakherkenning "
-                                  + "laden, zodat de meeting daarna snel start")
+                        Button("Load KB") { preparer.startPrepare(settings) }
+                            .help("In advance: update documents from the source folder, index the KB and load speech "
+                                  + "recognition, so the meeting starts quickly")
                     }
                 }
                 .controlSize(.small)
                 preparation
-                TextField("Met wie? (komt in de naam van het verslag)", text: $settings.partner)
+                TextField("Meeting info (e.g. with whom, where) – used in the report name", text: $settings.meetingInfo)
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                 if !settings.project.isEmpty {
                     HStack {
-                        Button("Meeting starten · \(settings.projectLabel)") { startMeeting() }
+                        Button("Start Meeting · \(settings.projectLabel)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
-                        Button("Opname afspelen…") { playRecording() }
+                        Button("Play Recording…") { playRecording() }
                     }
                     .controlSize(.small)
                     .disabled(preparer.isRunning)
@@ -103,13 +138,13 @@ struct OverlayView: View {
         HStack(alignment: .center, spacing: 10) {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Afsluiten – wacht op het verslag").font(.callout.weight(.medium))
+                Text("Quitting – waiting for the report").font(.callout.weight(.medium))
                 Text(stoppingStep + (backend.stoppingSince.map { " · " + elapsed(since: $0) } ?? ""))
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             Spacer()
-            Button("Nu afbreken") { backend.abort() }
-                .controlSize(.small).help("Niet op het verslag wachten; het transcript is al opgeslagen of gaat verloren")
+            Button("Abort Now") { backend.abort() }
+                .controlSize(.small).help("Don't wait for the report; the transcript is already saved or will be lost")
         }
         .padding(8)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
@@ -117,7 +152,7 @@ struct OverlayView: View {
 
     private var stoppingStep: String {
         // tot de pijplijn iets nieuws meldt, staat er nog "Luistert…"
-        store.status.isEmpty || store.status == "Luistert…" ? "Laatste uitspraak verwerken…" : store.status
+        store.status.isEmpty || store.status == "Listening…" ? "Processing the last utterance…" : store.status
     }
 
     private func seconds(_ s: Double) -> String {
@@ -135,15 +170,15 @@ struct OverlayView: View {
                 .frame(width: 7, height: 7)
             Text("hint-meet").font(.caption.weight(.semibold))
             if !store.project.isEmpty { Text("· \(store.project)").font(.caption).foregroundStyle(.secondary) }
-            if backend.isRunning && !settings.partner.isEmpty {
-                Text("· met \(settings.partner)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if backend.isRunning && !settings.meetingInfo.isEmpty {
+                Text("· \(settings.meetingInfo)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if backend.state == .running {
                 Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)
             }
             Button { openSettings() } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless).help("Instellingen")
+                .buttonStyle(.borderless).help("Settings")
         }
     }
 }
@@ -179,7 +214,7 @@ struct HintCard: View {
             case .retracted:
                 EmptyView()  // komt hier niet: ingetrokken hints staan als regeltje in de overlay
             case .streaming:
-                Text("bron wordt gecontroleerd").font(.caption).foregroundStyle(.secondary)
+                Text("checking source").font(.caption).foregroundStyle(.secondary)
             case .final:
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {

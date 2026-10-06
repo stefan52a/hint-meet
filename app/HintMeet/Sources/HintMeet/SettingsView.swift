@@ -9,42 +9,42 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Kennisbank") {
-                LabeledContent("Projecten") { ProjectMenu(settings: settings) }
-                TextField("KB-map", text: $settings.kbRoot)
+            Section("Knowledge Base") {
+                LabeledContent("Projects") { ProjectMenu(settings: settings) }
+                TextField("KB folder", text: $settings.kbRoot)
             }
             Section("Audio") {
-                Picker("Jouw microfoon", selection: $settings.mic) {
-                    Text("Systeemstandaard").tag("")
+                Picker("Your microphone", selection: $settings.mic) {
+                    Text("System default").tag("")
                     ForEach(devices, id: \.self) { Text($0).tag($0) }
                 }
-                Picker("Systeemaudio (online meeting)", selection: $settings.system) {
-                    Text("Geen (alleen microfoon)").tag("")
+                Picker("System audio (online meeting)", selection: $settings.system) {
+                    Text("None (microphone only)").tag("")
                     ForEach(devices, id: \.self) { Text($0).tag($0) }
                 }
                 if !devices.contains(where: { $0.localizedCaseInsensitiveContains("blackhole") }) {
-                    Text("Voor Teams/Zoom/Meet: installeer BlackHole (brew install --cask blackhole-2ch).")
+                    Text("For Teams/Zoom/Meet: install BlackHole (brew install --cask blackhole-2ch).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Toggle("Verslag met actiepunten na afloop", isOn: $settings.summary)
+                Toggle("Report with action items afterwards", isOn: $settings.summary)
             }
             Section("API-keys (Keychain)") {
                 ForEach(Settings.keyNames, id: \.self) { name in
                     SecureField(name, text: Binding(get: { keys[name] ?? "" }, set: { keys[name] = $0; saved = nil }))
                 }
                 HStack {
-                    Button("Bewaren") {
+                    Button("Save") {
                         saved = keys.map { settings.setKey($0.key, $0.value) }.allSatisfy { $0 }
                     }
-                    if saved == true { Text("Bewaard").font(.caption).foregroundStyle(.secondary) }
-                    if saved == false { Text("Bewaren mislukt (Keychain)").font(.caption).foregroundStyle(.red) }
+                    if saved == true { Text("Saved").font(.caption).foregroundStyle(.secondary) }
+                    if saved == false { Text("Saving failed (Keychain)").font(.caption).foregroundStyle(.red) }
                 }
             }
-            Section("Pijplijn") {
-                TextField("Projectmap hint-meet", text: $settings.repoPath)
-                Text(settings.backendReady ? "Python-omgeving gevonden" : "Geen .venv/bin/python in deze map")
+            Section("Pipeline") {
+                TextField("hint-meet project folder", text: $settings.repoPath)
+                Text(settings.backendReady ? "Python environment found" : "No .venv/bin/python in this folder")
                     .font(.caption).foregroundStyle(settings.backendReady ? Color.secondary : Color.orange)
-                Button("Logboek openen") { NSWorkspace.shared.open(Backend.logURL) }
+                Button("Open Log") { NSWorkspace.shared.open(Backend.logURL) }
             }
         }
         .formStyle(.grouped)

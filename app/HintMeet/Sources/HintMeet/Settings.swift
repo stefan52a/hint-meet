@@ -13,8 +13,8 @@ final class Settings: ObservableObject {
     @Published var mic: String { didSet { d.set(mic, forKey: "mic") } }
     @Published var system: String { didSet { d.set(system, forKey: "system") } }
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
-    /// Met wie je spreekt, per meeting; komt in de naam van het verslag. Bewust niet onthouden.
-    @Published var partner = ""
+    /// Meeting-info (met wie, waar, …), per meeting; komt in de naam van het verslag. Bewust niet onthouden.
+    @Published var meetingInfo = ""
 
     static let keyNames = ["ANTHROPIC_API_KEY", "TYPESAFE_API_KEY"]
 

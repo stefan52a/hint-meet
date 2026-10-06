@@ -32,7 +32,36 @@ final class HintStore: ObservableObject {
     @Published var summaryPath: String?
     @Published var stopped = false
     @Published var status = ""      // wat de pijplijn aan het doen is (KB laden, luistert…)
+    /// Terugbladeren: positie in `history`; nil = altijd de nieuwste hint.
+    @Published var browseIndex: Int?
+    /// Uitspraak waarop een hint reageert (hint-id = id van de uitspraak), voor de geschiedenis.
+    private(set) var spoken: [Int: Utterance] = [:]
     private(set) var session = ""
+
+    /// Alle definitieve hints van deze meeting, oudste eerst: de geschiedenis om door te bladeren.
+    var history: [Hint] { hints.filter { $0.state == .final }.sorted { $0.id < $1.id } }
+
+    /// Wat de hoofdplek toont: de hint waar je naartoe hebt gebladerd, anders de nieuwste.
+    var shown: Hint? {
+        if let i = browseIndex, history.indices.contains(i) { return history[i] }
+        return current
+    }
+
+    var isBrowsing: Bool { browseIndex != nil }
+
+    func back() {
+        let h = history
+        guard !h.isEmpty else { return }
+        let i = browseIndex ?? (h.lastIndex { $0.id == current?.id } ?? h.count)
+        browseIndex = max(i - 1, 0)
+    }
+
+    func forward() {
+        guard let i = browseIndex else { return }
+        browseIndex = i + 1 >= history.count ? nil : i + 1   // voorbij de laatste: weer live
+    }
+
+    func latest() { browseIndex = nil }
 
     /// De hint die je kunt gebruiken; ingetrokken hints krijgen nooit de hoofdplek.
     var current: Hint? { hints.last { $0.state != .retracted } }
@@ -52,7 +81,7 @@ final class HintStore: ObservableObject {
             // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
             let new = msg["session"] as? String ?? ""
             if new != session {
-                hints = []; utterances = []; summaryPath = nil; status = ""
+                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; browseIndex = nil
                 session = new
             }
             project = msg["project"] as? String ?? ""
@@ -63,6 +92,7 @@ final class HintStore: ObservableObject {
                               speaker: msg["speaker"] as? String ?? "", text: msg["text"] as? String ?? "")
             utterances.removeAll { $0.id == id }
             utterances.append(u)
+            spoken[id] = u
             utterances = Array(utterances.suffix(4))
         case "hint":
             guard let id = msg["id"] as? Int, let state = Hint.State(rawValue: msg["state"] as? String ?? "") else { return }
@@ -76,7 +106,7 @@ final class HintStore: ObservableObject {
             hint.updated = Date()
             hints.removeAll { $0.id == id }
             hints.append(hint)
-            hints = Array(hints.suffix(20))
+            hints = Array(hints.suffix(500))   // ruim genoeg voor een lange meeting, om terug te bladeren
         case "status":
             status = msg["text"] as? String ?? ""
         case "summary":

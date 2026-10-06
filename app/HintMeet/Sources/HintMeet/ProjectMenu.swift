@@ -5,14 +5,14 @@ struct ProjectMenu: View {
     @ObservedObject var settings: Settings
 
     var body: some View {
-        Menu(settings.project.isEmpty ? "— kies een of meer projecten —" : settings.projectLabel) {
+        Menu(settings.project.isEmpty ? "— choose one or more projects —" : settings.projectLabel) {
             ForEach(settings.projects, id: \.self) { name in
                 Toggle(name, isOn: Binding(get: { settings.selectedProjects.contains(name) },
                                            set: { _ in settings.toggleProject(name) }))
             }
-            if settings.projects.isEmpty { Text("Geen projecten in \(settings.kbRoot)") }
+            if settings.projects.isEmpty { Text("No projects in \(settings.kbRoot)") }
         }
         .fixedSize()
-        .help("Vink meerdere projecten aan om ze samen te doorzoeken")
+        .help("Check several projects to search them together")
     }
 }

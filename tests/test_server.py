@@ -122,8 +122,8 @@ def test_meeting_note_lands_in_kb_meetings(tmp_path):
 def test_meeting_note_name_has_project_and_partner(tmp_path):
     u = [Utterance(5, "Maria", "Hoi")]
     t = time.mktime((2026, 10, 5, 10, 47, 36, 0, 0, -1))
-    path = write_note(tmp_path, u, [], "## Samenvatting\nA", t, project="Finance", partner="Jan / Piet: VvE")
-    assert path.name == "2026-10-05-104736-Finance-met-Jan - Piet- VvE.md"
-    assert path.read_text(encoding="utf-8").startswith("# Gesprek met Jan - Piet- VvE · Finance · 05-10-2026 10:47")
+    path = write_note(tmp_path, u, [], "## Samenvatting\nA", t, project="Finance", info="Jan / Piet: VvE, Utrecht")
+    assert path.name == "2026-10-05-104736-Finance-Jan - Piet- VvE, Utrecht.md"
+    assert path.read_text(encoding="utf-8").startswith("# Gesprek · Jan - Piet- VvE, Utrecht · Finance · 05-10-2026 10:47")
     plain = write_note(tmp_path, u, [], "## Samenvatting\nB", t, project="Finance")
     assert plain.name == "2026-10-05-104736-Finance-gesprek.md"

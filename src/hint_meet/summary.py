@@ -42,11 +42,12 @@ def name_part(text: str, limit: int = 60) -> str:
 
 
 def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float,
-               project: str = "", partner: str = "") -> Path:
-    """Verslag als <datum-tijd>-<project>-met-<wie>.md (of ...-<project>-gesprek.md zonder naam)."""
+               project: str = "", info: str = "") -> Path:
+    """Verslag als <datum-tijd>-<project>-<meeting-info>.md (of ...-<project>-gesprek.md zonder info).
+    info is vrije tekst uit de app, bv. "Jan Jansen, Utrecht"."""
     stamp = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(started))
-    project, partner = name_part(project), name_part(partner)
-    base = "-".join(p for p in (stamp, project, f"met-{partner}" if partner else "gesprek") if p)
+    project, info = name_part(project), name_part(info)
+    base = "-".join(p for p in (stamp, project, info or "gesprek") if p)
     folder = kb_root / "meetings"
     folder.mkdir(parents=True, exist_ok=True)
     n = 1
@@ -57,7 +58,7 @@ def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float
             break
         except FileExistsError:
             n += 1
-    title = "Gesprek" + (f" met {partner}" if partner else "") + (f" · {project}" if project else "")
+    title = "Gesprek" + (f" · {info}" if info else "") + (f" · {project}" if project else "")
     lines = [f"# {title} · {time.strftime('%d-%m-%Y %H:%M', time.localtime(started))}", "",
              "> Automatisch verslag door hint-meet; transcript via spraakherkenning.", "", summary_md, "",
              "## Getoonde hints",

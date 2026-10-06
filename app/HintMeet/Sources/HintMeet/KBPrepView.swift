@@ -19,26 +19,26 @@ struct KBPrepView: View {
         Form {
             Section {
                 HStack {
-                    TextField("Bronmap", text: $source, prompt: Text("map met documenten"))
-                    Button("Kies…") { chooseSource() }
+                    TextField("Source folder", text: $source, prompt: Text("folder with documents"))
+                    Button("Choose…") { chooseSource() }
                 }
                 TextField("Project", text: Binding(get: { project }, set: { project = $0; projectEdited = true }),
-                          prompt: Text("naam van de kennisbank"))
-                LabeledContent("Doel") {
+                          prompt: Text("name of the knowledge base"))
+                LabeledContent("Destination") {
                     Text(project.isEmpty ? "—" : "\(settings.kbRoot)/\(project)")
                         .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             }
-            Section("Opties") {
-                Toggle("Alles opnieuw omzetten (--force)", isOn: $force)
-                    .help("Ook ongewijzigde bronnen; eigen schaduwbestanden die je hebt aangepast worden overschreven")
-                Toggle("Zonder OCR (--no-ocr)", isOn: $noOCR)
-                    .help("Gescande PDF-pagina's en afbeeldingen niet uitlezen; veel sneller")
+            Section("Options") {
+                Toggle("Convert everything again (--force)", isOn: $force)
+                    .help("Also unchanged sources; converted files you edited yourself are overwritten")
+                Toggle("Without OCR (--no-ocr)", isOn: $noOCR)
+                    .help("Don't read scanned PDF pages and images; much faster")
             }
             Section {
                 HStack {
                     Spacer()
-                    Button("Omzetten") {
+                    Button("Convert") {
                         task.startKBPrep(settings, source: source, project: project, force: force, noOCR: noOCR)
                     }
                     .buttonStyle(.borderedProminent)
@@ -46,7 +46,7 @@ struct KBPrepView: View {
                 }
                 TaskProgressView(task: task, tick: tick)
             }
-            Text("Wijzigingen in de bronmap pak je later ook op met KB laden in het paneel; dat draait dezelfde stap.")
+            Text("Later changes in the source folder are also picked up by Load KB in the panel; it runs the same step.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -92,7 +92,7 @@ struct KBPrepView: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.prompt = "Kies"
+        panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         source = url.path   // de projectnaam volgt via onChange, tenzij je hem zelf hebt aangepast
     }

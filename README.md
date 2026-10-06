@@ -1,8 +1,18 @@
 # hint-meet
 
-Realtime meeting-copilot voor de Mac. Luistert mee, beslist met Jev óf er iets te zeggen valt, zoekt dan in je eigen kennisbank en laat Claude een kort advies formuleren.
+HintMeet is een meeting-copilot voor de Mac. Het luistert mee tijdens een gesprek, herkent het moment waarop je iets uit je eigen dossier nodig hebt, en zet dan in een paar seconden een korte hint op je scherm: 1 tot 4 punten, met de bron erbij. Na afloop schrijft het een verslag met actiepunten.
 
-> Status: prototype in opbouw. `tools/kb_prep.py` werkt; de modules in `src/hint_meet/` zijn nog stubs.
+**Waarvoor.** Gesprekken waarin details uit een groot dossier ertoe doen: met een fiscalist, notaris, bank, koper of aandeelhouder. Iemand noemt een bedrag, datum of afspraak die niet klopt, of stelt een vraag waarvan het antwoord ergens in je stukken staat. HintMeet vindt dat stuk en zegt kort wat er wél geldt, zodat je niet hoeft te zoeken of te gokken.
+
+**Hoe je het gebruikt.**
+1. Zet je documenten (pdf, Word, Excel, mail, scans, …) om naar een kennisbank: *Convert Documents* in de app, of `tools/kb_prep.py`.
+2. Kies in HintMeet een of meer projecten en klik *Load KB*, zodat de meeting meteen kan starten.
+3. Vul eventueel *Meeting info* in (met wie, waar) en start de meeting. Hints verschijnen in een zwevend paneel boven je meeting, zonder je toetsenbord over te nemen; met ◀ ▶ blader je terug.
+4. Na afloop staat het verslag met actiepunten in `<KB>/meetings/`; het transcript in `logs/`.
+
+Alles behalve de taalmodellen draait lokaal: spraakherkenning (Whisper via MLX), de kennisbank en het zoeken. Alleen het korte fragment van het gesprek plus de gevonden passages gaan naar de poortwachter en Claude.
+
+> Status: werkend prototype (Python-pijplijn + macOS-app). Wijzigingen per dag staan in [CHANGELOG.md](CHANGELOG.md).
 
 ## Hoe het werkt
 
@@ -10,7 +20,7 @@ Realtime meeting-copilot voor de Mac. Luistert mee, beslist met Jev óf er iets 
 microfoon + systeemaudio (BlackHole)
         │
         ▼
-transcribe.py   faster-whisper, blokjes van 5-8 s, laatste 3 beurten
+audio.py        Whisper (MLX) per uitspraak, lokaal; live.py houdt de laatste beurten bij
         │
         ▼
 gate.py         Jev: ingrijpen? (Noul) · soort moment (Choice) · KB-collectie (Choice) · urgentie (Score)
@@ -19,7 +29,7 @@ gate.py         Jev: ingrijpen? (Noul) · soort moment (Choice) · KB-collectie 
 kb.py           embeddings over de Markdown-KB + Jev-reranker (Noul per passage, ≥ 0,7)
         │
         ▼
-advise.py       Claude, hooguit drie zinnen  ──►  overlay.py
+advise.py       Claude, 1 tot 4 korte punten met bron  ──►  server.py  ──►  HintMeet.app (overlay)
 ```
 
 Waarom een gate: een LLM-call om de paar seconden is duur en traag. Jev geeft in een fractie van een seconde een kans terug, dus de LLM draait alleen als er echt iets te melden is. Achtergrond en bronnen staan in [docs/gesprek-meeting-copilot-jev.md](docs/gesprek-meeting-copilot-jev.md).

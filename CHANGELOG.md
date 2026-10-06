@@ -2,6 +2,19 @@
 
 Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details staan in `git log`.
 
+## 2026-10-06
+
+### App
+
+- De app is Engelstalig: menu's, knoppen, meldingen en de voortgang van Load KB en Convert Documents. Hints en verslagen blijven Nederlands.
+- Het veld *Met wie?* heet nu **Meeting info** (bijvoorbeeld met wie en waar). Die tekst komt in de naam van het verslag: `2026-10-06-104736-Finance-Jan Jansen, Utrecht.md`.
+- **Geschiedenis van hints:** blader met ◀ ▶ boven de hint (of ⌘[ en ⌘] in het menu Meeting) terug door de hints van deze meeting, met tijdstip en de uitspraak waarop de hint reageerde. *Latest* brengt je terug; nieuwe hints komen binnen zonder dat je je plek verliest.
+- De menubalk linksboven komt terug als je buiten een meeting op het paneel klikt (HintMeet wordt dan de actieve app). Tijdens een meeting blijft de focus bij de meeting-app.
+
+### Documentatie
+
+- README begint met wat HintMeet doet, waarvoor je het gebruikt en hoe.
+
 ## 2026-10-05
 
 ### Overlay

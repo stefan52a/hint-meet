@@ -32,7 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
     lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
-    lv.add_argument("--met", default="", help="met wie je spreekt; komt in de naam en kop van het verslag")
+    lv.add_argument("--info", "--met", dest="info", default="",
+                    help="meeting-info, bv. met wie en waar; komt in de naam en kop van het verslag")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -217,18 +218,23 @@ def run_kb_prep(args: list[str]) -> tuple[int, str]:
     tool = Path(__file__).resolve().parents[2] / "tools" / "kb_prep.py"
     proc = subprocess.Popen([sys.executable, str(tool), *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, env={**os.environ, "KB_PREP_MACHINE": "1"})
-    last = ""
+    last = error = ""
     try:
         for line in proc.stdout:
             line = line.rstrip("\n")
             print(line, flush=True)
-            if line.strip() and not line.startswith("@"):
+            if line.startswith("@error "):
+                error = line[7:]
+            elif line.strip() and not line.startswith("@"):
                 last = line.strip()
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)
         proc.wait()
         raise
-    return proc.wait(), last
+    return proc.wait(), error or last
+
+
+REASON_EN = {"geen bron": "no source", "herhaling": "repeat"}   # reden van intrekken, voor de app
 
 
 def prepare_cmd(a) -> int:
@@ -250,26 +256,26 @@ def prepare_cmd(a) -> int:
         manifest = root / "_manifest.json"
         source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
         if not (source and Path(source).is_dir()):
-            step(f"nodocs-{root.name}", f"{root.name}: geen bronmap bekend; documenten niet bijgewerkt")
+            step(f"nodocs-{root.name}", f"{root.name}: no source folder known; documents not updated")
             continue
-        step(f"docs-{root.name}", f"{root.name}: documenten bijwerken uit {source}…")
+        step(f"docs-{root.name}", f"{root.name}: updating documents from {source}…")
         code, last = run_kb_prep([source, str(root)])
         if code == 3:   # een andere kb_prep is bezig: met de KB zoals hij is verder, wel melden
-            print(f"@warn {root.name}: documenten niet bijgewerkt. {last}", flush=True)
+            print(f"@warn {root.name}: documents not updated. {last}", flush=True)
         elif code not in (0, 1):  # 1 = sommige bestanden mislukt: de rest is wel bijgewerkt
             print(last or f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
 
-    step("kb", "KB laden…")
+    step("kb", "Loading KB…")
 
     def progress(done, total, left):
-        print(f"@progress {done} {total} KB indexeren: {done}/{total} stukjes · nog ~{fmt_left(left)}", flush=True)
+        print(f"@progress {done} {total} Indexing KB: {done}/{total} chunks · ~{fmt_left(left)} left", flush=True)
 
     kb = KB(roots, progress=progress)
-    step("asr", "Spraakherkenning laden…")
+    step("asr", "Loading speech recognition…")
     from .audio import Transcriber, kb_terms
     Transcriber(kb_terms(kb.chunks))
-    step("done", f"Klaar: {len(kb.chunks)} stukjes in {fmt_left(time.perf_counter() - t0)}")
+    step("done", f"Done: {len(kb.chunks)} chunks in {fmt_left(time.perf_counter() - t0)}")
     return 0
 
 
@@ -336,11 +342,11 @@ def live_cmd(a) -> int:
 
     def kb_progress(done, total, left):
         print_progress(done, total, left)
-        status(f"KB voorbereiden: {done}/{total} stukjes · nog ~{fmt_left(left)}")
+        status(f"Preparing KB: {done}/{total} chunks · ~{fmt_left(left)} left")
         if stop_requested.is_set():
             raise Stopped   # wat al klaar is, staat in de cache; volgende start gaat verder
 
-    status("KB laden…")
+    status("Loading KB…")
     try:
         kb = KB(roots, progress=kb_progress)
     except (Stopped, KeyboardInterrupt):
@@ -349,7 +355,7 @@ def live_cmd(a) -> int:
             hub.send(type="stopped")
             hub.stop()
         return 0
-    status("Spraakherkenning laden…")
+    status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks))
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
     if a.wav:
@@ -391,7 +397,7 @@ def live_cmd(a) -> int:
                     hub.send(type="hint", id=uid, state="final", text=st.advice.text, sources=srcs)
                 elif st.advice.text:
                     hub.send(type="hint", id=uid, state="retracted", text=st.advice.text,
-                             reason=st.suppressed or "geen bron")
+                             reason=REASON_EN.get(st.suppressed or "geen bron", st.suppressed))
         if st is not None and st.shown:
             shown_hints.append(st.advice.text)
         if st is None:
@@ -409,13 +415,13 @@ def live_cmd(a) -> int:
 
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text)
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
-    status("Luistert…")
+    status("Listening…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
     try:
         if session.run(until=until):
             print("\nGestopt.")
     finally:
-        status("Transcript opslaan…")  # de app toont tijdens het afsluiten waar de pijplijn is
+        status("Saving transcript…")  # de app toont tijdens het afsluiten waar de pijplijn is
         session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
     if session.overflows:
         print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
@@ -433,15 +439,15 @@ def live_cmd(a) -> int:
     print(f"Transcript: {out}")
     if not a.no_summary and len(session.utterances) >= 3:
         from .summary import summarize, write_note
-        status(f"Verslag maken ({len(session.utterances)} uitspraken)…")
+        status(f"Writing report ({len(session.utterances)} utterances)…")
         try:
             md = summarize(session.utterances, config)
             # een testrun (--wav) hoort niet als echte meeting in de KB
             # bij meerdere projecten komt het verslag bij het eerste
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
-                              project="+".join(r.name for r in roots), partner=a.met)
+                              project="+".join(r.name for r in roots), info=a.info)
             print(f"\n{md}\n\nVerslag: {note}")
-            status("Verslag klaar")
+            status("Report ready")
             if hub:
                 hub.send(type="summary", markdown=md, path=str(note))
         except Exception as e:  # noqa: BLE001 - het verslag mag het transcript niet kosten

@@ -649,14 +649,23 @@ def shadow_path(src_root: Path, out: Path, src: Path) -> Path:
     return out / rel.parent / shadow_name(rel.name)
 
 
-def lock_holder(text: str) -> str:
+def lock_holder(text: str, english: bool = False) -> str:
     """" (sinds 11:42, gestart vanuit de terminal, bron …, proces 4711)" uit het lockbestand, of ""."""
     try:
         info = json.loads(text)
         since = datetime.fromtimestamp(info["started"]).strftime("%H:%M")
+        if english:
+            origin = {"de terminal": "the terminal", "een script": "a script"}.get(info["from"], info["from"])
+            return f" (since {since}, started from {origin}, source {info['source']}, process {info['pid']})"
         return f" (sinds {since}, gestart vanuit {info['from']}, bron {info['source']}, proces {info['pid']})"
     except Exception:  # noqa: BLE001 - oud, leeg of vreemd lockbestand: dan zonder details melden
         return ""
+
+
+def machine(kind: str, text: str) -> None:
+    """Regel voor HintMeet (alleen met KB_PREP_MACHINE): @error/@summary in het Engels, zoals de app."""
+    if os.environ.get("KB_PREP_MACHINE"):
+        print(f"@{kind} {text}", flush=True)
 
 
 def default_root() -> Path:
@@ -691,12 +700,14 @@ def main(argv: list[str] | None = None) -> int:
         if not PROJECT_NAME.fullmatch(a.project) or ".." in a.project:
             print(f"Ongeldige projectnaam: {a.project!r} (letters, cijfers, spatie, . _ -); "
                   "kies er een met --project", file=sys.stderr)
+            machine("error", f"Invalid project name {a.project!r}: use letters, digits, spaces and . _ -")
             return 2
         a.out = a.out / a.project
     a.src, a.out = a.src.expanduser().resolve(), a.out.expanduser().resolve()
 
     if not a.src.is_dir():
         print(f"Bronmap niet gevonden: {a.src}", file=sys.stderr)
+        machine("error", f"Source folder not found: {a.src}")
         return 2
     a.out.mkdir(parents=True, exist_ok=True)
 
@@ -705,8 +716,11 @@ def main(argv: list[str] | None = None) -> int:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             lock.seek(0)
-            print(f"Er draait al een kb_prep op {a.out}{lock_holder(lock.read())}. Wacht tot die klaar is "
+            holder = lock.read()
+            print(f"Er draait al een kb_prep op {a.out}{lock_holder(holder)}. Wacht tot die klaar is "
                   "of stop hem, en probeer het daarna opnieuw.", file=sys.stderr)
+            machine("error", f"Another kb_prep is already running on {a.out}{lock_holder(holder, english=True)}. "
+                             "Wait until it finishes or stop it, then try again.")
             return 3
         # wie de lock heeft, zodat een tweede kb_prep kan zeggen welke run er al bezig is
         lock.truncate(0)
@@ -730,6 +744,9 @@ def fmt_duration(seconds: float) -> str:
     return f"{seconds / 3600:.1f} u"
 
 
+UNIT_EN = {"pagina": "page", "afbeelding": "image"}   # voor de @progress-regels van HintMeet
+
+
 class Progress:
     """Voortgangsregel die zichzelf overschrijft, alleen in een terminal.
 
@@ -747,7 +764,7 @@ class Progress:
         self.i, self.name = i, name
         self.started = time.monotonic()
         if os.environ.get("KB_PREP_MACHINE"):  # voor HintMeet (hint-meet prepare): voortgang als regel
-            print(f"@progress {i - 1} {self.total} Documenten bijwerken · {name}", flush=True)
+            print(f"@progress {i - 1} {self.total} Updating documents · {name}", flush=True)
         self._render("")
 
     def tick(self, done: int, total: int, unit: str) -> None:
@@ -755,12 +772,14 @@ class Progress:
         if total <= 1:
             return
         tail = f" · {unit} {done + 1}/{total}"
+        en_tail = f" · {UNIT_EN.get(unit, unit)} {done + 1}/{total}"
         if done:
             left = (time.monotonic() - self.started) / done * (total - done)
             if left >= 5:
                 tail += f" · nog ~{fmt_duration(left)}"
+                en_tail += f" · ~{fmt_duration(left).replace(' u', ' h')} left"
         if os.environ.get("KB_PREP_MACHINE"):  # deelvoortgang binnen het bestand, als breuk van het geheel
-            print(f"@progress {self.i - 1 + done / total:.3f} {self.total} Documenten bijwerken · {self.name}{tail}",
+            print(f"@progress {self.i - 1 + done / total:.3f} {self.total} Updating documents · {self.name}{en_tail}",
                   flush=True)
         self._render(tail)
 
@@ -826,6 +845,8 @@ def run(a: argparse.Namespace) -> int:
         # anders ruimt deze run alle schaduwbestanden van de andere bronmap op
         print(f"{a.out} hoort bij bronmap {bound}, niet bij {a.src}. Kies een ander project met "
               f"--project, of gebruik --force om deze KB aan de nieuwe bronmap te koppelen.", file=sys.stderr)
+        machine("error", f"{a.out} belongs to source folder {bound}, not {a.src}. Choose another project name, "
+                         "or convert everything again (--force) to link this KB to the new source folder.")
         return 2
     stats = {"ok": 0, "skip": 0, "fail": 0, "unsupported": 0, "removed": 0, "conflict": 0, "photos": 0,
              "ignored": 0}
@@ -943,6 +964,7 @@ def convert_all(a, todo, manifest, progress, stats, low_text, expected, failures
 
     (a.out / LEGACY_INDEX).unlink(missing_ok=True)
 
+    machine("summary", json.dumps({**stats, "low_text": len(low_text)}))
     print(f"\nKlaar: {stats['ok']} omgezet, {stats['skip']} overgeslagen (al actueel), "
           f"{stats['fail']} mislukt, {stats['unsupported']} niet-ondersteund, {stats['removed']} opgeruimd, "
           f"{stats['conflict']} conflict, {len(low_text)} met weinig tekst"
