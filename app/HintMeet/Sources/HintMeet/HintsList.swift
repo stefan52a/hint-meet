@@ -36,9 +36,12 @@ struct HintsList: View {
                 }
                 .coordinateSpace(name: "hints")
                 .onPreferenceChange(HintFrames.self) { frames in follow(frames, height: viewport.size.height) }
-                .onChange(of: focus) { _, id in
-                    if store.selectionSource == .hints { return }   // door scrollen hier gekozen: niet verspringen
-                    if let id { scroll(proxy, to: id, animated: true) }
+                .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in het transcript
+                    guard store.selectionSource == .transcript, let id else { return }
+                    scroll(proxy, to: id, animated: true)
+                }
+                .onChange(of: store.revealToken) { _, _ in   // jouw keuze (klik, ◀ ▶, Latest): die hint in het midden
+                    if let id = store.shown?.id { scroll(proxy, to: id, animated: true) }
                 }
                 .onChange(of: items.last?.id) { _, last in   // nieuwe hint terwijl je live meeleest
                     if !store.isBrowsing, let last { scroll(proxy, to: last, animated: true) }

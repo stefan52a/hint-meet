@@ -58,6 +58,9 @@ final class HintStore: ObservableObject {
     /// Wie de selectie het laatst veranderde: die lijst scrollt niet nog eens mee (anders zingt het rond).
     enum SelectionSource { case transcript, hints, other }
     var selectionSource: SelectionSource = .other
+    /// Telt op bij elke keuze van jou (klik, ◀ ▶, Latest): beide lijsten scrollen dan naar de gekozen hint
+    /// en zijn uitspraak, ook als het de nieuwste is of al geselecteerd was.
+    @Published private(set) var revealToken = 0
 
     /// Lijst rechts: alle definitieve hints op volgorde, plus een hint die nog binnenkomt.
     var listHints: [Hint] {
@@ -68,6 +71,7 @@ final class HintStore: ObservableObject {
 
     func back() {
         selectionSource = .other
+        defer { revealToken += 1 }
         let h = history
         guard !h.isEmpty else { return }
         let i = isBrowsing ? (shownIndex ?? 0) : (h.lastIndex { $0.id == current?.id } ?? h.count)
@@ -76,6 +80,7 @@ final class HintStore: ObservableObject {
 
     func forward() {
         selectionSource = .other
+        defer { revealToken += 1 }
         let h = history
         guard isBrowsing, let i = shownIndex else { return }
         browseID = i + 1 >= h.count ? nil : h[i + 1].id   // voorbij de laatste: weer live
@@ -84,12 +89,14 @@ final class HintStore: ObservableObject {
     func latest(from source: SelectionSource = .other) {
         selectionSource = source
         browseID = nil
+        if source == .other { revealToken += 1 }
     }
 
     /// Klik op een uitspraak in het transcript: de hint die erop reageerde tonen (als die er is).
     func browse(to utteranceID: Int, from source: SelectionSource = .other) {
         guard history.contains(where: { $0.id == utteranceID }) else { return }
         selectionSource = source
+        defer { if source == .other { revealToken += 1 } }
         browseID = utteranceID == current?.id ? nil : utteranceID
     }
 

@@ -356,15 +356,12 @@ struct TranscriptView: View {
                 .onChange(of: store.transcript.last?.id) { _, last in
                     if atBottom && !store.isBrowsing, let last { scroll(proxy, to: last, anchor: .bottom) }
                 }
-                .onChange(of: focus) { _, id in
-                    if store.selectionSource == .transcript { return }   // door jouw scrollen hier gekozen: niet verspringen
-                    guard let id, store.isBrowsing else { return }
+                .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in de hintlijst
+                    guard store.selectionSource == .hints, let id else { return }
                     scroll(proxy, to: id, anchor: .center, animated: true)
                 }
-                .onChange(of: store.isBrowsing) { _, browsing in   // terug naar Latest: weer live meelezen
-                    if !browsing, store.selectionSource != .transcript, let last = store.transcript.last?.id {
-                        scroll(proxy, to: last, anchor: .bottom)
-                    }
+                .onChange(of: store.revealToken) { _, _ in   // jouw keuze: naar de uitspraak van die hint, ook de nieuwste
+                    if let id = store.shown?.id { scroll(proxy, to: id, anchor: .center, animated: true) }
                 }
                 .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
             }
