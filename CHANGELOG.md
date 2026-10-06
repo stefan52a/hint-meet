@@ -6,7 +6,7 @@ Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details sta
 
 ### App
 
-- **Transcript naast de hint:** links het scrollbare transcript van de meeting, rechts de hint. De uitspraak waarop de getoonde hint reageert staat in het rood; uitspraken met een hint hebben een 💡 (klik om die hint te tonen). Het transcript volgt live de nieuwste uitspraak en springt bij terugbladeren naar de uitspraak van die hint. Bij een smal paneel staat het transcript onder de hint; de standaardbreedte is 760 punten.
+- **Transcript naast de hint:** links het scrollbare transcript van de meeting, rechts de hint. De uitspraak waarop de getoonde hint reageert staat in vet wit op een lichtrode achtergrond; uitspraken met een hint hebben een 💡 (klik om die hint te tonen). Het transcript volgt live de nieuwste uitspraak en springt bij terugbladeren naar de uitspraak van die hint. Bij een smal paneel staat het transcript onder de hint; de standaardbreedte is 760 punten.
 - Scrollen door het transcript laat de hint meebewegen: rechts staat de hint van de uitspraak met 💡 die het dichtst bij het midden staat. Helemaal onderaan ben je weer live. Scroll je omhoog, dan trekken nieuwe uitspraken je niet meer naar beneden.
 - De app is Engelstalig: menu's, knoppen, meldingen en de voortgang van Load KB en Convert Documents. Hints en verslagen blijven Nederlands.
 - Het veld *Met wie?* heet nu **Meeting info** (bijvoorbeeld met wie en waar). Die tekst komt in de naam van het verslag: `2026-10-06-104736-Finance-Jan Jansen, Utrecht.md`.

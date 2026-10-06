@@ -402,17 +402,20 @@ struct TranscriptView: View {
 
     private func row(_ u: Utterance, focused: Bool, hasHint: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(u.time).font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
-            (Text(u.speaker + ": ").fontWeight(.semibold) + Text(u.text))
+            Text(u.time).font(.caption2).monospacedDigit()
+                .foregroundStyle(focused ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.tertiary))
+            // de uitspraak van de getoonde hint: vet wit op lichtrood, goed leesbaar in licht en donker
+            (Text(u.speaker + ": ").fontWeight(focused ? .heavy : .semibold) + Text(u.text).fontWeight(focused ? .bold : .regular))
                 .font(.callout)
-                .foregroundStyle(focused ? Color.red : Color.primary.opacity(0.8))
+                .foregroundStyle(focused ? Color.white : Color.primary.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
             if hasHint { Text("💡").font(.caption).help("Show the hint for this utterance") }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
-        .background(focused ? Color.red.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+        .background(focused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
     }
 }
