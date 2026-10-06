@@ -20,7 +20,7 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 
 Speech recognition (Whisper via MLX), the knowledge base and search run locally. During the meeting, the last few turns of the conversation plus the passages found go to the language models (gatekeeper and Claude); afterwards the full transcript goes to Claude for the report (can be turned off in Settings or with `--no-summary`).
 
-Conversations can be in Dutch, English, German or French, or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
+Conversations can be in any of the 100 languages Whisper knows (Dutch, English, German, French, Spanish, Chinese, …), or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
 
 > Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -255,7 +255,7 @@ In the app: *Convert Documents* with `examples/demo-dossier` as source folder, t
 ```bash
 hint-meet --project acme live                              # microphone
 hint-meet --project acme live --system "BlackHole 2ch"     # plus system audio of an online meeting
-hint-meet --project acme live --language en                # conversation language: nl, en, de, fr or multi
+hint-meet --project acme live --language en                # conversation language: a Whisper code (nl, en, es, …) or multi
 hint-meet --project acme live --info "Jan, Utrecht"        # meeting info in the report name
 hint-meet --project acme live --audio recording.mp3        # earlier recording (mp3, m4a, wav) in real time
 hint-meet --project acme replay conversation.txt           # transcript with #! markers, with score

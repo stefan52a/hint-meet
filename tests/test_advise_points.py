@@ -24,6 +24,15 @@ def test_parse_reply_limits_points_and_keeps_sources():
 
 def test_hint_language_is_explicit_for_a_chosen_language():
     from hint_meet.advise import ADVISE_SYSTEM, language_rule
-    assert "Engels" in language_rule("en") and "Duits" in language_rule("de")
+    assert "English" in language_rule("en") and "German" in language_rule("de") and "Spanish" in language_rule("es")
     assert "laatste beurten" in language_rule(None)   # multilingual: volg het gesprek
     assert "{language_rule}" in ADVISE_SYSTEM
+
+
+def test_language_option_accepts_whisper_codes_and_multi():
+    import argparse
+    import pytest
+    from hint_meet.cli import language_code
+    assert language_code("ES") == "es" and language_code("multi") == "multi" and language_code("yue") == "yue"
+    with pytest.raises(argparse.ArgumentTypeError):
+        language_code("klingon")

@@ -152,3 +152,9 @@ def test_bullet_hints_render_as_numbered_points(tmp_path):
 def test_nested_points_line_up_after_double_digit_numbers():
     from hint_meet.summary import hint_lines
     assert hint_lines(10, "- a\n- b") == ["10. a", "    - b"]
+
+
+def test_other_language_gets_english_report_scaffolding(tmp_path):
+    u = [Utterance(5, "Ana", "Hola")]
+    es = write_note(tmp_path, u, [], "## Resumen\nSobre el préstamo.", time.time(), language="es")
+    assert "## Hints shown" in es.read_text(encoding="utf-8")

@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-07
+
+### App
+
+- **All languages:** the language menu now lists all 100 languages Whisper recognizes, alphabetically by English name, with *Multilingual* at the top. With the menu open, type the first letter (D for Dutch) to jump there. Hints and the report follow the chosen language; for languages other than Dutch, English, German and French the fixed texts in the report file are in English.
+
 ## 2026-10-06
 
 ### App

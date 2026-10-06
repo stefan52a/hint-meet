@@ -11,6 +11,15 @@ from dotenv import find_dotenv, load_dotenv
 from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
 
 
+def language_code(value: str) -> str:
+    """--language: "multi" of een taalcode die Whisper kent."""
+    from .languages import LANGUAGES
+    value = value.strip().lower()
+    if value != "multi" and value not in LANGUAGES:
+        raise argparse.ArgumentTypeError(f"onbekende taal {value!r}; kies multi of een van: {', '.join(sorted(LANGUAGES))}")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(find_dotenv(usecwd=True))  # .env vanaf de werkmap; bestaande omgevingsvariabelen gaan voor
     ap = argparse.ArgumentParser(prog="hint-meet")
@@ -32,9 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
     lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
-    lv.add_argument("--language", default="nl",
-                    help="taal van het gesprek: nl, en, de, fr, … of multi (per uitspraak herkend); hints en "
-                         "verslag volgen de gesprekstaal")
+    lv.add_argument("--language", default="nl", type=language_code,
+                    help="taal van het gesprek: een Whisper-code (nl, en, de, fr, es, …) of multi (per uitspraak "
+                         "herkend); hints en verslag volgen de gesprekstaal")
     lv.add_argument("--info", "--met", dest="info", default="",
                     help="meeting-info, bv. met wie en waar; komt in de naam en kop van het verslag")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")

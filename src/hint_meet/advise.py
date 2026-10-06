@@ -29,12 +29,13 @@ Beantwoorden de passages het moment niet, antwoord dan alleen: GEEN"""
 
 # taal van de hint: vast bij een gekozen gesprekstaal (anders trekt deze Nederlandse prompt naar het
 # Nederlands), bij "multi" de taal van de laatste beurten
-LANGUAGE_NAMES = {"nl": "Nederlands", "en": "Engels (English)", "de": "Duits (Deutsch)", "fr": "Frans (français)"}
+from .languages import LANGUAGES as LANGUAGE_NAMES   # code → Engelse naam, alle talen van Whisper
 
 
 def language_rule(language: str | None) -> str:
     if language in LANGUAGE_NAMES:
-        return f"Schrijf de hint in het {LANGUAGE_NAMES[language]}: dat is de taal van het gesprek."
+        return (f"Schrijf de hint in deze taal: {LANGUAGE_NAMES[language]} (code {language}); "
+                "dat is de taal van het gesprek.")
     return ("Schrijf de hint in de taal van het gesprek: de taal van de laatste beurten "
             "(Nederlands, Engels, Duits, Frans, …).")
 

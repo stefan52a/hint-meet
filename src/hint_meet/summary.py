@@ -31,8 +31,8 @@ def summarize(utterances, config, client=None, language: str | None = None) -> s
     response = client.messages.create(
         model=config["advise"]["model"],
         max_tokens=4000,
-        system=SUMMARY_SYSTEM + (f"\n\nHet gesprek is in het {LANGUAGE_NAMES[language]}: schrijf het verslag "
-                                 f"in die taal, ook de kopjes." if language in LANGUAGE_NAMES else ""),
+        system=SUMMARY_SYSTEM + (f"\n\nHet gesprek is in deze taal: {LANGUAGE_NAMES[language]}. Schrijf het "
+                                 f"verslag in die taal, ook de kopjes." if language in LANGUAGE_NAMES else ""),
         messages=[{"role": "user", "content": f"Transcript:\n{transcript}"}],
     )
     return next((b.text for b in response.content if b.type == "text"), "").strip()
@@ -57,6 +57,8 @@ def report_language(language: str, summary_md: str) -> str:
     """Taal voor de vaste teksten: de gekozen taal, of bij "multi" afgeleid uit het eerste kopje van het verslag."""
     if language in NOTE_TEXT:
         return language
+    if language and language != "multi":
+        return "en"   # vaste teksten zijn er in nl/en/de/fr; voor andere talen Engels
     first = summary_md.lstrip().splitlines()[0].lower() if summary_md.strip() else ""
     for lang, word in (("en", "summary"), ("de", "zusammenfassung"), ("fr", "résumé")):
         if word in first:
