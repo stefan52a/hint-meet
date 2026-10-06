@@ -64,6 +64,14 @@ def report_language(language: str, summary_md: str) -> str:
     return "nl"
 
 
+def hint_lines(number: int, hint: str) -> list[str]:
+    """Een hint als genummerd punt; zijn eigen punten ("- …") ingesprongen eronder."""
+    points = [re.sub(r"^\s*[-*•]\s+", "", line).strip() for line in hint.splitlines() if line.strip()]
+    if not points:
+        return []
+    return [f"{number}. {points[0]}"] + [f"   - {p}" for p in points[1:]]
+
+
 def name_part(text: str, limit: int = 60) -> str:
     """Stukje bestandsnaam uit vrije tekst: geen / : en dergelijke, witruimte samengevoegd, niet te lang."""
     text = re.sub(r'[\x00-\x1f/\\:*?"<>|]+', "-", text)
@@ -93,7 +101,7 @@ def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float
              f"> {intro}", "", summary_md, "",
              f"## {hints_head}",
              "", f"> {hints_note}", ""]
-    lines += [f"- {h}" for h in hints] or [none]
+    lines += [line for i, h in enumerate(hints, 1) for line in hint_lines(i, h)] or [none]
     lines += ["", f"## {transcript_head}", ""]
     lines += [f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] **{u.speaker}:** {u.text}  " for u in utterances]
     with handle:

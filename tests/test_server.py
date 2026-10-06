@@ -116,7 +116,7 @@ def test_meeting_note_lands_in_kb_meetings(tmp_path):
     path = write_note(tmp_path, u, ["Rente 3%."], "## Samenvatting\nOver de rente.", time.time())
     text = path.read_text(encoding="utf-8")
     assert path.parent.name == "meetings" and path.suffix == ".md"
-    assert "## Samenvatting" in text and "**Maria:** Wat is de rente?" in text and "- Rente 3%." in text
+    assert "## Samenvatting" in text and "**Maria:** Wat is de rente?" in text and "1. Rente 3%." in text
 
 
 def test_meeting_note_name_has_project_and_partner(tmp_path):
@@ -138,3 +138,12 @@ def test_meeting_note_follows_conversation_language(tmp_path):
     assert "## Angezeigte Hinweise" in multi.read_text(encoding="utf-8")
     nl = write_note(tmp_path, u, [], "## Samenvatting\nOver de lening.", time.time(), language="multi")
     assert "## Getoonde hints" in nl.read_text(encoding="utf-8")
+
+
+def test_bullet_hints_render_as_numbered_points(tmp_path):
+    u = [Utterance(5, "Anna", "VAT?")]
+    path = write_note(tmp_path, u, ["- No VAT: going concern.\n- Payment on 1 July 2026.", "Single line hint."],
+                      "## Summary\nX", time.time(), language="en")
+    text = path.read_text(encoding="utf-8")
+    assert "1. No VAT: going concern.\n   - Payment on 1 July 2026.\n2. Single line hint." in text
+    assert "- - " not in text

@@ -193,6 +193,47 @@ To index a new or substantially grown KB in advance, so a meeting starts right a
 
 A question list is YAML with, per question, the documents where the answer is; see `data/eval/` (not in git, because it contains dossier content).
 
+## Example report
+
+After the meeting HintMeet writes a report in the language of the conversation: a summary, commitments and action items, open questions, the hints that were shown (marked as suggestions, not agreements) and the full transcript. This one comes from the fictional English demo meeting below; the full file, including the transcript, is [docs/example-report.md](docs/example-report.md).
+
+<details>
+<summary>Example report (demo meeting)</summary>
+
+### Meeting · demo · 06-10-2026 22:36
+
+> Automatic report by hint-meet; transcript from speech recognition.
+
+#### Summary
+Anna and Stefan went through the harbor file on the sale of the harbor software by Brightwave to Northwind. Anna raised the purchase price (650,000 euros), the Northwind loan ($250,000 at 5.5%), the payment date, VAT of 21% on the purchase price, and whether the three small shareholders receive part of the share premium. Stefan could not confirm any of these points during the conversation. No decisions were made.
+
+#### Commitments and action items
+- Stefan: check the purchase price of 650,000 euros ("let me check that number"). No deadline was mentioned.
+- Stefan and Anna: confirm whether the three small shareholders get part of the share premium ("let's confirm"). It was not stated who does this or by when.
+
+#### Open questions
+- Is the purchase price really 650,000 euros? Stefan wanted to check the number.
+- Are the loan terms from Northwind still $250,000 at 5.5%? Stefan believes something changed but did not say what.
+- When does Northwind have to pay? Stefan said it is in the agreement and thinks it is in the summer, but this is unconfirmed.
+- Is 21% VAT charged on the purchase price? Stefan did not answer.
+- Do the three small shareholders get part of the share premium? Stefan doesn't think so, but this is not confirmed.
+
+#### Hints shown
+
+> Suggestions by hint-meet during the meeting, not agreements or decisions.
+
+1. Correct: total price is EUR 600,000, not 650,000.
+   - Split: EUR 400,000 software and IP, EUR 200,000 system management activities.
+   - EUR 650,000 was the 2 February 2026 draft, superseded.
+2. Correction: EUR 650,000 was the superseded draft (2 Feb 2026) and no longer applies.
+   - Signed price: EUR 600,000 total (14 March 2026).
+   - Split: EUR 400,000 software and IP, EUR 200,000 system management activities.
+3. No: no VAT on the EUR 600,000; it's a transfer of a going concern.
+   - Payment is in one instalment on 1 July 2026.
+   - The 21% VAT applies only to the system management service agreement (EUR 4,500/month).
+
+</details>
+
 ## Try it with the demo dossier
 
 `examples/` contains a fictional English dossier (a software company selling its platform: agreement, valuation memo, a scanned loan agreement, an e-mail about VAT, a cap table) and a short meeting about it. All names and amounts are made up.

@@ -157,8 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         connection.start()
         // demo/test: "bronmap|project" opent Convert Documents en zet meteen om
-        if let convert = ProcessInfo.processInfo.environment["HINT_MEET_CONVERT"] {
-            let parts = convert.split(separator: "|", maxSplits: 1).map(String.init)
+        if let convert = ProcessInfo.processInfo.environment["HINT_MEET_CONVERT"],
+           case let parts = convert.split(separator: "|", maxSplits: 1).map(String.init), !parts.isEmpty {
             let project = parts.count > 1 ? parts[1] : KBPrepView.projectName(for: parts[0])
             openKBPrep(source: parts[0], project: project)
             kbPrep.startKBPrep(settings, source: parts[0], project: project, force: false, noOCR: false)
