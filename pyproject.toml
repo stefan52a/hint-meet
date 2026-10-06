@@ -1,7 +1,8 @@
 [project]
 name = "hint-meet"
 version = "0.0.1"
-description = "Realtime meeting-copilot: Whisper-transcriptie, Jev als beslissingslaag, KB-RAG en Claude-advies."
+description = "Real-time meeting copilot: Whisper transcription, Jev as decision layer, KB retrieval and Claude advice."
+license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
     "sounddevice",

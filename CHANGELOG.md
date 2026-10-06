@@ -1,55 +1,56 @@
 # Changelog
 
-Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details staan in `git log`.
+What changes for the user, newest first. Technical details are in `git log`.
 
 ## 2026-10-06
 
 ### App
 
-- **Taal van het gesprek:** kies in het paneel Nederlands, English, Deutsch, Français of Multilingual (taal per uitspraak herkend). De spraakherkenning gebruikt die taal; hints en het verslag volgen de gesprekstaal. Voorheen stond de herkenning vast op Nederlands, waardoor Engels of Duits half vertaald werd.
-- **Transcript naast de hint:** links het scrollbare transcript van de meeting, rechts de hint. De uitspraak waarop de getoonde hint reageert staat in vet wit op een lichtrode achtergrond; uitspraken met een hint hebben een 💡 (klik om die hint te tonen). Het transcript volgt live de nieuwste uitspraak en springt bij terugbladeren naar de uitspraak van die hint. Bij een smal paneel staat het transcript onder de hint; de standaardbreedte is 760 punten.
-- **Hints als scrollbare lijst:** rechts staan alle hints van de meeting op volgorde; de geselecteerde staat groot in het midden, de rest compact en gedimd. Scroll je door de hints, dan scrollt het transcript mee naar de bijbehorende uitspraak, en andersom. Klik op een hint om hem te selecteren.
-- Klikken op de tekst zelf (een uitspraak of een hint) selecteert die en toont de bijbehorende hint of uitspraak aan de andere kant; een uitspraak zonder eigen hint toont de hint die op dat moment in beeld was. Het paneel versleep je voortaan aan de kopbalk.
-- Scrollen door het transcript laat de hint meebewegen: rechts staat de hint van de uitspraak met 💡 die het dichtst bij het midden staat. Helemaal onderaan ben je weer live. Scroll je omhoog, dan trekken nieuwe uitspraken je niet meer naar beneden.
-- De app is Engelstalig: menu's, knoppen, meldingen en de voortgang van Load KB en Convert Documents. Hints en verslagen blijven Nederlands.
-- Het veld *Met wie?* heet nu **Meeting info** (bijvoorbeeld met wie en waar). Die tekst komt in de naam van het verslag: `2026-10-06-104736-Finance-Jan Jansen, Utrecht.md`.
-- **Geschiedenis van hints:** blader met ◀ ▶ boven de hint (of ⌘[ en ⌘] in het menu Meeting) terug door de hints van deze meeting, met tijdstip en de uitspraak waarop de hint reageerde. *Latest* brengt je terug; nieuwe hints komen binnen zonder dat je je plek verliest.
-- De menubalk linksboven komt terug als je buiten een meeting op het paneel klikt (HintMeet wordt dan de actieve app). Tijdens een meeting doet een klik op de kopbalk van het paneel (hint-meet · project) dat ook; klikken op hints, ◀ ▶, 👍 en het transcript laten de focus bij de meeting-app.
+- **Conversation language:** choose Nederlands, English, Deutsch, Français or Multilingual (language recognized per utterance) in the panel. Speech recognition uses that language; hints and the report follow the language of the conversation. Previously recognition was fixed to Dutch, so English or German came out half translated.
+- **Transcript next to the hint:** the scrollable transcript of the meeting on the left, the hint on the right. The utterance the shown hint responds to is in bold white on a light red background; utterances with a hint have a 💡 (click to show that hint). The transcript follows the newest utterance live and jumps to the hint's utterance when you browse back. In a narrow panel the transcript sits below the hint; the default width is 760 points.
+- **Hints as a scrollable list:** on the right, all hints of the meeting in order; the selected one is large in the middle, the rest compact and dimmed. Scrolling through the hints scrolls the transcript to the matching utterance, and vice versa. Click a hint to select it.
+- Clicking the text itself (an utterance or a hint) selects it and shows the matching hint or utterance on the other side; an utterance without its own hint shows the hint that was on screen at that moment. Clicking the newest hint scrolls to its utterance, not to the end. You now drag the panel by its header.
+- Scrolling through the transcript moves the hint along: on the right is the hint of the 💡 utterance closest to the middle. All the way at the bottom you're live again. If you scroll up, new utterances no longer pull you down.
+- The app is in English: menus, buttons, messages and the progress of Load KB and Convert Documents. (Hints and reports follow the conversation language, see above.)
+- The *Met wie?* field is now **Meeting info** (for example with whom and where). That text goes into the report name: `2026-10-06-104736-Finance-Jan Jansen, Utrecht.md`.
+- **Hint history:** browse back through this meeting's hints with ◀ ▶ above the hint (or ⌘[ and ⌘] in the Meeting menu), with time and the utterance the hint responded to. *Latest* takes you back; new hints arrive without losing your place.
+- The menu bar at the top left comes back when you click the panel outside a meeting (HintMeet becomes the active app). During a meeting, clicking the panel header (hint-meet · project) does the same; clicks on hints, ◀ ▶, 👍 and the transcript leave the focus with the meeting app.
 
-### Documentatie
+### Documentation
 
-- README begint met wat HintMeet doet, waarvoor je het gebruikt en hoe.
-- README in het Engels, bijgewerkt met de huidige app (transcript, hintlijst, taalkeuze, meerdere projecten, Load KB) en de actuele projectstructuur.
+- README starts with what HintMeet does, what you use it for and how.
+- README in English, updated to the current app (transcript, hint list, language choice, multiple projects, Load KB) and the current project structure.
+- MIT license added.
 
 ## 2026-10-05
 
 ### Overlay
 
-- Hints zijn puntsgewijs: 1 tot 4 korte punten (samen hooguit 40 woorden), met het antwoord of wat je kunt zeggen als eerste punt, in plaats van een alinea proza.
-- De hint met wat je kunt zeggen staat altijd bovenaan: groter (19 pt), vet en in een gekleurd vak met een accentbalk.
-- Een ingetrokken hint neemt die plek niet meer over. Hij verschijnt ongeveer 6 seconden als klein grijs regeltje met de reden, en daarna krimpt het paneel weer.
-- Eerdere hints en de laatste uitspraak staan in een iets grotere letter.
-- Het paneel is te vergroten met de greep rechtsonder (drie schuine streepjes). De maat wordt onthouden; **Overlay standaardgrootte** in het 💡-menu zet hem terug. Het paneel blijft binnen het scherm.
-- Invoerveld **Met wie?** in het paneel (buiten een meeting). Het verslag heet dan bijvoorbeeld `2026-10-05-104736-Finance-met-Jan Jansen.md`; zonder naam `…-Finance-gesprek.md`.
-- HintMeet is een gewone app met icoon in `~/Applications`: te starten via Spotlight, Launchpad of het Dock. `app/build-app.sh` installeert hem daar.
-- **Documenten omzetten (kb_prep)…** in het 💡-menu: kies een bronmap en projectnaam, met de opties *Alles opnieuw omzetten* (`--force`) en *Zonder OCR* (`--no-ocr`). Voortgang per bestand en per pagina, Stop, en na afloop de samenvatting en het logboek. Het venster mag dicht; het omzetten loopt door. De projectnaam volgt standaard de laatste mapnaam van de bronmap, tot je hem zelf aanpast.
-- De logboeken van KB laden en Documenten omzetten bevatten alleen nog leesbare regels (✓, ⚠, ✗, samenvatting), zonder de voortgangsregels voor de balk.
-- HintMeet heeft een gewone menubalk linksboven (HintMeet, Bewerk, Meeting, Kennisbank, Venster, Help) en een Dock-icoon; het 💡-menu rechtsboven blijft. Nieuw daarin: **KB laden** (⌘L). Klik op het Dock-icoon toont het paneel. Knippen en plakken werkt nu ook in het veld *Met wie?*.
-- Loopt er al een kb_prep op dezelfde kennisbank, dan zegt de melding welke (sinds wanneer, vanuit de terminal of HintMeet, welke bron, welk proces) in plaats van "mislukt (code 3)". KB laden gaat dan door met de KB zoals hij is en waarschuwt dat de documenten niet zijn bijgewerkt.
-- Meerdere projecten tegelijk als kennisbank: vink ze aan in het paneel, in Instellingen of in het 💡-menu. Ze worden samen doorzocht; bronnen krijgen de projectnaam ervoor (`acme/offerte.pdf`). Het verslag komt bij het eerste project, met alle namen in de bestandsnaam (`…-Finance+acme-met-….md`).
-- Knop **KB laden** naast de Kennisbank-keuze: werkt de documenten bij uit de bronmap (kb_prep), indexeert de KB en laadt de spraakherkenning, met voortgangsbalk en Stop. Daarna start een meeting snel. Stoppen bewaart wat klaar is.
-- Stappen zonder eigen voortgang tonen een schatting op basis van de vorige keer ("nog ~20 s (schatting)"); alleen de allereerste keer een wieltje.
-- De woordindex van de KB wordt bewaard (`.hint-meet-cache/bm25-v1.npz`): bij Finance laadt de KB in ~11 s in plaats van ruim een minuut, en zoeken tijdens een meeting is veel sneller.
-- **HintMeet herstarten** in het 💡-menu (⌘R): start de nieuwste build opnieuw; het gekozen project blijft staan, er start geen meeting.
-- Afsluiten, herstarten en Meeting stoppen wachten tot het verslag klaar is, zonder tijdslimiet. Het paneel toont intussen een wieltje met de stap (transcript opslaan, verslag maken) en de verstreken tijd, met **Nu afbreken** als het blijft hangen.
+- Hints are bullet points: 1 to 4 short points (at most 40 words together), with the answer or what you can say as the first point, instead of a paragraph of prose.
+- The hint with what you can say is always at the top: larger (19 pt), bold and in a colored box with an accent bar.
+- A retracted hint no longer takes over that spot. It appears for about 6 seconds as a small gray line with the reason, after which the panel shrinks again.
+- Earlier hints and the last utterance use a slightly larger font.
+- The panel can be resized with the grip at the bottom right (three diagonal lines). The size is remembered; **Reset Overlay Size** in the 💡 menu restores it. The panel stays within the screen.
+- **Met wie?** input field in the panel (outside a meeting). The report is then named, for example, `2026-10-05-104736-Finance-met-Jan Jansen.md`; without a name `…-Finance-gesprek.md`. (Since 2026-10-06: Meeting info.)
+- HintMeet is an ordinary app with an icon in `~/Applications`: start it via Spotlight, Launchpad or the Dock. `app/build-app.sh` installs it there.
+- **Convert Documents (kb_prep)…** in the 💡 menu: choose a source folder and project name, with the options *Convert everything again* (`--force`) and *Without OCR* (`--no-ocr`). Progress per file and per page, Stop, and afterwards the summary and the log. The window may be closed; conversion continues. The project name follows the last folder name of the source folder by default, until you change it yourself.
+- The logs of Load KB and Convert Documents only contain readable lines (✓, ⚠, ✗, summary), without the progress lines for the bar.
+- HintMeet has an ordinary menu bar at the top left (HintMeet, Edit, Meeting, Knowledge Base, Window, Help) and a Dock icon; the 💡 menu at the top right stays. New there: **Load KB** (⌘L). Clicking the Dock icon shows the panel. Cut and paste now also work in the *Met wie?* field.
+- If a kb_prep is already running on the same knowledge base, the message says which one (since when, from the terminal or HintMeet, which source, which process) instead of "failed (code 3)". Load KB then continues with the KB as it is and warns that the documents were not updated.
+- Several projects at once as knowledge base: check them in the panel, in Settings or in the 💡 menu. They are searched together; sources get the project name in front (`acme/offerte.pdf`). The report goes to the first project, with all names in the file name (`…-Finance+acme-met-….md`).
+- **Load KB** button next to the knowledge base choice: updates the documents from the source folder (kb_prep), indexes the KB and loads speech recognition, with a progress bar and Stop. After that a meeting starts quickly. Stopping keeps what's done.
+- Steps without their own progress show an estimate based on the previous run ("~20 s left (estimate)"); only the very first time a spinner.
+- The KB's word index is saved (`.hint-meet-cache/bm25-v1.npz`): for Finance the KB loads in ~11 s instead of over a minute, and searching during a meeting is much faster.
+- **Restart HintMeet** in the 💡 menu (⌘R): starts the latest build again; the chosen project stays selected, no meeting starts.
+- Quitting, restarting and Stop Meeting wait until the report is done, without a time limit. Meanwhile the panel shows a spinner with the step (saving transcript, writing report) and the elapsed time, with **Abort Now** if it hangs.
 
 ### kb_prep
 
-- Nieuwe bestandstypen: `.doc` en `.odt` (via textutil), `.xls` (ook "xls"-exports die eigenlijk html zijn), `.mht`/`.mhtml` webarchieven, en `.gif`/`.bmp` via OCR. Bij Finance zijn dat ruim 1.400 extra bestanden.
-- HTML wordt zonder de inhoud van scripts en stijlen omgezet; bestaande `.html`-schaduwbestanden worden daarom één keer opnieuw gemaakt.
-- Bronbestanden met een heel lange naam kunnen weer worden omgezet. De naam van het schaduwbestand wordt dan ingekort, met een hash erachter.
-- Wachtwoorden voor beveiligde PDF's in `.kbpasswords` in de bronmap (zie README).
-- `node_modules`, verborgen mappen (`.git`, `.venv`) en build-mappen naast een projectbestand worden overgeslagen.
-- Robuuster bij lastige bestanden: Word-bestanden met ingesloten fonts of WMF/EMF-plaatjes, heel hoge scans (OCR in stroken) en JSON met commentaar.
-- Duidelijke meldingen voor bestanden die alleen nullen bevatten (zoals kapotte Dropbox-conflictkopieën), voor een `.xlsx` die eigenlijk een ander formaat heeft, en voor PDF's waarvan het wachtwoord ontbreekt.
-- Een map die niet te lezen is, laat zijn bestaande schaduwbestanden staan in plaats van ze op te ruimen.
+- New file types: `.doc` and `.odt` (via textutil), `.xls` (including "xls" exports that are really html), `.mht`/`.mhtml` web archives, and `.gif`/`.bmp` via OCR. For Finance that's over 1,400 extra files.
+- HTML is converted without the content of scripts and styles; existing `.html` shadow files are therefore recreated once.
+- Source files with a very long name can be converted again. The shadow file name is then shortened, with a hash appended.
+- Passwords for protected PDFs in `.kbpasswords` in the source folder (see README).
+- `node_modules`, hidden folders (`.git`, `.venv`) and build folders next to a project file are skipped.
+- More robust with tricky files: Word files with embedded fonts or WMF/EMF images, very tall scans (OCR in strips) and JSON with comments.
+- Clear messages for files that contain only zeros (like broken Dropbox conflict copies), for an `.xlsx` that is really another format, and for PDFs whose password is missing.
+- A folder that can't be read keeps its existing shadow files instead of having them cleaned up.

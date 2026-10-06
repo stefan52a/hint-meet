@@ -14,7 +14,7 @@ Speech recognition (Whisper via MLX), the knowledge base and search run locally.
 
 Conversations can be in Dutch, English, German or French, or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
 
-> Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md) (in Dutch).
+> Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 
@@ -232,3 +232,7 @@ hint-meet replay recording.wav --out logs/replay.csv
 - `jev-latest` can change without notice. Log the returned model version and pin a tested version.
 - Jev is weak on long, messy input. Only send the last two or three turns.
 - Whisper is multilingual. With a fixed language it transcribes other languages poorly (it tries to make them fit); for mixed conversations choose Multilingual, which is less reliable for very short utterances ("Yes.", "OK").
+
+## License
+
+[MIT](LICENSE) © 2026 stefan52a
