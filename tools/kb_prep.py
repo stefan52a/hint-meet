@@ -2,8 +2,9 @@
 """
 kb_prep.py : zet een kennisbank-map om naar Markdown.
 
-Ondersteund: .docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf (via textutil op macOS),
-             .eml (kop, tekst en bijlagen), en met OCR ook .png .jpg .jpeg .tif .tiff .webp
+Ondersteund: .docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json, .rtf .doc .odt (via textutil
+             op macOS), .xls (xlrd), .mht/.mhtml (webarchief), .eml (kop, tekst en bijlagen), en met OCR
+             ook .png .jpg .jpeg .tif .tiff .webp .gif .bmp
 Resultaat: dezelfde mappenstructuur onder <out>/, elk bestand als <naam>.<ext>.kb-hint-meet.md
 met YAML-frontmatter. Aan die suffix herkent het script zijn eigen schaduwbestanden: ze worden nooit
 als bron gelezen. <out> mag dus ook binnen <bron> liggen of gelijk zijn aan <bron>.
@@ -33,7 +34,7 @@ Gebruik:
     --no-ocr  geen OCR; standaard leest OCR PDF-pagina's zonder tekstlaag (scans) uit,
               wat pytesseract + tesseract (met taal nld) vereist
 
-Vereisten (pip): python-docx openpyxl python-pptx pymupdf markdownify
+Vereisten (pip): python-docx openpyxl python-pptx pymupdf markdownify xlrd
 Optioneel:       pytesseract (OCR)
 """
 from __future__ import annotations
@@ -52,9 +53,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".gif", ".bmp"}
 SUPPORTED = {".docx", ".xlsx", ".xlsm", ".csv", ".pptx", ".pdf", ".html", ".htm",
-             ".txt", ".md", ".json", ".rtf", ".eml"} | IMAGE_EXTS
+             ".txt", ".md", ".json", ".rtf", ".eml", ".doc", ".odt", ".xls", ".mht", ".mhtml"} | IMAGE_EXTS
 OCR_EXTS = {".pdf", ".pptx", ".docx", ".eml"} | IMAGE_EXTS  # uitkomst hangt af van --ocr/--no-ocr
 # Ophogen als de conversie zelf verbetert: bestaande schaduwbestanden worden dan opnieuw gemaakt.
 CONVERTER_VERSION = 3
@@ -62,7 +63,7 @@ CONVERTER_VERSION = 3
 # 4: docx zonder stijl, OCR in docx met alleen afbeeldingen, foto's zonder tekst.
 # 5 (afbeeldingen): korte OCR-tekst van foto's bewaren, gemarkeerd als onzeker.
 # 4 (eml): ingebedde afbeeldingen overslaan.
-TYPE_VERSION = {".docx": 4, ".eml": 4, **{ext: 5 for ext in IMAGE_EXTS}}
+TYPE_VERSION = {".docx": 4, ".eml": 4, ".html": 4, ".htm": 4, **{ext: 5 for ext in IMAGE_EXTS}}
 PHOTO_NOTE = "## Foto zonder (veel) herkenbare tekst"  # kop: telt niet mee als tekst
 
 
@@ -251,6 +252,48 @@ def conv_xlsx(path: Path) -> str:
     return "\n\n".join(parts)
 
 
+def conv_xls(path: Path) -> str:
+    """Excel 97-2003 (.xls), zelfde vorm als .xlsx: per blad een tabel."""
+    try:
+        import xlrd
+    except ImportError as e:
+        raise RuntimeError("voor .xls is het pakket xlrd nodig (pip install xlrd)") from e
+    with path.open("rb") as f:
+        head = f.read(512).lstrip()
+    if head[:1] == b"<":   # veel "xls"-exports (banken, boekhoudpakketten) zijn eigenlijk html of xml
+        return conv_html(path)
+    try:
+        book = xlrd.open_workbook(str(path))
+    except xlrd.XLRDError as e:
+        if "encrypted" in str(e).lower():
+            raise RuntimeError("Excel-bestand is beveiligd met een wachtwoord") from e
+        raise
+    parts: list[str] = []
+    for sheet in book.sheets():
+        rows = [[_xls_value(c, book.datemode) for c in sheet.row(r)] for r in range(sheet.nrows)]
+        rows = [r for r in rows if any(c not in (None, "") for c in r)]
+        if not rows:
+            continue
+        parts.append(f"## Blad: {sheet.name}\n\n" + md_table(rows[:2000]))
+        if len(rows) > 2000:
+            parts.append(f"_({len(rows) - 2000} rijen weggelaten)_")
+    return "\n\n".join(parts)
+
+
+def _xls_value(cell, datemode):
+    import xlrd
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        try:
+            return xlrd.xldate.xldate_as_datetime(cell.value, datemode).isoformat(sep=" ").removesuffix(" 00:00:00")
+        except (ValueError, OverflowError):
+            return cell.value
+    if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
+        return int(cell.value)   # 2019 en niet 2019.0
+    if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+        return None
+    return cell.value
+
+
 def conv_csv(path: Path) -> str:
     with path.open(newline="", encoding="utf-8", errors="replace") as f:
         sample = f.read(4096)
@@ -342,8 +385,14 @@ def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
     from PIL import Image, ImageSequence
     if not ocr:
         raise RuntimeError("afbeeldingen worden alleen met OCR gelezen")
-    with Image.open(path) as img:
+    try:
+        img = Image.open(path)
+    except Image.UnidentifiedImageError as e:
+        raise RuntimeError(f"geen leesbare afbeelding (beschadigd, of een ander formaat met een {path.suffix}-naam)") from e
+    with img:
         frames = [f.copy() for f in ImageSequence.Iterator(img)]
+    if path.suffix.lower() == ".gif":
+        frames = frames[:1]   # bewegende GIF: de beelden zijn geen pagina's
     if len(frames) == 1:
         text = ocr_image(frames[0], "afbeelding")
         if readable_chars(text) >= LOW_TEXT:
@@ -360,10 +409,15 @@ def conv_image(path: Path, ocr: bool = False, tick=no_tick) -> str:
     return "\n\n".join(parts)
 
 
-def conv_html(path: Path) -> str:
+def html_to_md(html: str) -> str:
+    """markdownify's strip= laat de inhoud van <script> en <style> staan; die eerst echt weghalen."""
     from markdownify import markdownify
-    html = path.read_text(encoding="utf-8", errors="replace")
-    return markdownify(html, heading_style="ATX", strip=["script", "style"])
+    html = re.sub(r"<(script|style|noscript)\b.*?</\1\s*>", "", html, flags=re.S | re.I)
+    return markdownify(html, heading_style="ATX")
+
+
+def conv_html(path: Path) -> str:
+    return html_to_md(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def render_email(msg, ocr: bool, tick, depth: int = 0) -> str:
@@ -442,6 +496,41 @@ def conv_json(path: Path) -> str:
     return "```json\n" + raw.strip() + "\n```"
 
 
+def conv_textutil(path: Path) -> str:
+    """.doc en .odt via textutil (standaard in macOS)."""
+    try:
+        out = subprocess.run(["textutil", "-convert", "txt", "-stdout", str(path)],
+                             capture_output=True, text=True, check=True, timeout=120)
+    except FileNotFoundError as e:
+        raise RuntimeError(f"{path.suffix} vraagt textutil (macOS); niet gevonden") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"textutil kon het bestand niet lezen: {(e.stderr or '').strip()[:200]}") from e
+    return out.stdout
+
+
+def conv_mht(path: Path) -> str:
+    """Webarchief (.mht/.mhtml): MIME zoals een mail; de html- of tekstdelen worden Markdown."""
+    import email
+    from email import policy
+    msg = email.message_from_bytes(path.read_bytes(), policy=policy.default)
+    texts = [p for p in msg.walk() if p.get_content_type() in ("text/html", "text/plain")]
+    if any(p.get_content_type() == "text/html" for p in texts):   # zelfde pagina niet ook als platte tekst
+        texts = [p for p in texts if p.get_content_type() == "text/html"]
+    parts: list[str] = []
+    for part in texts:
+        try:
+            body = part.get_content()
+        except (LookupError, ValueError):   # onbekende of kapotte tekenset
+            body = (part.get_payload(decode=True) or b"").decode("latin-1", errors="replace")
+        if part.get_content_type() == "text/html":
+            body = html_to_md(body)
+        if body.strip():
+            parts.append(body.strip())
+    if not parts:   # geen MIME: soms gewoon html met een .mht-naam
+        return conv_html(path)
+    return "\n\n".join(parts)
+
+
 def conv_rtf(path: Path) -> str:
     # macOS: textutil zit standaard in het systeem
     try:
@@ -457,6 +546,7 @@ CONVERTERS = {
     ".docx": conv_docx, ".xlsx": conv_xlsx, ".xlsm": conv_xlsx, ".csv": conv_csv,
     ".pptx": conv_pptx, ".pdf": conv_pdf, ".html": conv_html, ".htm": conv_html,
     ".txt": conv_text, ".md": conv_text, ".json": conv_json, ".rtf": conv_rtf, ".eml": conv_eml,
+    ".doc": conv_textutil, ".odt": conv_textutil, ".xls": conv_xls, ".mht": conv_mht, ".mhtml": conv_mht,
     **{ext: conv_image for ext in IMAGE_EXTS},
 }
 

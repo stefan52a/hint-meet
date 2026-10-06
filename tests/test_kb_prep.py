@@ -1161,3 +1161,52 @@ def test_unreadable_dir_keeps_its_shadows(tmp_path):
         assert "dicht/b.txt" + SHADOW_SUFFIX in shadows(out)
     finally:
         (src / "dicht").chmod(0o755)
+
+
+LONG = "Overeenkomst van geldlening tussen partijen, met genoeg tekst om mee te tellen."
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="textutil bestaat alleen op macOS")
+@pytest.mark.parametrize("fmt", ["doc", "odt"])
+def test_doc_and_odt_via_textutil(tmp_path, fmt):
+    import subprocess
+    src, out = make_kb(tmp_path, {"bron.txt": LONG})
+    subprocess.run(["textutil", "-convert", fmt, str(src / "bron.txt"), "-output", str(src / f"lening.{fmt}")],
+                   check=True)
+    (src / "bron.txt").unlink()
+    assert main([str(src), str(out)]) == 0
+    assert "geldlening" in (out / (f"lening.{fmt}" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+def test_mht_web_archive(tmp_path):
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = "Opgeslagen pagina"
+    msg.set_content("tekstversie")
+    msg.add_alternative(f"<html><body><h1>Rente</h1><p>{LONG}</p><script>x()</script></body></html>",
+                        subtype="html")
+    src, out = make_kb(tmp_path, {})
+    (src / "pagina.mht").write_bytes(bytes(msg))
+    assert main([str(src), str(out)]) == 0
+    text = (out / ("pagina.mht" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+    assert "# Rente" in text and "geldlening" in text and "x()" not in text
+
+
+def test_xls_that_is_really_html(tmp_path):
+    src, out = make_kb(tmp_path, {"export.xls": f"<html><table><tr><td>{LONG}</td><td>600000</td></tr></table></html>"})
+    assert main([str(src), str(out)]) == 0
+    assert "600000" in (out / ("export.xls" + SHADOW_SUFFIX)).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("ext", [".gif", ".bmp"])
+def test_gif_and_bmp_are_ocred(tmp_path, fake_ocr, ext):
+    from PIL import Image
+    src, out = make_kb(tmp_path, {})
+    frames = [Image.new("RGB", (400, 200), c) for c in ("white", "gray", "black")]
+    if ext == ".gif":
+        frames[0].save(src / f"scan{ext}", save_all=True, append_images=frames[1:])   # bewegend: 3 beelden
+    else:
+        frames[0].save(src / f"scan{ext}")
+    assert main([str(src), str(out)]) == 0
+    assert len(fake_ocr.calls) == 1   # ook bij een bewegende GIF alleen het eerste beeld
+    assert "Belscript" in (out / (f"scan{ext}" + SHADOW_SUFFIX)).read_text(encoding="utf-8")

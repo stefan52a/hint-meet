@@ -26,6 +26,8 @@ Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details sta
 
 ### kb_prep
 
+- Nieuwe bestandstypen: `.doc` en `.odt` (via textutil), `.xls` (ook "xls"-exports die eigenlijk html zijn), `.mht`/`.mhtml` webarchieven, en `.gif`/`.bmp` via OCR. Bij Finance zijn dat ruim 1.400 extra bestanden.
+- HTML wordt zonder de inhoud van scripts en stijlen omgezet; bestaande `.html`-schaduwbestanden worden daarom één keer opnieuw gemaakt.
 - Bronbestanden met een heel lange naam kunnen weer worden omgezet. De naam van het schaduwbestand wordt dan ingekort, met een hash erachter.
 - Wachtwoorden voor beveiligde PDF's in `.kbpasswords` in de bronmap (zie README).
 - `node_modules`, verborgen mappen (`.git`, `.venv`) en build-mappen naast een projectbestand worden overgeslagen.
