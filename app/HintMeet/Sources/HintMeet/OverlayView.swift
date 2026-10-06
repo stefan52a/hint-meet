@@ -318,36 +318,86 @@ struct ResizeGrip: NSViewRepresentable {
 /// en springt bij terugbladeren naar de uitspraak van die hint.
 struct TranscriptView: View {
     @ObservedObject var store: HintStore
+    /// Onderaan = live: nieuwe uitspraken scrollen mee en rechts staat de nieuwste hint.
+    @State private var atBottom = true
+    /// Na een scroll door de app zelf (pijltjes, Latest, nieuwe uitspraak) even niet de hint laten
+    /// volgen uit de scrollpositie, anders vechten die twee met elkaar.
+    @State private var ignoreScrollUntil = Date.distantPast
+    /// De hint is gekozen door te scrollen: dan het transcript niet zelf laten verspringen.
+    @State private var chosenByScroll: Int?
 
     var body: some View {
         let focus = store.shown?.id
         let hinted = store.hinted
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(store.transcript) { u in
-                        row(u, focused: u.id == focus, hasHint: hinted.contains(u.id))
-                            .id(u.id)
-                            .onTapGesture { store.browse(to: u.id) }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityAddTraits(hinted.contains(u.id) ? .isButton : [])
-                            .accessibilityHint(hinted.contains(u.id) ? "Shows the hint for this utterance" : "")
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(store.transcript) { u in
+                            row(u, focused: u.id == focus, hasHint: hinted.contains(u.id))
+                                .id(u.id)
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: RowFrames.self,
+                                                           value: [u.id: g.frame(in: .named("transcript"))])
+                                })
+                                .onTapGesture { store.browse(to: u.id) }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityAddTraits(hinted.contains(u.id) ? .isButton : [])
+                                .accessibilityHint(hinted.contains(u.id) ? "Shows the hint for this utterance" : "")
+                        }
+                    }
+                    .padding(.trailing, 6)
+                }
+                .coordinateSpace(name: "transcript")
+                .onPreferenceChange(RowFrames.self) { frames in
+                    followScroll(frames, height: viewport.size.height)
+                }
+                .onChange(of: store.transcript.last?.id) { _, last in
+                    if atBottom && !store.isBrowsing, let last { scroll(proxy, to: last, anchor: .bottom) }
+                }
+                .onChange(of: focus) { _, id in
+                    if let id, chosenByScroll == id { return }   // door jouw scrollen gekozen: niet verspringen
+                    chosenByScroll = nil
+                    guard let id, store.isBrowsing else { return }
+                    scroll(proxy, to: id, anchor: .center, animated: true)
+                }
+                .onChange(of: store.isBrowsing) { _, browsing in   // terug naar Latest: weer live meelezen
+                    if !browsing, chosenByScroll == nil, let last = store.transcript.last?.id {
+                        scroll(proxy, to: last, anchor: .bottom)
                     }
                 }
-                .padding(.trailing, 6)
+                .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
             }
-            .onChange(of: store.transcript.last?.id) { _, last in
-                if !store.isBrowsing, let last { proxy.scrollTo(last, anchor: .bottom) }
-            }
-            .onChange(of: focus) { _, id in
-                guard let id, store.isBrowsing else { return }   // live volgt het transcript de nieuwste uitspraak
-                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
-            }
-            .onChange(of: store.isBrowsing) { _, browsing in   // terug naar Latest: weer live meelezen
-                if !browsing, let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) }
-            }
-            .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
         }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, to id: Int, anchor: UnitPoint, animated: Bool = false) {
+        ignoreScrollUntil = Date().addingTimeInterval(0.5)
+        if animated {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: anchor) }
+        } else {
+            proxy.scrollTo(id, anchor: anchor)
+        }
+    }
+
+    /// Wat er in beeld staat bepaalt de hint: helemaal onderaan = live, anders de hint van de uitspraak
+    /// met 💡 die het dichtst bij het midden staat. Staat er geen 💡 in beeld, dan blijft de hint staan.
+    private func followScroll(_ frames: [Int: CGRect], height: CGFloat) {
+        guard let lastID = store.transcript.last?.id else { return }
+        let bottom = frames[lastID].map { $0.maxY <= height + 8 } ?? false
+        if bottom != atBottom { atBottom = bottom }
+        guard Date() >= ignoreScrollUntil else { return }
+        if bottom {
+            if store.isBrowsing { chosenByScroll = nil; store.latest() }
+            return
+        }
+        let hinted = store.hinted
+        let middle = height / 2
+        let visible = frames.filter { hinted.contains($0.key) && $0.value.maxY > 0 && $0.value.minY < height }
+        guard let best = visible.min(by: { abs($0.value.midY - middle) < abs($1.value.midY - middle) })?.key,
+              best != store.shown?.id else { return }
+        chosenByScroll = best
+        store.browse(to: best)
     }
 
     private func row(_ u: Utterance, focused: Bool, hasHint: Bool) -> some View {
@@ -364,5 +414,13 @@ struct TranscriptView: View {
         .padding(.vertical, 2).padding(.horizontal, 4)
         .background(focused ? Color.red.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
+    }
+}
+
+/// Posities van de uitspraken in het transcript (in het assenstelsel van de scrollview).
+private struct RowFrames: PreferenceKey {
+    static let defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
