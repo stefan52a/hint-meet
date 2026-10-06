@@ -195,7 +195,8 @@ struct OverlayView: View {
             Button { openSettings() } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.borderless).help("Settings")
         }
-        .help("Click here to show the HintMeet menu bar (top left)")
+        .background(WindowDragArea())   // het paneel verslepen kan hier, aan de kopbalk
+        .help("Drag to move the panel; click to show the HintMeet menu bar (top left)")
     }
 }
 
@@ -334,10 +335,10 @@ struct TranscriptView: View {
                                     Color.clear.preference(key: RowFrames.self,
                                                            value: [u.id: g.frame(in: .named("transcript"))])
                                 })
-                                .onTapGesture { store.browse(to: u.id, from: .other) }
+                                .onTapGesture { store.focus(onUtterance: u.id) }
                                 .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(hinted.contains(u.id) ? .isButton : [])
-                                .accessibilityHint(hinted.contains(u.id) ? "Shows the hint for this utterance" : "")
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint("Shows the hint for this moment in the conversation")
                         }
                     }
                     .padding(.trailing, 6)
@@ -376,8 +377,11 @@ struct TranscriptView: View {
     /// Wat er in beeld staat bepaalt de hint: helemaal onderaan = live, anders de hint van de uitspraak
     /// met 💡 die het dichtst bij het midden staat. Staat er geen 💡 in beeld, dan blijft de hint staan.
     private func followScroll(_ frames: [Int: CGRect], height: CGFloat) {
-        guard let lastID = store.transcript.last?.id else { return }
-        let bottom = frames[lastID].map { $0.maxY <= height + 8 } ?? false
+        guard !store.transcript.isEmpty else { return }
+        // onderaan = een van de laatste twee uitspraken staat in beeld; een net binnengekomen uitspraak
+        // staat heel even onder de rand, en dat is geen omhoog scrollen
+        let lastTwo = store.transcript.suffix(2).map(\.id)
+        let bottom = lastTwo.contains { id in frames[id].map { $0.minY < height && $0.maxY > 0 } ?? false }
         if bottom != atBottom { atBottom = bottom }
         guard Date() >= ignoreScrollUntil else { return }
         if bottom {
@@ -404,15 +408,15 @@ struct TranscriptView: View {
             (Text(u.speaker + ": ").fontWeight(focused ? .heavy : .semibold) + Text(u.text).fontWeight(focused ? .bold : .regular))
                 .font(.callout)
                 .foregroundStyle(focused ? Color.white : Color.primary.opacity(0.8))
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)   // geen tekstselectie: een klik selecteert de uitspraak
             Spacer(minLength: 0)
-            if hasHint { Text("💡").font(.caption).help("Show the hint for this utterance") }
+            if hasHint { Text("💡").font(.caption) }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
         .background(focused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
+        .help(hasHint ? "Click to show the hint for this utterance" : "Click to show the hint from this moment")
     }
 }
 

@@ -93,6 +93,15 @@ final class HintStore: ObservableObject {
         browseID = utteranceID == current?.id ? nil : utteranceID
     }
 
+    /// Klik op een willekeurige uitspraak: zijn eigen hint, anders de hint die toen in beeld was (de laatste
+    /// ervoor), anders de eerstvolgende. Het transcript markeert dan de uitspraak van die hint.
+    func focus(onUtterance id: Int) {
+        let h = history
+        guard let hint = h.first(where: { $0.id == id }) ?? h.last(where: { $0.id < id }) ?? h.first(where: { $0.id > id })
+        else { return }
+        browse(to: hint.id, from: .other)
+    }
+
     /// Uitspraken waarop een (definitieve) hint reageerde: die krijgen een 💡 in het transcript.
     var hinted: Set<Int> { Set(history.map(\.id)) }
 

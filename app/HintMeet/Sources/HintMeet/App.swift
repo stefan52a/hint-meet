@@ -37,6 +37,13 @@ final class PanelLayout: ObservableObject {
     }
 }
 
+/// Hostingview waarin de eerste klik meteen telt (ook als HintMeet niet de actieve app is) en die het
+/// venster niet laat verslepen: een klik op een uitspraak of hint moet die selecteren.
+final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
 /// Zwevend paneel dat geen focus steelt: klikken erop haalt je toetsenbord niet uit de meeting.
 final class OverlayPanel: NSPanel {
     /// Alleen buiten een meeting mag het paneel toetsen ontvangen (invoerveld "Met wie?").
@@ -53,7 +60,7 @@ final class OverlayPanel: NSPanel {
         isFloatingPanel = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false   // verslepen via de kopbalk (WindowDragArea); elders zijn klikken voor de tekst
         hidesOnDeactivate = false
         backgroundColor = .clear
         isOpaque = false
@@ -96,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var connection: Connection!
     var panel: OverlayPanel!
     var statusItem: NSStatusItem!
-    var hosting: NSHostingView<OverlayView>!
+    var hosting: ClickThroughHostingView<OverlayView>!
     var settingsWindow: NSWindow?
     var changes: AnyCancellable?
     private var refit: DispatchWorkItem?
@@ -116,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                playRecording: { [weak self] in self?.playRecording() },
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() })
-        hosting = NSHostingView(rootView: view)
+        hosting = ClickThroughHostingView(rootView: view)
         // alleen de gemeten maat doorgeven (voor fit); min/max zouden het venster op de inhoud vastzetten
         hosting.sizingOptions = [.intrinsicContentSize]
         panel = OverlayPanel(content: hosting)

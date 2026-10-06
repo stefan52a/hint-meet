@@ -77,6 +77,9 @@ struct HintsList: View {
         guard Date() >= ignoreScrollUntil else { return }
         let middle = height / 2
         let visible = frames.filter { $0.value.maxY > 0 && $0.value.minY < height }
+        // live blijft live zolang de nieuwste hint in beeld is: een nieuwe kaart of een kaart die van
+        // hoogte verandert is geen omhoog scrollen; pas als je de nieuwste uit beeld scrolt ga je bladeren
+        if !store.isBrowsing, let newest = store.listHints.last?.id, visible[newest] != nil { return }
         guard let best = visible.min(by: { abs($0.value.midY - middle) < abs($1.value.midY - middle) })?.key,
               best != store.shown?.id else { return }
         if let current = store.shown?.id, let now = visible[current], let next = visible[best],
