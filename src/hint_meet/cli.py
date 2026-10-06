@@ -32,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
     lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
+    lv.add_argument("--language", default="nl",
+                    help="taal van het gesprek: nl, en, de, fr, … of multi (per uitspraak herkend); hints en "
+                         "verslag volgen de gesprekstaal")
     lv.add_argument("--info", "--met", dest="info", default="",
                     help="meeting-info, bv. met wie en waar; komt in de naam en kop van het verslag")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
@@ -356,7 +359,7 @@ def live_cmd(a) -> int:
             hub.stop()
         return 0
     status("Loading speech recognition…")
-    transcriber = Transcriber(kb_terms(kb.chunks))
+    transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
     if a.wav:
         try:
@@ -445,7 +448,7 @@ def live_cmd(a) -> int:
             # een testrun (--wav) hoort niet als echte meeting in de KB
             # bij meerdere projecten komt het verslag bij het eerste
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
-                              project="+".join(r.name for r in roots), info=a.info)
+                              project="+".join(r.name for r in roots), info=a.info, language=a.language)
             print(f"\n{md}\n\nVerslag: {note}")
             status("Report ready")
             if hub:

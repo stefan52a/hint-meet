@@ -127,3 +127,14 @@ def test_meeting_note_name_has_project_and_partner(tmp_path):
     assert path.read_text(encoding="utf-8").startswith("# Gesprek · Jan - Piet- VvE, Utrecht · Finance · 05-10-2026 10:47")
     plain = write_note(tmp_path, u, [], "## Samenvatting\nB", t, project="Finance")
     assert plain.name == "2026-10-05-104736-Finance-gesprek.md"
+
+
+def test_meeting_note_follows_conversation_language(tmp_path):
+    u = [Utterance(5, "Maria", "Hello")]
+    en = write_note(tmp_path, u, [], "## Summary\nAbout the loan.", time.time(), project="acme", language="en")
+    text = en.read_text(encoding="utf-8")
+    assert text.startswith("# Meeting · acme") and "## Hints shown" in text and "## Transcript" in text
+    multi = write_note(tmp_path, u, [], "## Zusammenfassung\nÜber das Darlehen.", time.time(), language="multi")
+    assert "## Angezeigte Hinweise" in multi.read_text(encoding="utf-8")
+    nl = write_note(tmp_path, u, [], "## Samenvatting\nOver de lening.", time.time(), language="multi")
+    assert "## Getoonde hints" in nl.read_text(encoding="utf-8")

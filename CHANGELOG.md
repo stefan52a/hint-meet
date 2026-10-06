@@ -6,6 +6,7 @@ Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details sta
 
 ### App
 
+- **Taal van het gesprek:** kies in het paneel Nederlands, English, Deutsch, Français of Multilingual (taal per uitspraak herkend). De spraakherkenning gebruikt die taal; hints en het verslag volgen de gesprekstaal. Voorheen stond de herkenning vast op Nederlands, waardoor Engels of Duits half vertaald werd.
 - **Transcript naast de hint:** links het scrollbare transcript van de meeting, rechts de hint. De uitspraak waarop de getoonde hint reageert staat in vet wit op een lichtrode achtergrond; uitspraken met een hint hebben een 💡 (klik om die hint te tonen). Het transcript volgt live de nieuwste uitspraak en springt bij terugbladeren naar de uitspraak van die hint. Bij een smal paneel staat het transcript onder de hint; de standaardbreedte is 760 punten.
 - **Hints als scrollbare lijst:** rechts staan alle hints van de meeting op volgorde; de geselecteerde staat groot in het midden, de rest compact en gedimd. Scroll je door de hints, dan scrollt het transcript mee naar de bijbehorende uitspraak, en andersom. Klik op een hint om hem te selecteren.
 - Klikken op de tekst zelf (een uitspraak of een hint) selecteert die en toont de bijbehorende hint of uitspraak aan de andere kant; een uitspraak zonder eigen hint toont de hint die op dat moment in beeld was. Het paneel versleep je voortaan aan de kopbalk.

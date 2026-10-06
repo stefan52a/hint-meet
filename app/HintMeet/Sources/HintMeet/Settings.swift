@@ -13,6 +13,11 @@ final class Settings: ObservableObject {
     @Published var mic: String { didSet { d.set(mic, forKey: "mic") } }
     @Published var system: String { didSet { d.set(system, forKey: "system") } }
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
+    /// Taal van het gesprek ("nl", "en", "de", "fr" of "multi"); hints en verslag volgen die taal.
+    @Published var language: String { didSet { d.set(language, forKey: "language") } }
+    static let languages: [(code: String, name: String)] = [
+        ("nl", "Nederlands"), ("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("multi", "Multilingual"),
+    ]
     /// Meeting-info (met wie, waar, …), per meeting; komt in de naam van het verslag. Bewust niet onthouden.
     @Published var meetingInfo = ""
 
@@ -25,6 +30,7 @@ final class Settings: ObservableObject {
         mic = d.string(forKey: "mic") ?? ""
         system = d.string(forKey: "system") ?? ""
         summary = d.object(forKey: "summary") as? Bool ?? true
+        language = d.string(forKey: "language") ?? "nl"
     }
 
     /// Gekozen projecten; `project` bewaart ze als "Finance,acme" (zo gaat het ook naar --project).

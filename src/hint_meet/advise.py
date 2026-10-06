@@ -19,6 +19,7 @@ Regels:
 - Stukken of passages die als vervallen gemarkeerd zijn, gebruik je alleen om te zeggen dát iets vervallen is; presenteer hun bedragen nooit als geldend.
 - Zegt iemand iets dat botst met het dossier, zeg dan kort wat wél geldt.
 - Het transcript komt van spraakherkenning: verkeerd verstane namen of getallen lees je zoals ze bedoeld moeten zijn.
+- Schrijf de hint in de taal van het gesprek: de taal van de laatste beurten (Nederlands, Engels, Duits, Frans, …), ook als het dossier in een andere taal is. Alleen het woord GEEN en de regel BRONNEN: blijven zoals hieronder.
 
 Antwoordvorm, precies zo:
 <de hint>

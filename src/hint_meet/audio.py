@@ -21,7 +21,11 @@ VAD_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 
 # Whisper verzint op stilte of ruis soms ondertitelaars; die zinnen gooien we weg.
-HALLUCINATIONS = re.compile(r"ondertitel|amara\.org|bedankt voor het kijken|tv gelderland", re.I)
+# zinnen die Whisper bij stilte of ruis verzint (uit ondertitels van zijn trainingsdata), per taal
+HALLUCINATIONS = re.compile(r"ondertitel|amara\.org|bedankt voor het kijken|tv gelderland"
+                            r"|thanks? (you )?for watching|subtitles? by|please subscribe"
+                            r"|untertitel|vielen dank für(s| das) zuschauen"
+                            r"|sous-titr|merci d'avoir regardé", re.I)
 
 
 class SileroVAD:
@@ -124,7 +128,8 @@ def kb_terms(chunks, limit: int = 40) -> list[str]:
 
 
 class Transcriber:
-    def __init__(self, terms: list[str] | None = None, model: str = WHISPER_MODEL, language: str = "nl"):
+    def __init__(self, terms: list[str] | None = None, model: str = WHISPER_MODEL, language: str | None = "nl"):
+        """language: "nl", "en", "de", "fr", … of None voor meertalig (Whisper herkent de taal per uitspraak)."""
         import mlx_whisper
         self.mlx_whisper = mlx_whisper
         self.model, self.language = model, language

@@ -129,7 +129,15 @@ struct OverlayView: View {
                 }
                 .controlSize(.small)
                 preparation
-                TextField("Meeting info (e.g. with whom, where) – used in the report name", text: $settings.meetingInfo)
+                HStack {
+                    TextField("Meeting info (e.g. with whom, where) – used in the report name", text: $settings.meetingInfo)
+                    Picker("Language", selection: $settings.language) {
+                        ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                    }
+                    .labelsHidden().fixedSize()
+                    .help("Language of the conversation, for speech recognition; hints and the report follow it. "
+                          + "Multilingual recognizes the language per utterance (less reliable for very short ones).")
+                }
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                 if !settings.project.isEmpty {
                     HStack {
