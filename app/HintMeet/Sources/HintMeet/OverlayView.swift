@@ -396,6 +396,10 @@ struct TranscriptView: View {
         let visible = frames.filter { hinted.contains($0.key) && $0.value.maxY > 0 && $0.value.minY < height }
         guard let best = visible.min(by: { abs($0.value.midY - middle) < abs($1.value.midY - middle) })?.key,
               best != store.shown?.id else { return }
+        // drempel: de getoonde uitspraak blijft zolang hij in beeld is en niet duidelijk verder van het midden
+        // staat; anders springt de selectie heen en weer als de vette regel hoger wordt
+        if let current = store.shown?.id, let now = visible[current], let next = visible[best],
+           abs(now.midY - middle) - abs(next.midY - middle) < 40 { return }
         chosenByScroll = best
         store.browse(to: best)
     }
