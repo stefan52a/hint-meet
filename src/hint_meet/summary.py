@@ -21,15 +21,18 @@ Vragen die gesteld zijn en niet beantwoord.
 Verzin niets: staat iets niet in het transcript, laat het weg."""
 
 
-def summarize(utterances, config, client=None) -> str:
-    """Alleen het transcript: getoonde hints zijn suggesties, geen afspraken, en horen niet in de basis."""
+def summarize(utterances, config, client=None, language: str | None = None) -> str:
+    """Alleen het transcript: getoonde hints zijn suggesties, geen afspraken, en horen niet in de basis.
+    language: de gekozen gesprekstaal (nl, en, de, fr); dan wordt het verslag in die taal geschreven."""
+    from .advise import LANGUAGE_NAMES
     import anthropic
     client = client or anthropic.Anthropic()
     transcript = "\n".join(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {u.speaker}: {u.text}" for u in utterances)
     response = client.messages.create(
         model=config["advise"]["model"],
         max_tokens=4000,
-        system=SUMMARY_SYSTEM,
+        system=SUMMARY_SYSTEM + (f"\n\nHet gesprek is in het {LANGUAGE_NAMES[language]}: schrijf het verslag "
+                                 f"in die taal, ook de kopjes." if language in LANGUAGE_NAMES else ""),
         messages=[{"role": "user", "content": f"Transcript:\n{transcript}"}],
     )
     return next((b.text for b in response.content if b.type == "text"), "").strip()

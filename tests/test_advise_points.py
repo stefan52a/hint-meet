@@ -20,3 +20,10 @@ def test_parse_reply_limits_points_and_keeps_sources():
     reply = "- a\n- b\n- c\n- d\n- e\nBRONNEN: 1"
     advice = parse_reply(reply, [Hit("x.md")], max_points=4)
     assert advice.text.count("- ") == 4 and advice.sources == ["x.md"]
+
+
+def test_hint_language_is_explicit_for_a_chosen_language():
+    from hint_meet.advise import ADVISE_SYSTEM, language_rule
+    assert "Engels" in language_rule("en") and "Duits" in language_rule("de")
+    assert "laatste beurten" in language_rule(None)   # multilingual: volg het gesprek
+    assert "{language_rule}" in ADVISE_SYSTEM

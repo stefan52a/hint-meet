@@ -6,6 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- Hints and the report are written in the chosen conversation language (with Multilingual: the language of the last turns). Before, hints in an English meeting sometimes came out in Dutch.
 - **Conversation language:** choose Nederlands, English, Deutsch, Français or Multilingual (language recognized per utterance) in the panel. Speech recognition uses that language; hints and the report follow the language of the conversation. Previously recognition was fixed to Dutch, so English or German came out half translated.
 - **Transcript next to the hint:** the scrollable transcript of the meeting on the left, the hint on the right. The utterance the shown hint responds to is in bold white on a light red background; utterances with a hint have a 💡 (click to show that hint). The transcript follows the newest utterance live and jumps to the hint's utterance when you browse back. In a narrow panel the transcript sits below the hint; the default width is 760 points.
 - **Hints as a scrollable list:** on the right, all hints of the meeting in order; the selected one is large in the middle, the rest compact and dimmed. Scrolling through the hints scrolls the transcript to the matching utterance, and vice versa. Click a hint to select it.
@@ -21,6 +22,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 - README starts with what HintMeet does, what you use it for and how.
 - README in English, updated to the current app (transcript, hint list, language choice, multiple projects, Load KB) and the current project structure.
 - MIT license added.
+- README shows HintMeet at work (hints during an English meeting, and Convert Documents building a knowledge base), using a fictional English demo dossier in `examples/` that you can try yourself.
 
 ## 2026-10-05
 

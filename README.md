@@ -10,6 +10,14 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 3. Optionally fill in *Meeting info* (with whom, where), choose the language of the conversation, and start the meeting. Hints appear in a floating panel above your meeting without taking over your keyboard. The transcript runs alongside; ◀ ▶, scrolling or clicking takes you back to earlier hints.
 4. Afterwards the report with action items is in `<KB>/meetings/`; the transcript is in `logs/`.
 
+![HintMeet during an English conversation: the transcript on the left with the utterance the hint responds to highlighted, the hints on the right with sources](docs/images/hints-english.jpg)
+
+*During a (fictional) English meeting: Anna asks whether 21% VAT is charged; HintMeet answers from the dossier that the sale is a transfer of a going concern, with the e-mail and the agreement as sources.*
+
+![Convert Documents: kb_prep turning the demo dossier into a knowledge base, with progress per page while OCR reads a scanned PDF](docs/images/convert-documents.png)
+
+*Building the knowledge base: Convert Documents reads Word, PDF (including scans via OCR), e-mail and Excel into Markdown.*
+
 Speech recognition (Whisper via MLX), the knowledge base and search run locally. During the meeting, the last few turns of the conversation plus the passages found go to the language models (gatekeeper and Claude); afterwards the full transcript goes to Claude for the report (can be turned off in Settings or with `--no-summary`).
 
 Conversations can be in Dutch, English, German or French, or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
@@ -184,6 +192,19 @@ hint-meet eval-kb data/eval/acme-vragen.yaml
 To index a new or substantially grown KB in advance, so a meeting starts right away: *Load KB* in the app, or `hint-meet --project <name> prepare` (updates documents from the source folder, indexes, loads speech recognition). Indexing only: `hint-meet --project <name> index` (Contoso, 4,000 chunks: about 8 minutes, once; after that only new chunks).
 
 A question list is YAML with, per question, the documents where the answer is; see `data/eval/` (not in git, because it contains dossier content).
+
+## Try it with the demo dossier
+
+`examples/` contains a fictional English dossier (a software company selling its platform: agreement, valuation memo, a scanned loan agreement, an e-mail about VAT, a cap table) and a short meeting about it. All names and amounts are made up.
+
+```bash
+python examples/make_demo.py                                   # (re)creates examples/demo-dossier/
+python tools/kb_prep.py examples/demo-dossier --project demo   # → ~/KB_md/demo/
+PYTHONPATH=src python examples/make_demo_audio.py              # speaks examples/demo-meeting.txt → demo-meeting.wav
+hint-meet --project demo live --audio examples/demo-meeting.wav --channels Stefan,Anna --language en
+```
+
+In the app: *Convert Documents* with `examples/demo-dossier` as source folder, then choose project *demo*, language *English*, and *Play Recording…* with `examples/demo-meeting.wav`.
 
 ## Usage
 

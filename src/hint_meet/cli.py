@@ -360,6 +360,7 @@ def live_cmd(a) -> int:
         return 0
     status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
+    config["advise"]["language"] = None if a.language == "multi" else a.language
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
     if a.wav:
         try:
@@ -444,7 +445,7 @@ def live_cmd(a) -> int:
         from .summary import summarize, write_note
         status(f"Writing report ({len(session.utterances)} utterances)…")
         try:
-            md = summarize(session.utterances, config)
+            md = summarize(session.utterances, config, language=None if a.language == "multi" else a.language)
             # een testrun (--wav) hoort niet als echte meeting in de KB
             # bij meerdere projecten komt het verslag bij het eerste
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,

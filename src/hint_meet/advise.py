@@ -19,13 +19,25 @@ Regels:
 - Stukken of passages die als vervallen gemarkeerd zijn, gebruik je alleen om te zeggen dát iets vervallen is; presenteer hun bedragen nooit als geldend.
 - Zegt iemand iets dat botst met het dossier, zeg dan kort wat wél geldt.
 - Het transcript komt van spraakherkenning: verkeerd verstane namen of getallen lees je zoals ze bedoeld moeten zijn.
-- Schrijf de hint in de taal van het gesprek: de taal van de laatste beurten (Nederlands, Engels, Duits, Frans, …), ook als het dossier in een andere taal is. Alleen het woord GEEN en de regel BRONNEN: blijven zoals hieronder.
+- {language_rule} Dat geldt ook als het dossier of deze instructies in een andere taal zijn. Alleen het woord GEEN en de regel BRONNEN: blijven zoals hieronder.
 
 Antwoordvorm, precies zo:
 <de hint>
 BRONNEN: <nummers van de passages waarop de hint steunt, gescheiden door komma's>
 
 Beantwoorden de passages het moment niet, antwoord dan alleen: GEEN"""
+
+# taal van de hint: vast bij een gekozen gesprekstaal (anders trekt deze Nederlandse prompt naar het
+# Nederlands), bij "multi" de taal van de laatste beurten
+LANGUAGE_NAMES = {"nl": "Nederlands", "en": "Engels (English)", "de": "Duits (Deutsch)", "fr": "Frans (français)"}
+
+
+def language_rule(language: str | None) -> str:
+    if language in LANGUAGE_NAMES:
+        return f"Schrijf de hint in het {LANGUAGE_NAMES[language]}: dat is de taal van het gesprek."
+    return ("Schrijf de hint in de taal van het gesprek: de taal van de laatste beurten "
+            "(Nederlands, Engels, Duits, Frans, …).")
+
 
 def is_none(reply: str) -> bool:
     return re.fullmatch(r"GEEN\.?", reply.strip(), re.I) is not None
@@ -91,6 +103,7 @@ class ClaudeAdvisor:
         self.extra = {"thinking": {"type": thinking}} if thinking else {}
         self.max_points = config["advise"].get("max_points", 4)
         self.system = ADVISE_SYSTEM.format(max_points=self.max_points,
+                                           language_rule=language_rule(config["advise"].get("language")),
                                            max_words=config["advise"].get("max_words", 40))
 
     def advise(self, window, moment: str, hits, on_text=None) -> Advice:

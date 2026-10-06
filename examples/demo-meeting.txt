@@ -1,0 +1,24 @@
+# Demo meeting (English), fictional: Stefan and Anna, the buyer's accountant, about the Harbor sale.
+# Used for the README screenshot; speak it with examples/make_demo_audio.py.
+#
+# Format: [mm:ss] Speaker: text
+# A line "#! advies: <key facts>" belongs to the utterance above: there HintMeet should give a hint.
+
+[00:00] Anna: Good morning Stefan, thanks for making time today.
+[00:04] Stefan: Of course. I brought the Harbor file, let's go through it.
+[00:09] Anna: Great. So Brightwave sells the Harbor software to Northwind for six hundred and fifty thousand euros, right?
+#! advies: 600,000 total, 400,000 software, 200,000 system management, 650,000 draft superseded
+[00:16] Stefan: Hmm, let me check that number.
+[00:20] Anna: And there is still that loan from Northwind, two hundred and fifty thousand at five and a half percent?
+#! advies: loan cancelled 10 April 2026, never paid out, no interest
+[00:28] Stefan: I believe something changed there.
+[00:32] Anna: Okay. When does Northwind actually have to pay?
+#! advies: 1 July 2026, one instalment, title passes on payment
+[00:37] Stefan: That's in the agreement, I think in the summer.
+[00:42] Anna: And VAT, do we charge twenty-one percent on the purchase price?
+#! advies: transfer of a going concern, no VAT on the 600,000; service agreement 21%
+[00:49] Stefan: Good question.
+[00:52] Anna: Last point: the three small shareholders, do they get part of the share premium?
+#! advies: 800,000 premium belongs to the founder only, article 4.3
+[00:59] Stefan: I don't think so, but let's confirm.
+[01:03] Anna: Fine, then I have what I need. Thanks Stefan.

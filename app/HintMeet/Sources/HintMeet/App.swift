@@ -156,6 +156,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         connection.start()
+        // demo/test: "bronmap|project" opent Convert Documents en zet meteen om
+        if let convert = ProcessInfo.processInfo.environment["HINT_MEET_CONVERT"] {
+            let parts = convert.split(separator: "|", maxSplits: 1).map(String.init)
+            let project = parts.count > 1 ? parts[1] : KBPrepView.projectName(for: parts[0])
+            openKBPrep(source: parts[0], project: project)
+            kbPrep.startKBPrep(settings, source: parts[0], project: project, force: false, noOCR: false)
+        }
         if ProcessInfo.processInfo.environment["HINT_MEET_AUTOSTART"] != nil {
             startMeeting()
         } else if settings.project.isEmpty || !settings.backendReady {
@@ -399,12 +406,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    @objc func showKBPrep() {
+    @objc func showKBPrep() { openKBPrep(source: nil, project: nil) }
+
+    func openKBPrep(source: String?, project: String?) {
         if kbPrepWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "Convert Documents"
-            w.contentView = NSHostingView(rootView: KBPrepView(settings: settings, task: kbPrep))
+            w.contentView = NSHostingView(rootView: KBPrepView(settings: settings, task: kbPrep,
+                                                               initialSource: source, initialProject: project))
             w.isReleasedWhenClosed = false   // sluiten verbergt alleen; het omzetten loopt door
             w.center()
             kbPrepWindow = w

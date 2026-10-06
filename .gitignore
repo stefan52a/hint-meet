@@ -12,3 +12,6 @@ logs/
 *.csv
 app/HintMeet/.build/
 app/build/
+
+# demo-audio is te maken met examples/make_demo_audio.py
+examples/demo-meeting.tijdlijn.json

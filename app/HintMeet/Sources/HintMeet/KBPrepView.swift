@@ -5,6 +5,9 @@ import SwiftUI
 struct KBPrepView: View {
     @ObservedObject var settings: Settings
     @ObservedObject var task: ProgressTask
+    /// Vooraf ingevuld (bv. via HINT_MEET_CONVERT voor een demo): gaat voor het manifest van het gekozen project.
+    var initialSource: String?
+    var initialProject: String?
     @State private var source = ""
     @State private var project = ""
     @State private var projectEdited = false   // zelf getypt: dan niet meer de bronmap volgen
@@ -75,6 +78,12 @@ struct KBPrepView: View {
 
     /// Standaard: de bronmap van het (eerste) gekozen project, uit zijn manifest.
     private func prefill() {
+        if source.isEmpty, let s = initialSource {
+            source = s
+            project = initialProject ?? Self.projectName(for: s)
+            projectEdited = initialProject != nil
+            return
+        }
         guard source.isEmpty, let name = settings.selectedProjects.first else { return }
         let manifest = URL(fileURLWithPath: settings.kbRoot).appendingPathComponent(name)
             .appendingPathComponent("_manifest.json")

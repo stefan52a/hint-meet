@@ -59,6 +59,9 @@ final class Backend: ObservableObject {
             args += ["--audio", recording]
         } else if let wav = ProcessInfo.processInfo.environment["HINT_MEET_TEST_WAV"] {
             args += ["--wav", wav, "--speed", "4"]   // test: opname i.p.v. apparaten
+            if let channels = ProcessInfo.processInfo.environment["HINT_MEET_TEST_CHANNELS"] {
+                args += ["--channels", channels]   // sprekers per kanaal, bv. "Stefan,Anna"
+            }
         } else {
             if !settings.mic.isEmpty { args += ["--mic", settings.mic] }
             if !settings.system.isEmpty { args += ["--system", settings.system] }
