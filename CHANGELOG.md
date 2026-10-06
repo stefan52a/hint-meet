@@ -23,6 +23,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 - README starts with what HintMeet does, what you use it for and how.
 - README in English, updated to the current app (transcript, hint list, language choice, multiple projects, Load KB) and the current project structure.
 - MIT license added.
+- The background docs (the Jev conversation and the plan from prototype to Mac app) and the comments in `.env.example` and `config/gate.yaml` are in English; the docs have English file names.
 - README shows HintMeet at work (hints during an English meeting, and Convert Documents building a knowledge base), using a fictional English demo dossier in `examples/` that you can try yourself.
 - README includes an example report from the demo meeting ([docs/example-report.md](docs/example-report.md)).
 

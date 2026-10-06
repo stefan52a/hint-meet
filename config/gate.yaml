@@ -1,15 +1,15 @@
-# Instellingen voor de pijplijn: zoeken → gate → advies.
-# Kalibreren met: hint-meet replay data/eval/acme-gesprek.txt
-window_turns: 3            # zoveel laatste beurten gaan naar gate en advies
+# Pipeline settings: search → gate → advice.
+# Calibrate with: hint-meet replay data/eval/acme-gesprek.txt
+window_turns: 3            # this many last turns go to gate and advice
 
 gate:
-  provider: jev            # jev | claude (Haiku, als terugvaloptie)
-  model: claude-haiku-4-5  # voor provider claude
-  jev_model: jev-latest    # voor provider jev; het werkelijke model (bv. jev-1.13.0) wordt gelogd
-  intervene_min: 0.55      # Jev; gekalibreerd 5-10-2026 (Haiku had 0.7 nodig)
+  provider: jev            # jev | claude (Haiku, as a fallback)
+  model: claude-haiku-4-5  # for provider claude
+  jev_model: jev-latest    # for provider jev; the actual model (e.g. jev-1.13.0) is logged
+  intervene_min: 0.55      # Jev; calibrated 5-10-2026 (Haiku needed 0.7)
   urgency_min: 1           # 0-4
 
-moments:                   # Choice: wat voor moment is dit
+moments:                   # Choice: what kind of moment is this (values are used in the code; keep them)
   - vraag_aan_mij
   - onjuiste_bewering
   - risico
@@ -18,13 +18,13 @@ moments:                   # Choice: wat voor moment is dit
   - overig
 
 kb:
-  query_turns: 2           # zoveel laatste beurten vormen de zoekvraag
-  gate_passages: 3         # zoveel passages ziet de gate
-  advise_passages: 6       # zoveel passages ziet het advies
+  query_turns: 2           # this many last turns form the search query
+  gate_passages: 3         # this many passages are shown to the gate
+  advise_passages: 6       # this many passages are shown to the advisor
 
 advise:
-  model: claude-sonnet-5-5 # gekozen 5-10-2026: eerste woorden ±1,1 s (Opus 5.5: ±4,3 s)
-  thinking: between_tools  # Sonnet 5.5: thinking uit; alleen bij effort high of lager
-  effort: low              # snelheid boven diepgang; het advies is kort
-  max_points: 4            # puntsgewijs, 1 tot 4 korte punten
-  max_words: 40            # in een paar seconden te lezen
+  model: claude-sonnet-5-5 # chosen 5-10-2026: first words ±1.1 s (Opus 5.5: ±4.3 s)
+  thinking: between_tools  # Sonnet 5.5: thinking off; only with effort high or lower
+  effort: low              # speed over depth; the advice is short
+  max_points: 4            # bullet points, 1 to 4 short points
+  max_words: 40            # readable in a few seconds

@@ -42,7 +42,7 @@ kb.py           embeddings over the Markdown KB + BM25, Jev reranker (Noul per p
 advise.py       Claude, 1 to 4 short bullet points with source  ──►  server.py  ──►  HintMeet.app (overlay)
 ```
 
-Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a probability in a fraction of a second, so the LLM only runs when there is really something to say. Background and sources are in [docs/gesprek-meeting-copilot-jev.md](docs/gesprek-meeting-copilot-jev.md) (Dutch).
+Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a probability in a fraction of a second, so the LLM only runs when there is really something to say. Background and sources are in [docs/meeting-copilot-jev-conversation.md](docs/meeting-copilot-jev-conversation.md); the development plan and milestones are in [docs/plan-prototype-to-mac-app.md](docs/plan-prototype-to-mac-app.md).
 
 ## Project structure
 
@@ -73,7 +73,10 @@ hint-meet/
 │   ├── kb_prep.py          KB folder (docx, xlsx, pptx, pdf, …) → Markdown
 │   └── requirements-kb_prep.txt
 ├── docs/
-│   └── gesprek-meeting-copilot-jev.md
+│   ├── meeting-copilot-jev-conversation.md
+│   ├── plan-prototype-to-mac-app.md
+│   ├── example-report.md
+│   └── images/
 └── tests/
 ```
 
