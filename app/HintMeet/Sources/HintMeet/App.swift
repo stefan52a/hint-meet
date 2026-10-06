@@ -62,12 +62,19 @@ final class OverlayPanel: NSPanel {
     }
     override var canBecomeKey: Bool { acceptsKeyboard() }
 
-    /// Buiten een meeting maakt een klik op het paneel HintMeet de actieve app, zodat de menubalk linksboven
-    /// weer van HintMeet is. Tijdens een meeting niet: dan blijft de focus bij de meeting-app.
+    /// Hoogte van de kopbalk (hint-meet · project) vanaf de bovenrand van het paneel.
+    static let headerHeight: CGFloat = 40
+
+    /// Buiten een meeting maakt elke klik op het paneel HintMeet de actieve app, zodat de menubalk linksboven
+    /// weer van HintMeet is. Tijdens een meeting alleen een klik op de kopbalk: klikken op hints, ◀ ▶, 👍 en
+    /// het transcript laten de focus (en je toetsenbord) bij de meeting-app.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown && acceptsKeyboard() && !NSApp.isActive {
-            previousApp = NSWorkspace.shared.frontmostApplication
-            NSApp.activate(ignoringOtherApps: true)
+        if event.type == .leftMouseDown && !NSApp.isActive {
+            let onHeader = event.locationInWindow.y >= frame.height - Self.headerHeight
+            if acceptsKeyboard() || onHeader {
+                previousApp = NSWorkspace.shared.frontmostApplication
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
         super.sendEvent(event)
     }

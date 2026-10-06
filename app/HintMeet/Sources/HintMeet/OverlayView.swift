@@ -200,6 +200,7 @@ struct OverlayView: View {
             Button { openSettings() } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.borderless).help("Settings")
         }
+        .help("Click here to show the HintMeet menu bar (top left)")
     }
 }
 
