@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// want meer inhoud laat het paneel nog steeds meegroeien.
 @MainActor
 final class PanelLayout: ObservableObject {
-    static let defaultWidth: CGFloat = 440
+    static let defaultWidth: CGFloat = 760   // breed genoeg voor transcript en hint naast elkaar
     static let minWidth: CGFloat = 320
     @Published var width: CGFloat
     @Published var minHeight: CGFloat

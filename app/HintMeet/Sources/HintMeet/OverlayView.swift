@@ -19,33 +19,21 @@ struct OverlayView: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if backend.state == .stopping { stopping }
-            if store.history.count > 1 || store.isBrowsing { historyBar }
-            if let hint = store.shown {
-                if store.isBrowsing, let u = store.spoken[hint.id] {
-                    Text("In reply to \(u.speaker) [\(u.time)]: \(u.text)")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            if store.transcript.isEmpty {
+                hintColumn
+            } else if layout.width >= Self.twoColumnWidth {
+                // links het gesprek, rechts de hint; de uitspraak waar de hint over gaat staat in het rood
+                HStack(alignment: .top, spacing: 12) {
+                    TranscriptView(store: store).frame(width: layout.width * 0.45, height: transcriptHeight)
+                    Divider().frame(height: transcriptHeight)
+                    // fixedSize: de echte hoogte van de hint doorgeven, anders valt de onderkant (bronnen, 👍) weg
+                    hintColumn.fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                HintCard(hint: hint, rate: { r in
-                    store.rate(hint.id, r)
-                    send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
-                })
             } else {
-                idle
-            }
-            if let r = store.justRetracted, !store.isBrowsing {
-                // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
-                Text("Retracted (\(r.reason)): \(r.text)")
-                    .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
-            }
-            if !store.earlier.isEmpty && !store.isBrowsing {
+                hintColumn
                 Divider()
-                ForEach(store.earlier) { h in
-                    Text(HintCard.bullets(h.text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                }
-            }
-            if let last = store.utterances.last {
-                Divider()
-                Text("\(last.speaker): \(last.text)").font(.caption).foregroundStyle(.tertiary).lineLimit(2)
+                TranscriptView(store: store).frame(height: min(transcriptHeight, 180))
             }
             if let path = store.summaryPath {
                 Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
@@ -58,6 +46,38 @@ struct OverlayView: View {
         .overlay(alignment: .bottomTrailing) { ResizeGrip(layout: layout).frame(width: 18, height: 18).padding(3) }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
+    }
+
+    /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
+    static let twoColumnWidth: CGFloat = 560
+
+    /// Hoogte van het transcript: groeit mee als je het paneel met de greep hoger maakt.
+    private var transcriptHeight: CGFloat { max(240, layout.minHeight - 70) }
+
+    /// Rechterkolom: bladeren, de hint zelf (of de knoppen om te beginnen), intrekkingen en eerdere hints.
+    @ViewBuilder private var hintColumn: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if store.history.count > 1 || store.isBrowsing { historyBar }
+            if let hint = store.shown {
+                HintCard(hint: hint, rate: { r in
+                    store.rate(hint.id, r)
+                    send(["type": "feedback", "id": hint.id, "rating": r, "session": store.session])
+                })
+            } else {
+                idle
+            }
+            if let r = store.justRetracted, !store.isBrowsing {
+                // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
+                Text("Retracted (\(r.reason)): \(r.text)")
+                    .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
+            }
+            if !store.earlier.isEmpty && !store.isBrowsing && store.transcript.isEmpty {
+                Divider()
+                ForEach(store.earlier) { h in
+                    Text(HintCard.bullets(h.text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
     }
 
     /// Terugbladeren door de hints van deze meeting; nieuwe hints komen binnen zonder je plek te verliezen.
@@ -290,5 +310,55 @@ struct ResizeGrip: NSViewRepresentable {
                 layout.save()
             }
         }
+    }
+}
+
+/// Scrollbaar transcript van de meeting. De uitspraak waarop de getoonde hint reageert staat in het rood;
+/// uitspraken met een hint hebben een 💡 (klik om die hint te tonen). Volgt live de nieuwste uitspraak,
+/// en springt bij terugbladeren naar de uitspraak van die hint.
+struct TranscriptView: View {
+    @ObservedObject var store: HintStore
+
+    var body: some View {
+        let focus = store.shown?.id
+        let hinted = store.hinted
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(store.transcript) { u in
+                        row(u, focused: u.id == focus, hasHint: hinted.contains(u.id))
+                            .id(u.id)
+                            .onTapGesture { store.browse(to: u.id) }
+                    }
+                }
+                .padding(.trailing, 6)
+            }
+            .onChange(of: store.transcript.last?.id) { _, last in
+                if !store.isBrowsing, let last { proxy.scrollTo(last, anchor: .bottom) }
+            }
+            .onChange(of: focus) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(id, anchor: store.isBrowsing ? .center : .bottom)
+                }
+            }
+            .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
+        }
+    }
+
+    private func row(_ u: Utterance, focused: Bool, hasHint: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(u.time).font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+            (Text(u.speaker + ": ").fontWeight(.semibold) + Text(u.text))
+                .font(.callout)
+                .foregroundStyle(focused ? Color.red : Color.primary.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            if hasHint { Text("💡").font(.caption).help("Show the hint for this utterance") }
+        }
+        .padding(.vertical, 2).padding(.horizontal, 4)
+        .background(focused ? Color.red.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
     }
 }

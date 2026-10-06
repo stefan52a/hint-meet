@@ -37,6 +37,8 @@ final class HintStore: ObservableObject {
     @Published var browseID: Int?
     /// Uitspraak waarop een hint reageert (hint-id = id van de uitspraak), voor de geschiedenis.
     private(set) var spoken: [Int: Utterance] = [:]
+    /// Het hele transcript van deze meeting, op volgorde, voor de scrollbare kolom in het paneel.
+    @Published private(set) var transcript: [Utterance] = []
     private(set) var session = ""
 
     /// Alle definitieve hints van deze meeting, oudste eerst: de geschiedenis om door te bladeren.
@@ -68,6 +70,15 @@ final class HintStore: ObservableObject {
 
     func latest() { browseID = nil }
 
+    /// Klik op een uitspraak in het transcript: de hint die erop reageerde tonen (als die er is).
+    func browse(to utteranceID: Int) {
+        guard history.contains(where: { $0.id == utteranceID }) else { return }
+        browseID = utteranceID == current?.id ? nil : utteranceID
+    }
+
+    /// Uitspraken waarop een (definitieve) hint reageerde: die krijgen een 💡 in het transcript.
+    var hinted: Set<Int> { Set(history.map(\.id)) }
+
     /// De hint die je kunt gebruiken; ingetrokken hints krijgen nooit de hoofdplek.
     var current: Hint? { hints.last { $0.state != .retracted } }
     /// Net ingetrokken (na de huidige hint): een paar seconden als klein regeltje, zodat je weet waarom hij weg is.
@@ -86,7 +97,7 @@ final class HintStore: ObservableObject {
             // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
             let new = msg["session"] as? String ?? ""
             if new != session {
-                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; browseID = nil
+                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
                 session = new
             }
             project = msg["project"] as? String ?? ""
@@ -98,6 +109,14 @@ final class HintStore: ObservableObject {
             utterances.removeAll { $0.id == id }
             utterances.append(u)
             spoken[id] = u
+            if let i = transcript.lastIndex(where: { $0.id == id }) {
+                transcript[i] = u   // zelfde uitspraak opnieuw (bijgewerkt): vervangen
+            } else {
+                transcript.append(u)
+                if let last = transcript.dropLast().last, last.id > id {   // te laat binnen: op zijn plek
+                    transcript.sort { $0.id < $1.id }
+                }
+            }
             utterances = Array(utterances.suffix(4))
         case "hint":
             guard let id = msg["id"] as? Int, let state = Hint.State(rawValue: msg["state"] as? String ?? "") else { return }
