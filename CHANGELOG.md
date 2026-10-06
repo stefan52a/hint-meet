@@ -19,6 +19,7 @@ Wat er voor de gebruiker verandert, nieuwste bovenaan. De technische details sta
 ### Documentatie
 
 - README begint met wat HintMeet doet, waarvoor je het gebruikt en hoe.
+- README in het Engels, bijgewerkt met de huidige app (transcript, hintlijst, taalkeuze, meerdere projecten, Load KB) en de actuele projectstructuur.
 
 ## 2026-10-05
 

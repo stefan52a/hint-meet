@@ -1,64 +1,72 @@
 # hint-meet
 
-HintMeet is een meeting-copilot voor de Mac. Het luistert mee tijdens een gesprek, herkent het moment waarop je iets uit je eigen dossier nodig hebt, en zet dan in een paar seconden een korte hint op je scherm: 1 tot 4 punten, met de bron erbij. Na afloop schrijft het een verslag met actiepunten.
+HintMeet is a meeting copilot for the Mac. It listens along during a conversation, recognizes the moment you need something from your own files, and within a few seconds puts a short hint on your screen: 1 to 4 bullet points, with the source. Afterwards it writes a report with action items.
 
-**Waarvoor.** Gesprekken waarin details uit een groot dossier ertoe doen: met een fiscalist, notaris, bank, koper of aandeelhouder. Iemand noemt een bedrag, datum of afspraak die niet klopt, of stelt een vraag waarvan het antwoord ergens in je stukken staat. HintMeet vindt dat stuk en zegt kort wat er wél geldt, zodat je niet hoeft te zoeken of te gokken.
+**What it's for.** Conversations where details from a large dossier matter: with a tax advisor, notary, bank, buyer or shareholder. Someone mentions an amount, date or agreement that isn't right, or asks a question whose answer is somewhere in your documents. HintMeet finds that document and briefly says what actually applies, so you don't have to search or guess.
 
-**Hoe je het gebruikt.**
-1. Zet je documenten (pdf, Word, Excel, mail, scans, …) om naar een kennisbank: *Convert Documents* in de app, of `tools/kb_prep.py`.
-2. Kies in HintMeet een of meer projecten en klik *Load KB*, zodat de meeting meteen kan starten.
-3. Vul eventueel *Meeting info* in (met wie, waar) en start de meeting. Hints verschijnen in een zwevend paneel boven je meeting, zonder je toetsenbord over te nemen; met ◀ ▶ blader je terug.
-4. Na afloop staat het verslag met actiepunten in `<KB>/meetings/`; het transcript in `logs/`.
+**How to use it.**
+1. Convert your documents (PDF, Word, Excel, mail, scans, …) into a knowledge base: *Convert Documents* in the app, or `tools/kb_prep.py`.
+2. In HintMeet, select one or more projects and click *Load KB*, so the meeting can start right away.
+3. Optionally fill in *Meeting info* (with whom, where), choose the language of the conversation, and start the meeting. Hints appear in a floating panel above your meeting without taking over your keyboard. The transcript runs alongside; ◀ ▶, scrolling or clicking takes you back to earlier hints.
+4. Afterwards the report with action items is in `<KB>/meetings/`; the transcript is in `logs/`.
 
-Spraakherkenning (Whisper via MLX), de kennisbank en het zoeken draaien lokaal. Naar de taalmodellen gaan tijdens de meeting de laatste paar beurten van het gesprek plus de gevonden passages (poortwachter en Claude), en na afloop het hele transcript voor het verslag (Claude; uit te zetten in Settings of met `--no-summary`).
+Speech recognition (Whisper via MLX), the knowledge base and search run locally. During the meeting, the last few turns of the conversation plus the passages found go to the language models (gatekeeper and Claude); afterwards the full transcript goes to Claude for the report (can be turned off in Settings or with `--no-summary`).
 
-> Status: werkend prototype (Python-pijplijn + macOS-app). Wijzigingen per dag staan in [CHANGELOG.md](CHANGELOG.md).
+Conversations can be in Dutch, English, German or French, or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
 
-## Hoe het werkt
+> Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md) (in Dutch).
+
+## How it works
 
 ```
-microfoon + systeemaudio (BlackHole)
+microphone + system audio (BlackHole)
         │
         ▼
-audio.py        Whisper (MLX) per uitspraak, lokaal; live.py houdt de laatste beurten bij
+audio.py        Whisper (MLX) per utterance, local; live.py keeps the last turns
         │
         ▼
-gate.py         Jev: ingrijpen? (Noul) · soort moment (Choice) · KB-collectie (Choice) · urgentie (Score)
-        │  alleen boven de drempel
+gate.py         Jev: intervene? (Noul) · kind of moment (Choice) · KB collection (Choice) · urgency (Score)
+        │  only above the threshold
         ▼
-kb.py           embeddings over de Markdown-KB + Jev-reranker (Noul per passage, ≥ 0,7)
+kb.py           embeddings over the Markdown KB + BM25, Jev reranker (Noul per passage, ≥ 0.7)
         │
         ▼
-advise.py       Claude, 1 tot 4 korte punten met bron  ──►  server.py  ──►  HintMeet.app (overlay)
+advise.py       Claude, 1 to 4 short bullet points with source  ──►  server.py  ──►  HintMeet.app (overlay)
 ```
 
-Waarom een gate: een LLM-call om de paar seconden is duur en traag. Jev geeft in een fractie van een seconde een kans terug, dus de LLM draait alleen als er echt iets te melden is. Achtergrond en bronnen staan in [docs/gesprek-meeting-copilot-jev.md](docs/gesprek-meeting-copilot-jev.md).
+Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a probability in a fraction of a second, so the LLM only runs when there is really something to say. Background and sources are in [docs/gesprek-meeting-copilot-jev.md](docs/gesprek-meeting-copilot-jev.md) (Dutch).
 
-## Projectstructuur
+## Project structure
 
 ```
 hint-meet/
 ├── README.md
+├── CHANGELOG.md
 ├── pyproject.toml
-├── .env.example            PROVIDER, API-keys, KB_ROOT + KB_PROJECT
+├── .env.example            PROVIDER, API keys, KB_ROOT + KB_PROJECT
 ├── config/
-│   └── gate.yaml           drempels voor gate, reranker en advies
+│   └── gate.yaml           thresholds for gate, reranker and advice
 ├── src/hint_meet/
-│   ├── cli.py              hint-meet live | replay
-│   ├── transcribe.py       audio-capture en Whisper
-│   ├── gate.py             Jev-beslissingslaag
-│   ├── kb.py               retrieval + reranking
-│   ├── advise.py           advies via Claude
-│   ├── overlay.py          altijd-bovenop-venster
-│   └── replay.py           kalibratie op opnames, logt naar CSV
+│   ├── cli.py              hint-meet live | prepare | index | replay | calibrate | eval-kb
+│   ├── audio.py            Whisper (MLX), voice activity detection, KB terms as a vocabulary hint
+│   ├── live.py             live session: audio sources, utterances, pipeline per utterance
+│   ├── gate.py             Jev decision layer
+│   ├── kb.py               knowledge base: chunks, embeddings, BM25, hybrid search (cached)
+│   ├── advise.py           advice via Claude
+│   ├── pipeline.py         gate → search → advice per utterance
+│   ├── server.py           local WebSocket server for the app, feedback log
+│   ├── summary.py          report with action items after the meeting
+│   └── replay.py           calibration on recordings, logs to CSV
+├── app/
+│   ├── build-app.sh        builds HintMeet.app and installs it in ~/Applications
+│   ├── make-icon.swift     draws the app icon
+│   └── HintMeet/           SwiftUI app (overlay, menus, settings, Convert Documents)
 ├── tools/
-│   ├── kb_prep.py          KB-map (docx, xlsx, pptx, pdf, …) → Markdown
+│   ├── kb_prep.py          KB folder (docx, xlsx, pptx, pdf, …) → Markdown
 │   └── requirements-kb_prep.txt
 ├── docs/
 │   └── gesprek-meeting-copilot-jev.md
 └── tests/
-    ├── test_kb_prep.py
-    └── test_kb_dir.py
 ```
 
 ## Tests
@@ -68,87 +76,87 @@ pip install -e ".[kb-prep,dev]"
 pytest
 ```
 
-## Installatie
+## Installation
 
-Vereist macOS, Python 3.11+ en [BlackHole](https://github.com/ExistentialAudio/BlackHole) om systeemaudio op te vangen.
+Requires macOS, Python 3.11+ and [BlackHole](https://github.com/ExistentialAudio/BlackHole) to capture system audio.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[kb-prep]"
-brew install tesseract tesseract-lang   # voor OCR van gescande PDF's
-cp .env.example .env        # vul keys en paden in
+brew install tesseract tesseract-lang   # for OCR of scanned PDFs
+cp .env.example .env        # fill in keys and paths
 ```
 
-## Kennisbank voorbereiden
+## Preparing the knowledge base
 
-`kb_prep.py` zet een map met documenten om naar Markdown, met dezelfde mappenstructuur, YAML-frontmatter per bestand. hint-meet doorzoekt alle `.md`-bestanden in de projectmap, ook die het zelf schrijft.
+`kb_prep.py` converts a folder of documents into Markdown, with the same folder structure and YAML front matter per file. hint-meet searches all `.md` files in the project folder, including the ones it writes itself.
 
-Elk schaduwbestand heet `<naam>.<ext>.kb-hint-meet.md` (bijvoorbeeld `offerte.pdf.kb-hint-meet.md`). Aan die suffix herkent het script zijn eigen output. Daardoor:
+Each shadow file is named `<name>.<ext>.kb-hint-meet.md` (for example `offerte.pdf.kb-hint-meet.md`). The script recognizes its own output by that suffix. As a result:
 
-- mag de doelmap ook binnen de bronmap liggen, of dezelfde map zijn: schaduwbestanden worden nooit opnieuw ingelezen;
-- verdwijnt de schaduw automatisch als je het bronbestand verwijdert.
+- the destination folder may be inside the source folder, or be the same folder: shadow files are never read in again;
+- the shadow disappears automatically when you delete the source file.
 
-Wat van kb_prep is, staat in `_manifest.json` in de doelmap: per schaduwbestand de bron, de hash van de bron, de hash van wat kb_prep schreef en of OCR aan stond. kb_prep overschrijft of verwijdert alleen bestanden die daarin staan en sindsdien niet zijn aangepast. Wat hint-meet of jij zelf in de map zet, blijft staan, ook met dezelfde suffix. Een aangepaste schaduw overschrijf je met `--force`; een bestand dat niet van kb_prep is nooit. Zulke gevallen meldt het script als conflict.
+What belongs to kb_prep is recorded in `_manifest.json` in the destination folder: per shadow file the source, the hash of the source, the hash of what kb_prep wrote, and whether OCR was on. kb_prep only overwrites or removes files listed there that haven't been edited since. Anything hint-meet or you put in the folder stays, even with the same suffix. You overwrite an edited shadow with `--force`; a file that isn't kb_prep's never. The script reports such cases as a conflict.
 
-Nog een paar regels:
+A few more rules:
 
-- Er kan maar één kb_prep tegelijk op dezelfde doelmap draaien (lock in `.kb_prep.lock`).
-- Het manifest wordt na elke conversie opgeslagen. Wordt een run precies tussen het schrijven van een schaduw en het opslaan van het manifest afgebroken, dan meldt de volgende run die schaduw als conflict; gooi hem dan weg.
-- Schaduwbestanden van vóór het manifest gelden als vreemd. Gooi ze één keer weg en draai opnieuw.
-- Exitcodes: `0` alles goed, `1` mislukte conversies of conflicten, `2` bronmap niet gevonden, `3` er draait al een kb_prep op deze map.
+- Only one kb_prep can run on the same destination folder at a time (lock in `.kb_prep.lock`). A second run says which one is already running: since when, started from the terminal or HintMeet, which source, which process.
+- The manifest is saved after each conversion. If a run is interrupted exactly between writing a shadow and saving the manifest, the next run reports that shadow as a conflict; delete it then.
+- Shadow files from before the manifest count as foreign. Delete them once and run again.
+- Exit codes: `0` all good, `1` failed conversions or conflicts, `2` source folder not found, `3` a kb_prep is already running on this folder.
 
-Elk project krijgt een eigen KB in `KB_ROOT/<project>/` (standaard `~/KB_md`). Zonder doelmap is het project de naam van de bronmap:
+Each project gets its own KB in `KB_ROOT/<project>/` (default `~/KB_md`). Without a destination folder, the project is the name of the source folder:
 
 ```bash
 python tools/kb_prep.py ~/Documents/Fabrikam                     # → ~/KB_md/Fabrikam/
 python tools/kb_prep.py ~/Documents/Fabrikam --project fabrikam    # → ~/KB_md/fabrikam/
-python tools/kb_prep.py ~/Documents/Fabrikam /ergens/anders      # → /ergens/anders/ (geen submap)
+python tools/kb_prep.py ~/Documents/Fabrikam /somewhere/else     # → /somewhere/else/ (no subfolder)
 ```
 
-`KB_ROOT` komt uit de omgeving, of uit de eerste `.env` in de werkmap of een map daarboven. kb_prep print bij de start de bron- en doelmap. In een terminal toont het één voortgangsregel (`[ 7/18] bestand · pagina 23/80 · nog ~2 min`; pagina's bij PDF en TIFF, slides bij presentaties) en alleen meldingen als eigen regel; naar een pipe of logbestand blijft elke regel staan.
+`KB_ROOT` comes from the environment, or from the first `.env` in the working directory or a folder above it. kb_prep prints the source and destination folder at the start. In a terminal it shows a single progress line (`[ 7/18] file · pagina 23/80 · nog ~2 min`; pages for PDF and TIFF, slides for presentations) and only messages as separate lines; to a pipe or log file every line stays. The terminal output of kb_prep is in Dutch; in the app (*Convert Documents*) progress and results are in English.
 
-| Optie         | Wat                                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--project` | naam van de submap; standaard de naam van de bronmap als je geen doelmap opgeeft                                                                                          |
-| `--no-ocr`  | OCR uitzetten. Standaard leest kb_prep gescande PDF-pagina's (zonder tekstlaag) uit met Tesseract                                                                         |
-| `--force`   | alles opnieuw omzetten, ook ongewijzigde bronnen, en eigen schaduwbestanden overschrijven die je hebt aangepast. Bestanden die niet van kb_prep zijn blijven altijd staan |
+| Option        | What                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--project` | name of the subfolder; by default the name of the source folder if you don't give a destination folder                                                 |
+| `--no-ocr`  | turn OCR off. By default kb_prep reads scanned PDF pages (without a text layer) with Tesseract                                                         |
+| `--force`   | convert everything again, also unchanged sources, and overwrite its own shadow files that you edited. Files that aren't kb_prep's are always left alone |
 
-### Bestanden uitsluiten met `.kbignore`
+### Excluding files with `.kbignore`
 
-Zet een `.kbignore` in de root van de bronmap, met gitignore-syntax. Uitgesloten bestanden komen niet in de KB, en al bestaande schaduwbestanden ervan worden opgeruimd.
+Put a `.kbignore` in the root of the source folder, with gitignore syntax. Excluded files don't go into the KB, and existing shadow files of them are cleaned up.
 
 ```gitignore
-# alleen de tmp-map in de root; tmp/ zonder / raakt elke tmp-map in de boom
+# only the tmp folder in the root; tmp/ without / matches every tmp folder in the tree
 /tmp/
 *.log
-# ! haalt iets terug, ook binnen een uitgesloten map
-!tmp/bewaar.pdf
+# ! brings something back, even inside an excluded folder
+!tmp/keep.pdf
 ```
 
-Commentaar staat altijd op een eigen regel: een `#` achter een patroon hoort bij het patroon.
+Comments are always on their own line: a `#` after a pattern belongs to the pattern.
 
-Zonder `.kbignore` slaat kb_prep al over: dependency-mappen (`node_modules`, `__pycache__`, `venv`, `site-packages`, `Pods`, …), mappen die met een punt beginnen (`.git`, `.venv`) en build-mappen (`build`, `dist`, `target`, `out`, `bin`, `obj`) als er een projectbestand naast staat (`package.json`, `pyproject.toml`, `Makefile`, …). Een gewone map `dist` in je administratie doet dus gewoon mee.
+Without `.kbignore`, kb_prep already skips: dependency folders (`node_modules`, `__pycache__`, `venv`, `site-packages`, `Pods`, …), folders starting with a dot (`.git`, `.venv`) and build folders (`build`, `dist`, `target`, `out`, `bin`, `obj`) when there is a project file next to them (`package.json`, `pyproject.toml`, `Makefile`, …). An ordinary `dist` folder in your records is still included.
 
-### Beveiligde PDF's met `.kbpasswords`
+### Protected PDFs with `.kbpasswords`
 
-Een PDF met een wachtwoord kan kb_prep alleen lezen als het wachtwoord bekend is. Zet de wachtwoorden in `.kbpasswords` in de root van de bronmap, één per regel:
+kb_prep can only read a password-protected PDF if the password is known. Put the passwords in `.kbpasswords` in the root of the source folder, one per line:
 
 ```
 # phone contracts
 1234AB
-# loonstroken
+# payslips
 01011970
 ```
 
-- Bij elke beveiligde PDF probeert kb_prep eerst een leeg wachtwoord en daarna alle regels uit het bestand, van boven naar beneden. Je hoeft dus niet aan te geven welk wachtwoord bij welk bestand hoort.
-- Regels die met `#` beginnen zijn commentaar; spaties voor en achter een wachtwoord tellen niet mee. Hoofdletters wel: `1234ab` is een ander wachtwoord dan `1234AB`.
-- Past er geen, dan telt de PDF als mislukt met de melding `PDF is beveiligd met een wachtwoord (niet gevonden in .kbpasswords)`. Na het toevoegen van het juiste wachtwoord pakt de volgende run hem vanzelf op.
-- Het bestand begint met een punt en komt dus zelf nooit in de KB. De wachtwoorden komen ook niet in de frontmatter of het manifest; de omgezette tekst van de PDF staat wel onbeveiligd in de KB.
-- Het bestand is platte tekst. Synchroniseert de bronmap via Dropbox of iCloud, dan gaan de wachtwoorden mee. Zet er geen wachtwoorden in die ook ergens anders toegang toe geven.
+- For each protected PDF, kb_prep first tries an empty password and then every line in the file, top to bottom. So you don't need to say which password belongs to which file.
+- Lines starting with `#` are comments; spaces before and after a password don't count. Case does: `1234ab` is a different password from `1234AB`.
+- If none fits, the PDF counts as failed with the message `PDF is beveiligd met een wachtwoord (niet gevonden in .kbpasswords)`. After adding the right password, the next run picks it up automatically.
+- The file starts with a dot, so it never goes into the KB itself. The passwords don't go into the front matter or the manifest either; the converted text of the PDF is stored unprotected in the KB.
+- The file is plain text. If the source folder syncs via Dropbox or iCloud, the passwords go along. Don't put passwords in it that also give access elsewhere.
 
 ### E-mail (`.eml`)
 
-Van, aan, cc, datum en onderwerp staan bovenaan, daarna de tekst (html wordt Markdown). Bijlagen van een ondersteund type worden meegenomen onder `## Bijlage: <naam>`; andere bijlagen staan er met hun naam. Logo's en handtekeningafbeeldingen in de html worden overgeslagen. Een bijlage die niet te lezen is, houdt de mail zelf niet uit de KB.
+From, to, cc, date and subject are at the top, then the text (html becomes Markdown). Attachments of a supported type are included under `## Bijlage: <name>`; other attachments are listed by name. Logos and signature images in the html are skipped. An attachment that can't be read doesn't keep the mail itself out of the KB.
 
 ```
 ~/KB_md/
@@ -159,64 +167,68 @@ Van, aan, cc, datum en onderwerp staan bovenaan, daarna de tekst (html wordt Mar
     └── …
 ```
 
-hint-meet kiest de map via `KB_ROOT` en `KB_PROJECT` in `.env`, of met `hint-meet --project fabrikam live`. Projectnamen mogen letters, cijfers, spaties en `. _ -` bevatten, maar moeten met een letter of cijfer beginnen.
+hint-meet picks the folder via `KB_ROOT` and `KB_PROJECT` in `.env`, or with `hint-meet --project fabrikam live`. Several projects can be searched together: `--project "Finance,acme"` (in the app: check several projects); sources then get the project name in front (`acme/offerte.pdf`). Project names may contain letters, digits, spaces and `. _ -`, but must start with a letter or digit.
 
-Een KB hoort bij één bronmap; dat staat in het manifest. Hebben twee bronmappen dezelfde naam (`klantA/docs` en `klantB/docs`), dan weigert de tweede run en vraagt om een eigen `--project`. Met `--force` koppel je een KB bewust aan een andere bronmap.
+A KB belongs to one source folder; that's recorded in the manifest. If two source folders have the same name (`clientA/docs` and `clientB/docs`), the second run refuses and asks for its own `--project`. With `--force` you deliberately link a KB to a different source folder.
 
-Ondersteund: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf .eml`, oude Office- en OpenOffice-bestanden (`.doc .odt` via textutil, `.xls` via xlrd; een "xls" die eigenlijk html is wordt als html gelezen), webarchieven (`.mht .mhtml`), en met OCR ook afbeeldingen (`.png .jpg .jpeg .tif .tiff .webp .gif .bmp`; van een bewegende GIF alleen het eerste beeld). OCR leest ook gescande PDF-pagina's en slides die alleen uit een afbeelding bestaan. Levert een bestand minder dan 50 tekens tekst op, dan komt het wel in de KB maar meldt kb_prep het met ⚠, zodat je de bron kunt nakijken. Of een bestand opnieuw moet, bepaalt de inhoud (hash), niet de wijzigingsdatum; bij PDF's, presentaties en afbeeldingen ook de OCR-instelling. Verbetert kb_prep zelf (`CONVERTER_VERSION`), dan worden bestaande schaduwbestanden bij de volgende run opnieuw gemaakt. OCR vereist `brew install tesseract tesseract-lang`. Als OCR mislukt, telt het bestand als mislukt en komt het niet in de KB; gebruik dan `--no-ocr`.
+Supported: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf .eml`, older Office and OpenOffice files (`.doc .odt` via textutil, `.xls` via xlrd; an "xls" that is really html is read as html), web archives (`.mht .mhtml`), and with OCR also images (`.png .jpg .jpeg .tif .tiff .webp .gif .bmp`; for an animated GIF only the first frame). OCR also reads scanned PDF pages and slides that consist only of an image. If a file yields fewer than 50 characters of text, it still goes into the KB but kb_prep reports it with ⚠, so you can check the source. Whether a file needs converting again is decided by its content (hash), not the modification date; for PDFs, presentations and images also the OCR setting. When kb_prep itself improves (`CONVERTER_VERSION`), existing shadow files are recreated on the next run. OCR requires `brew install tesseract tesseract-lang`. If OCR fails, the file counts as failed and doesn't go into the KB; use `--no-ocr` then.
 
-## Zoeken in de KB testen
+## Testing search in the KB
 
-`kb.py` zoekt hybride: een lokaal embeddingmodel (`intfloat/multilingual-e5-large`, op Apple Silicon via MLX op de GPU, anders via onnxruntime; downloadt bij eerste gebruik) plus BM25 voor exacte termen als bedragen en artikelnummers. Embeddings worden per stukje gecachet in `<kb>/.hint-meet-cache/`.
+`kb.py` searches hybrid: a local embedding model (`intfloat/multilingual-e5-large`, on Apple Silicon via MLX on the GPU, otherwise via onnxruntime; downloads on first use) plus BM25 for exact terms like amounts and article numbers. Embeddings and the BM25 word index are cached per chunk in `<kb>/.hint-meet-cache/`, so only new or changed chunks are processed again.
 
 ```bash
 hint-meet eval-kb data/eval/acme-vragen.yaml
 ```
 
-Een nieuwe of flink gegroeide KB vooraf indexeren, zodat een meeting direct start: `hint-meet --project <naam> index` (Contoso, 4.000 stukjes: ±8 minuten, eenmalig; daarna alleen nieuwe stukjes).
+To index a new or substantially grown KB in advance, so a meeting starts right away: *Load KB* in the app, or `hint-meet --project <name> prepare` (updates documents from the source folder, indexes, loads speech recognition). Indexing only: `hint-meet --project <name> index` (Contoso, 4,000 chunks: about 8 minutes, once; after that only new chunks).
 
-Een vragenlijst is YAML met per vraag de stukken waar het antwoord staat; zie `data/eval/` (staat niet in git, want bevat dossierinhoud).
+A question list is YAML with, per question, the documents where the answer is; see `data/eval/` (not in git, because it contains dossier content).
 
-## Gebruiken
+## Usage
 
 ```bash
-hint-meet --project acme live                              # microfoon
-hint-meet --project acme live --system "BlackHole 2ch"     # plus systeemaudio van een online meeting
-hint-meet --project acme live --audio opname.mp3          # eerdere opname (mp3, m4a, wav) in echte tijd
-hint-meet --project acme replay gesprek.txt                # transcript met #!-markeringen, met score
-hint-meet --project acme replay gesprek.wav                # opname (stereo: jij links, de ander rechts)
-hint-meet --project acme calibrate gesprek.txt --gate jev  # alleen de gate, drempeltabel
-hint-meet live --devices                                    # audioapparaten tonen
+hint-meet --project acme live                              # microphone
+hint-meet --project acme live --system "BlackHole 2ch"     # plus system audio of an online meeting
+hint-meet --project acme live --language en                # conversation language: nl, en, de, fr or multi
+hint-meet --project acme live --info "Jan, Utrecht"        # meeting info in the report name
+hint-meet --project acme live --audio recording.mp3        # earlier recording (mp3, m4a, wav) in real time
+hint-meet --project acme replay conversation.txt           # transcript with #! markers, with score
+hint-meet --project acme replay conversation.wav           # recording (stereo: you left, the other right)
+hint-meet --project acme calibrate conversation.txt --gate jev   # gate only, threshold table
+hint-meet live --devices                                    # list audio devices
 ```
 
-App: bouw met `app/build-app.sh`; dat installeert HintMeet in `~/Applications`, met icoon, zodat je hem start via Spotlight, Launchpad of het Dock (sleep hem erin om hem vast te zetten). Na een nieuwe build pak je de nieuwe versie op met **HintMeet herstarten** in het 💡-menu. De app onthoudt waar deze repo staat; verplaats je de repo, bouw dan opnieuw. Kies in het menu 💡 een project en start de meeting; de app start de pijplijn zelf (uit `.venv` in deze map) en stopt hem ook weer. API-keys zet je in Instellingen (Keychain). Zonder app kan het ook: `hint-meet --project acme live --ui` met alleen de overlay. Het paneel blijft boven je meeting zonder je toetsenbord over te nemen; 💡 in de menubalk toont of verbergt het. 👍/👎 komt in `logs/feedback.jsonl`. Na afloop schrijft hint-meet een verslag met actiepunten in `<KB>/meetings/` (uit te zetten met `--no-summary`).
+App: build with `app/build-app.sh`; that installs HintMeet in `~/Applications`, with an icon, so you start it via Spotlight, Launchpad or the Dock (drag it there to keep it). After a new build, pick up the new version with **Restart HintMeet** (⌘R). The app remembers where this repo is; if you move the repo, build again. Choose a project and start the meeting; the app starts the pipeline itself (from `.venv` in this folder) and stops it again, and on quitting waits until the report is written. API keys go in Settings (Keychain). Without the app it also works: `hint-meet --project acme live --ui` with just the overlay.
 
-Live bewaart het transcript in `logs/live-<datum>.txt`, in hetzelfde formaat als de testtranscripten: zet er `#! advies:`-regels onder en speel het af met `replay` om drempels te kalibreren.
+The panel stays above your meeting without taking over your keyboard; during a meeting, click its header to get the HintMeet menu bar. 💡 in the menu bar shows or hides it. The transcript (left) and the hints (right) scroll together: the utterance a hint refers to is highlighted, and scrolling or clicking either side selects the matching hint or utterance. 👍/👎 goes to `logs/feedback.jsonl`. Afterwards hint-meet writes a report with action items in `<KB>/meetings/`, named `<date-time>-<project>-<meeting info>.md` (turn off with `--no-summary`).
 
-Systeemaudio (Teams, Zoom, Meet, bellen via de Mac) vraagt [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, en in Audio MIDI-instellingen een apparaat voor meerdere uitgangen met je speakers én BlackHole, zodat je de meeting zelf ook blijft horen.
+Live saves the transcript in `logs/live-<date>.txt`, in the same format as the test transcripts: add `#! advies:` lines below it and play it back with `replay` to calibrate thresholds.
 
-In de KB markeert een kopje met `[VERVALLEN]` die sectie als vervallen; hint-meet gebruikt zo'n passage alleen om te zeggen dát iets vervallen is.
+System audio (Teams, Zoom, Meet, calls via the Mac) needs [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, and in Audio MIDI Setup a multi-output device with your speakers and BlackHole, so you still hear the meeting yourself.
+
+In the KB, a heading with `[VERVALLEN]` marks that section as superseded; hint-meet only uses such a passage to say *that* something is superseded.
 
 ## Providers
 
-`PROVIDER` in `.env` kiest de beslissingslaag:
+`PROVIDER` in `.env` chooses the decision layer:
 
-| Waarde      | Wat                                                                          |
-| ----------- | ---------------------------------------------------------------------------- |
-| `jev`     | TypeSafe Jev via de API (key nodig)                                          |
-| `laya`    | Laya lokaal via `laya-serve`, zelfde endpoint, geen cloud-call             |
-| `adapter` | TypeSafe's system-one-adapter op een gewone LLM, om zonder Jev-key te testen |
+| Value       | What                                                                        |
+| ----------- | --------------------------------------------------------------------------- |
+| `jev`     | TypeSafe Jev via the API (key required)                                     |
+| `laya`    | Laya locally via `laya-serve`, same endpoint, no cloud call                 |
+| `adapter` | TypeSafe's system-one adapter on an ordinary LLM, to test without a Jev key |
 
-## Drempels kalibreren
+## Calibrating thresholds
 
-Te lage drempels geven spam, te hoge geven stilte. Draai een paar opgenomen meetings door de replay-modus en stel `config/gate.yaml` bij op basis van de CSV:
+Thresholds that are too low give spam, too high give silence. Run a few recorded meetings through replay mode and adjust `config/gate.yaml` based on the CSV:
 
 ```bash
-hint-meet replay opname.wav --out logs/replay.csv
+hint-meet replay recording.wav --out logs/replay.csv
 ```
 
-## Kanttekeningen
+## Caveats
 
-- `jev-latest` kan zonder aankondiging veranderen. Log de geretourneerde modelversie en pin een geteste versie.
-- Jev is zwak op lange, rommelige input. Stuur alleen de laatste twee à drie beurten mee.
-- Meetings zijn Nederlandstalig, dus kies een multilingual Whisper-model en Laya-checkpoint.
+- `jev-latest` can change without notice. Log the returned model version and pin a tested version.
+- Jev is weak on long, messy input. Only send the last two or three turns.
+- Whisper is multilingual. With a fixed language it transcribes other languages poorly (it tries to make them fit); for mixed conversations choose Multilingual, which is less reliable for very short utterances ("Yes.", "OK").
