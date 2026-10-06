@@ -329,6 +329,9 @@ struct TranscriptView: View {
                         row(u, focused: u.id == focus, hasHint: hinted.contains(u.id))
                             .id(u.id)
                             .onTapGesture { store.browse(to: u.id) }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(hinted.contains(u.id) ? .isButton : [])
+                            .accessibilityHint(hinted.contains(u.id) ? "Shows the hint for this utterance" : "")
                     }
                 }
                 .padding(.trailing, 6)
@@ -337,10 +340,11 @@ struct TranscriptView: View {
                 if !store.isBrowsing, let last { proxy.scrollTo(last, anchor: .bottom) }
             }
             .onChange(of: focus) { _, id in
-                guard let id else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(id, anchor: store.isBrowsing ? .center : .bottom)
-                }
+                guard let id, store.isBrowsing else { return }   // live volgt het transcript de nieuwste uitspraak
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+            }
+            .onChange(of: store.isBrowsing) { _, browsing in   // terug naar Latest: weer live meelezen
+                if !browsing, let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) }
             }
             .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
         }
