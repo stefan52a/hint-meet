@@ -13,6 +13,18 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var since: Date?
     /// Wat er bezig is, voor in het paneel (bv. "Ingesting Finance").
     @Published private(set) var title = ""
+    /// Fasen uit "@plan" (Load KB, Add Folder): voor een overzicht per fase en een totaalvoortgang.
+    @Published private(set) var phases: [Phase] = []
+
+    struct Phase: Identifiable, Equatable {
+        enum Status: Equatable { case pending, running, done }
+        let key: String
+        var label: String
+        var status: Status = .pending
+        var fraction: Double?
+        var detail = ""
+        var id: String { key }
+    }
     private var process: Process?
     private var stopRequested = false
     private var summaries: [String] = []   // "3 converted, …" uit kb_prep's @summary, per project
@@ -85,6 +97,7 @@ final class ProgressTask: ObservableObject {
             state = .running
             stopRequested = false
             summaries = []
+            phases = []
             warnings = []
             lastMessage = ""
             errorMessage = ""
@@ -109,6 +122,7 @@ final class ProgressTask: ObservableObject {
             state = .failed("Stopped; finished work is kept, the next run continues where it left off")
         } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
             let done: [String]
+            markRunningDone()
             if stepKey == "done" {   // Load KB: eigen eindregel, plus wat kb_prep per project deed
                 done = [step] + summaries.map { "Documents: " + $0 }
             } else {
@@ -128,6 +142,39 @@ final class ProgressTask: ObservableObject {
         p.interrupt()
     }
 
+    private func markRunningDone() {
+        for i in phases.indices where phases[i].status == .running {
+            phases[i].status = .done
+            phases[i].fraction = 1
+            phases[i].detail = ""
+        }
+    }
+
+    /// Totaalvoortgang over alle fasen: elke fase weegt naar hoe lang hij de vorige keer duurde (anders een
+    /// standaardgewicht); de lopende fase telt mee met zijn eigen voortgang of de schatting.
+    func overall(at now: Date) -> Double? {
+        guard !phases.isEmpty else { return nil }
+        let guess = estimate(at: now)?.fraction
+        var total = 0.0, done = 0.0
+        for p in phases {
+            let w = max(durations[p.key] ?? Self.defaultWeight(p.key), 0.5)
+            total += w
+            switch p.status {
+            case .done: done += w
+            case .running: done += w * (p.fraction ?? guess ?? 0)
+            case .pending: break
+            }
+        }
+        return total > 0 ? min(done / total, 1) : nil
+    }
+
+    /// Gewicht (ongeveer seconden) voor een fase die nog nooit gemeten is.
+    private static func defaultWeight(_ key: String) -> Double {
+        if key.hasPrefix("docs-") || key.hasPrefix("embed-") { return 60 }
+        if key.hasPrefix("words-") { return 10 }
+        return 5   // model, read, asr
+    }
+
     /// Geschatte voortgang van de huidige stap op tijdstip `now`, als die stap geen eigen voortgang meldt
     /// en de vorige keer is gemeten. Blijft onder 95%: een schatting mag niet "klaar" beloven.
     func estimate(at now: Date) -> (fraction: Double, left: Double)? {
@@ -137,7 +184,10 @@ final class ProgressTask: ObservableObject {
     }
 
     private func read(_ line: String) {
-        if line.hasPrefix("@step ") {
+        if line.hasPrefix("@plan "), let data = line.dropFirst(6).data(using: .utf8),
+           let list = try? JSONSerialization.jsonObject(with: data) as? [[String]] {
+            phases = list.compactMap { $0.count == 2 ? Phase(key: $0[0], label: $0[1]) : nil }
+        } else if line.hasPrefix("@step ") {
             let parts = line.dropFirst(6).split(separator: " ", maxSplits: 1).map(String.init)
             durations[stepKey] = Date().timeIntervalSince(stepStart)   // de vorige stap is klaar: duur onthouden
             UserDefaults.standard.set(durations, forKey: durationsKey)
@@ -145,11 +195,17 @@ final class ProgressTask: ObservableObject {
             stepStart = Date()
             step = parts.count > 1 ? parts[1] : ""
             fraction = nil
+            markRunningDone()
+            if let i = phases.firstIndex(where: { $0.key == stepKey }) { phases[i].status = .running }
         } else if line.hasPrefix("@progress ") {
             let parts = line.dropFirst(10).split(separator: " ", maxSplits: 2).map(String.init)
             if parts.count == 3, let done = Double(parts[0]), let total = Double(parts[1]), total > 0 {
                 fraction = done / total
                 step = parts[2]
+                if let i = phases.firstIndex(where: { $0.status == .running }) {
+                    phases[i].fraction = fraction
+                    phases[i].detail = parts[2]
+                }
             }
         } else if line.hasPrefix("@warn ") {
             warnings.append(String(line.dropFirst(6)))
@@ -173,6 +229,13 @@ extension ProgressTask {
                                          ("ignored", "ignored via .kbignore")]
         let text = parts.compactMap { key, label in (s[key] ?? 0) > 0 ? "\(s[key]!) \(label)" : nil }
         return text.isEmpty ? "nothing to do" : text.joined(separator: ", ")
+    }
+
+    /// "Add Folder…": een nieuwe map omzetten, indexeren en laden, in één taak met fasen.
+    func startIngest(_ settings: Settings, source: String, project: String) {
+        title = "Adding \(project)"
+        start(settings, args: ["-m", "hint_meet.cli", "--project", project, "prepare", "--source", source],
+              estimateKey: "prepareDurations." + project, okCodes: [0], what: "Adding the folder")
     }
 
     /// "KB laden": documenten bijwerken, indexeren, spraakherkenning laden voor de gekozen projecten.

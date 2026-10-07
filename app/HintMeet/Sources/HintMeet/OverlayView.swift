@@ -161,7 +161,7 @@ struct OverlayView: View {
 
     /// Voortgang of uitkomst van "KB laden": echte voortgang als de stap die meldt, anders een schatting
     /// uit de vorige keer, en alleen de allereerste keer een wieltje.
-    private var preparation: some View { TaskProgressView(task: preparer, tick: tick) }
+    private var preparation: some View { PhasedProgressView(task: preparer, tick: tick) }
 
     /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
     private var stopping: some View {

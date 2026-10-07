@@ -26,8 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
     sub.add_parser("index", help="KB vooraf indexeren (embeddings), met voortgang; daarna start live direct")
-    sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning laden;"
-                                   " voortgang als @step/@progress-regels voor de app")
+    pp = sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning "
+                                        "laden; voortgang als @plan/@step/@progress-regels voor de app")
+    pp.add_argument("--source", help="bronmap voor een nieuwe kennisbank (anders die uit het manifest)")
     lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
     lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
@@ -250,27 +251,49 @@ REASON_EN = {"geen bron": "no source", "herhaling": "repeat"}   # reden van intr
 
 
 def prepare_cmd(a) -> int:
-    """Voor de knop "KB voorbereiden" in HintMeet. Regels die met @ beginnen leest de app:
-    "@step <sleutel> <tekst>" (duur onbekend; de app schat hem uit de vorige keer, per sleutel) en
-    "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
+    """Voor "Load KB" en "Add Folder…" in HintMeet. Regels die met @ beginnen leest de app:
+    "@plan [[sleutel, tekst], …]" (alle fasen vooraf, voor de totaalvoortgang), "@step <sleutel> <tekst>"
+    bij het begin van een fase, en "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
     import json
-
-    def step(key, text):
-        print(f"@step {key} {text}", flush=True)
 
     try:
         roots = kb_dirs(a.project)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
+    if a.source and len(roots) != 1:
+        print("--source werkt met één project", file=sys.stderr)
+        return 2
+
+    def source_of(root):
+        if a.source:
+            return str(Path(a.source).expanduser().resolve())
+        manifest = root / "_manifest.json"
+        return json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
+
+    sources = {r.name: source_of(r) for r in roots}
+    labels = {}
+    for r in roots:
+        if sources[r.name] and Path(sources[r.name]).is_dir():
+            labels[f"docs-{r.name}"] = f"{r.name}: updating documents"
+    labels["model"] = "Loading embedding model"
+    for r in roots:
+        labels[f"read-{r.name}"] = f"{r.name}: reading documents"
+        labels[f"words-{r.name}"] = f"{r.name}: word index"
+        labels[f"embed-{r.name}"] = f"{r.name}: embeddings"
+    labels["asr"] = "Loading speech recognition"
+    print("@plan " + json.dumps(list(labels.items())), flush=True)
+
+    def step(key, text=None):
+        print(f"@step {key} {text or labels.get(key, key)}", flush=True)
+
     t0 = time.perf_counter()
     for root in roots:
-        manifest = root / "_manifest.json"
-        source = json.loads(manifest.read_text(encoding="utf-8")).get("source_root") if manifest.exists() else None
+        source = sources[root.name]
         if not (source and Path(source).is_dir()):
-            step(f"nodocs-{root.name}", f"{root.name}: no source folder known; documents not updated")
+            print(f"@warn {root.name}: no source folder known; documents not updated", flush=True)
             continue
-        step(f"docs-{root.name}", f"{root.name}: updating documents from {source}…")
+        step(f"docs-{root.name}")
         code, last = run_kb_prep([source, str(root)])
         if code == 3:   # een andere kb_prep is bezig: met de KB zoals hij is verder, wel melden
             print(f"@warn {root.name}: documents not updated. {last}", flush=True)
@@ -278,13 +301,15 @@ def prepare_cmd(a) -> int:
             print(last or f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
 
-    step("kb", "Loading KB…")
-
     def progress(done, total, left):
-        print(f"@progress {done} {total} Indexing KB: {done}/{total} chunks · ~{fmt_left(left)} left", flush=True)
+        print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
 
-    kb = KB(roots, progress=progress)
-    step("asr", "Loading speech recognition…")
+    def word_progress(done, total, left):
+        tail = f" · ~{fmt_left(left)} left" if done else ""
+        print(f"@progress {done} {total} Word index: {done}/{total} new chunks{tail}", flush=True)
+
+    kb = KB(roots, progress=progress, on_phase=step, word_progress=word_progress)
+    step("asr")
     from .audio import Transcriber, kb_terms
     Transcriber(kb_terms(kb.chunks))
     step("done", f"Done: {len(kb.chunks)} chunks in {fmt_left(time.perf_counter() - t0)}")

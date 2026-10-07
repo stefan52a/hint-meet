@@ -289,9 +289,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
 
-    /// Project waarvoor na het omzetten (kb_prep) automatisch Load KB volgt.
-    private var loadAfterIngest: String?
-    private var ingestWatch: AnyCancellable?
 
     /// "Add Folder…": een map wordt een kennisbank. kb_prep zet om (kan uren duren; Stop bewaart wat klaar is,
     /// Load KB op dat project gaat later verder), daarna wordt het project gekozen en volgt Load KB vanzelf.
@@ -312,27 +309,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func ingest(folder url: URL) {
         let source = url.resolvingSymlinksInPath().path   // zoals kb_prep het pad opslaat
         let project = projectName(for: source)
-        loadAfterIngest = project
-        ingestWatch = kbPrep.$state.dropFirst().sink { [weak self] state in
-            DispatchQueue.main.async { self?.ingestFinished(state) }
-        }
-        kbPrep.startKBPrep(settings, source: source, project: project, force: false, noOCR: false)
+        settings.project = project   // de nieuwe kennisbank kiezen; Load KB gaat er later ook mee verder
+        // één taak met fasen: documenten omzetten, model, lezen, woordindex, embeddings, spraakherkenning
+        preparer.startIngest(settings, source: source, project: project)
         panel.orderFrontRegardless()
-    }
-
-    private func ingestFinished(_ state: ProgressTask.State) {
-        guard let project = loadAfterIngest else { return }
-        switch state {
-        case .running, .idle:
-            return
-        case .done:
-            settings.project = project   // de nieuwe kennisbank kiezen en meteen laden
-            preparer.startPrepare(settings)
-        case .failed:
-            break   // gestopt of mislukt: later verder met Load KB op dit project
-        }
-        loadAfterIngest = nil
-        ingestWatch = nil
     }
 
     /// Projectnaam voor een map: zijn naam, of met -2, -3 … als die naam al bij een andere bronmap hoort.

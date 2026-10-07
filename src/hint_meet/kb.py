@@ -361,13 +361,20 @@ class Hit:
 class KB:
     BATCH_SAVE = 128   # na zoveel nieuwe stukjes de cache bijwerken: stoppen kost dan hooguit één batch
 
-    def __init__(self, root: Path | list[Path], embedder=None, progress=None):
+    def __init__(self, root: Path | list[Path], embedder=None, progress=None, on_phase=None, word_progress=None):
         """root: één KB-map, of een lijst voor meerdere projecten tegelijk. Elke map houdt zijn eigen
         bewaarde embeddings en woordindex; in het geheugen worden ze één zoekindex, met de projectnaam
         voor elke referentie (acme/offerte.pdf).
-        progress(done, total, seconds_left) wordt aangeroepen tijdens het maken van nieuwe embeddings."""
+        progress(done, total, seconds_left) wordt aangeroepen tijdens het maken van nieuwe embeddings;
+        word_progress(done, total, seconds_left) tijdens het splitsen van nieuwe stukjes in woorden;
+        on_phase(key) bij het begin van elke fase: "model", en per map "read-<naam>", "words-<naam>",
+        "embed-<naam>" (voor de voortgang in de app)."""
         self.roots = [Path(r) for r in root] if isinstance(root, (list, tuple)) else [Path(root)]
         self.root = self.roots[0]
+        self.on_phase = on_phase or (lambda key: None)
+        self.word_progress = word_progress
+        if embedder is None:
+            self.on_phase("model")
         self.embedder = embedder or default_embedder()
         self.progress = progress
         parts = [self._load(r) for r in self.roots]
@@ -382,9 +389,13 @@ class KB:
         self.bm25 = BM25(rows=rows)
 
     def _load(self, root: Path) -> tuple[list[Chunk], TermRows, np.ndarray]:
+        self.on_phase(f"read-{root.name}")
         chunks = load_chunks(root)
         keys = [c.key for c in chunks]
-        return chunks, self._term_rows(root, chunks, keys), self._vectors(root, chunks, keys)
+        self.on_phase(f"words-{root.name}")
+        rows = self._term_rows(root, chunks, keys)
+        self.on_phase(f"embed-{root.name}")
+        return chunks, rows, self._vectors(root, chunks, keys)
 
     def _term_rows(self, root: Path, chunks: list[Chunk], keys: list[str]) -> TermRows:
         """Woordtellingen per stukje, bewaard in <kb>/.hint-meet-cache/bm25-v*.npz: alleen nieuwe of
@@ -405,8 +416,15 @@ class KB:
             rows.indptr, rows.cols, rows.counts = indptr.tolist(), [cols], [counts]
             return rows
         where = {k: i for i, k in enumerate(old_keys)}
+        import time
+        todo = sum(1 for k in keys if k not in where)
+        done, t0 = 0, time.monotonic()
         for c, k in zip(chunks, keys):
             i = where.get(k)
+            if i is None and self.word_progress and done % 2000 == 0:
+                rate = (time.monotonic() - t0) / done if done else 0
+                self.word_progress(done, todo, rate * (todo - done))
+            done += i is None
             if i is None:
                 rows.add_tokens(tokenize(c.embed_text))
             else:
