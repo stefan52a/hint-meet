@@ -310,7 +310,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     case .running:
                         self.loadingProjects = self.settings.selectedProjects
                         self.loadingStarted = Date()
-                    case .done: self.kbStatus.markLoaded(self.loadingProjects, startedAt: self.loadingStarted)
+                    case .done:
+                        self.kbStatus.markLoaded(self.loadingProjects, startedAt: self.loadingStarted)
+                        // Find Documents alvast laden (de KB staat net in de cache), zodat zoeken direct werkt
+                        if !self.backend.isRunning { self.searchService.ensureRunning() }
                     case .failed: self.kbStatus.refresh()
                     case .idle: break
                     }
@@ -336,9 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("HintMeetFind")
             if w.frame.origin == .zero { w.center() }
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) {
-                [weak self] _ in MainActor.assumeIsolated { self?.searchService.stop() }
-            }
+            // sluiten laat de zoekdienst geladen: de volgende keer is Find Documents direct
             findWindow = w
         }
         searchService.ensureRunning()
@@ -451,7 +452,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return it
     }
 
+    /// Was Find Documents geladen voor de meeting begon? Dan na de meeting weer laden.
+    private var searchWasWarm = false
+
+    /// Een meeting laadt de kennisbank zelf: de zoekdienst stoppen spaart een tweede kopie in het geheugen.
+    private func pauseSearchForMeeting() {
+        searchWasWarm = searchService.isLoaded
+        searchService.stop()
+    }
+
     @objc func startMeeting() {
+        pauseSearchForMeeting()
         panel.resignKey()   // na typen in "Meeting info": toetsenbord terug naar de meeting
         if NSApp.isActive, let app = panel.previousApp, !app.isTerminated, app != NSRunningApplication.current {
             app.activate()   // de meeting-app weer voorop, met zijn eigen menubalk
@@ -494,6 +505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.allowsMultipleSelection = false
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        pauseSearchForMeeting()
         backend.start(recording: url.path)
         self.panel.orderFrontRegardless()
         watchBackend()
@@ -545,7 +557,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .running: self.statusItem.button?.title = "💡●"
                 case .stopping: self.statusItem.button?.title = "💡…"
                 case .failed: self.statusItem.button?.title = "💡⚠"
-                case .idle: self.statusItem.button?.title = "💡"
+                case .idle:
+                    self.statusItem.button?.title = "💡"
+                    if self.searchWasWarm {   // na de meeting Find Documents weer klaarzetten
+                        self.searchWasWarm = false
+                        self.searchService.ensureRunning()
+                    }
                 }
             }
         }

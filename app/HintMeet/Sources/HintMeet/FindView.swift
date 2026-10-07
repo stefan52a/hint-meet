@@ -82,6 +82,9 @@ final class SearchService: ObservableObject {
         }
     }
 
+    /// Draait de zoekdienst (geladen of bezig met laden)?
+    var isLoaded: Bool { process?.isRunning == true }
+
     func search(_ query: String) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         guard !q.isEmpty else { return }
