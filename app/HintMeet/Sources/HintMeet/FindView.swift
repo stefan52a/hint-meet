@@ -21,6 +21,10 @@ final class SearchService: ObservableObject {
     let loading = ProgressTask(logName: "search")   // alleen voor de fasen tijdens het laden
     private var process: Process?
     private var input: FileHandle?
+    /// Elke start van het zoekproces krijgt een nieuwe generatie; regels van een vorig proces tellen niet mee.
+    private var generation = 0
+    /// Volgnummer van de laatst gestelde vraag: alleen het antwoord daarop wordt getoond.
+    private var lastRequest = 0
     private var projects = ""
     private let settings: Settings
 
@@ -40,6 +44,8 @@ final class SearchService: ObservableObject {
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
         p.standardInput = inp
+        generation += 1
+        let gen = generation
         let lines = LineSplitter()
         let queue = DispatchQueue(label: "hintmeet.search")
         out.fileHandleForReading.readabilityHandler = { h in
@@ -48,7 +54,10 @@ final class SearchService: ObservableObject {
             queue.async {
                 let complete = lines.feed(data, atEnd: false)
                 DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated { complete.forEach { self?.read($0) } }
+                    MainActor.assumeIsolated {
+                        guard let self, self.generation == gen else { return }   // regels van een vorig proces
+                        complete.forEach { self.read($0) }
+                    }
                 }
             }
         }
@@ -81,13 +90,19 @@ final class SearchService: ObservableObject {
             ensureRunning()
             return
         }
-        guard let input, case .ready = state else { return }
+        guard let input, case .ready = state else {
+            pendingQuery = q   // nog aan het laden: vraag bewaren en stellen zodra de kennisbank klaar is
+            if process == nil { ensureRunning() }
+            return
+        }
         searching = true
         lastQuery = q
-        input.write(Data((q + "\n").utf8))
+        lastRequest += 1
+        input.write(Data("\(lastRequest)\t\(q.replacingOccurrences(of: "\t", with: " "))\n".utf8))
     }
 
     func stop() {
+        generation += 1   // wat het oude proces nog stuurt, wordt genegeerd
         input = nil
         if let p = process, p.isRunning { p.terminate() }
         process = nil
@@ -102,7 +117,7 @@ final class SearchService: ObservableObject {
         } else if line.hasPrefix("@results "), let data = line.dropFirst(9).data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let list = json["results"] as? [[String: Any]] {
-            guard json["query"] as? String == lastQuery else { return }   // antwoord op een eerdere vraag
+            guard json["id"] as? String == String(lastRequest) else { return }   // antwoord op een eerdere vraag
             results = list.map { Result(ref: $0["ref"] as? String ?? "", heading: $0["heading"] as? String ?? "",
                                         snippet: $0["snippet"] as? String ?? "", path: $0["path"] as? String ?? "") }
             searching = false

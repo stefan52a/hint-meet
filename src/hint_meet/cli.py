@@ -302,10 +302,12 @@ def search_cmd(a) -> int:
             print(f"{i:2}. {r['ref']}" + (f" › {r['heading']}" if r["heading"] else "") + f"\n    {r['snippet'][:160]}")
         return 0
     print(f"@ready {len(kb.chunks)}", flush=True)
-    for line in sys.stdin:
-        query = line.strip()
+    for line in sys.stdin:   # "<id>\t<vraag>" (de app koppelt zo het antwoord aan de vraag) of alleen "<vraag>"
+        rid, _, query = line.rstrip("\n").rpartition("\t")
+        query = query.strip()
         if query:
-            print("@results " + json.dumps({"query": query, "results": answer(query)}, ensure_ascii=False), flush=True)
+            print("@results " + json.dumps({"id": rid, "query": query, "results": answer(query)}, ensure_ascii=False),
+                  flush=True)
     return 0
 
 

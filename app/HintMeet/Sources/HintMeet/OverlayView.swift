@@ -21,21 +21,23 @@ struct OverlayView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            if backend.isRunning || !store.transcript.isEmpty { header }   // buiten een meeting: tandwiel in de KB-regel
             if backend.state == .stopping { stopping }
+            // transcript en hints krijgen alle hoogte die het venster overlaat (geen vaste marges)
             if store.transcript.isEmpty && store.listHints.isEmpty {
-                hintColumn(height: transcriptHeight)
+                hintColumn(listHeight: nil)
             } else if size.width >= Self.twoColumnWidth {
                 // links het gesprek, rechts de hints op volgorde; de uitspraak van de hint in het midden is gemarkeerd
                 HStack(alignment: .top, spacing: 12) {
-                    TranscriptView(store: store).frame(width: size.width * 0.45, height: transcriptHeight)
-                    Divider().frame(height: transcriptHeight)
-                    hintColumn(height: transcriptHeight).frame(maxWidth: .infinity, alignment: .topLeading)
+                    TranscriptView(store: store).frame(width: size.width * 0.45).frame(maxHeight: .infinity)
+                    Divider()
+                    hintColumn(listHeight: nil).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
+                .frame(maxHeight: .infinity)
             } else {
-                hintColumn(height: 240)
+                hintColumn(listHeight: 200)
                 Divider()
-                TranscriptView(store: store).frame(height: min(transcriptHeight, 180))
+                TranscriptView(store: store).frame(maxHeight: .infinity)
             }
             if let path = store.summaryPath {
                 Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
@@ -54,15 +56,11 @@ struct OverlayView: View {
     /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
     static let twoColumnWidth: CGFloat = 560
 
-    /// Hoogte van transcript en hints: wat het venster overlaat onder de kopregels.
-    private var transcriptHeight: CGFloat {
-        max(160, size.height - 14 * 2 - 32 - (backend.state == .stopping ? 60 : 0) - (store.summaryPath != nil ? 26 : 0))
-    }
 
     /// Rechterkolom: bladeren en de hints op volgorde (of de knoppen om te beginnen), en intrekkingen.
-    @ViewBuilder private func hintColumn(height: CGFloat) -> some View {
+    /// listHeight nil: de hintlijst vult de beschikbare hoogte; anders een vaste hoogte (smal venster).
+    @ViewBuilder private func hintColumn(listHeight: CGFloat?) -> some View {
         let bar = store.history.count > 1 || store.isBrowsing
-        let retracted = store.justRetracted != nil && !store.isBrowsing
         VStack(alignment: .leading, spacing: 8) {
             if store.listHints.isEmpty {
                 idle
@@ -72,7 +70,8 @@ struct OverlayView: View {
                     store.rate(id, r)
                     send(["type": "feedback", "id": id, "rating": r, "session": store.session])
                 })
-                .frame(height: max(160, height - (bar ? 34 : 0) - (retracted ? 22 : 0)))
+                .frame(height: listHeight)
+                .frame(maxHeight: listHeight == nil ? .infinity : nil)
             }
             if let r = store.justRetracted, !store.isBrowsing {
                 // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
@@ -132,9 +131,12 @@ struct OverlayView: View {
                         Button("Load KB") { preparer.startPrepare(settings) }
                             .help("In advance: update documents from the source folder, index the KB and load speech "
                                   + "recognition, so the meeting starts quickly")
-                        Button { find() } label: { Label("Find…", systemImage: "magnifyingglass") }
+                        Button { find() } label: { Label("Find Documents", systemImage: "magnifyingglass") }
                             .help("Find a document by its content (⌘F)")
                     }
+                    Spacer()
+                    Button { openSettings() } label: { Image(systemName: "gearshape") }
+                        .buttonStyle(.borderless).help("Settings")
                 }
                 .controlSize(.small)
                 if kbPrep.state != .idle {   // een map wordt een kennisbank (kan uren duren; Stop en later verder)
@@ -203,10 +205,7 @@ struct OverlayView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Circle().fill(backend.state == .running ? (store.connected ? Color.green : Color.orange) : Color.gray)
-                .frame(width: 7, height: 7)
-            Text("hint-meet").font(.caption.weight(.semibold))
-            if !store.project.isEmpty { Text("· \(store.project)").font(.caption).foregroundStyle(.secondary) }
+            if !store.project.isEmpty { Text(store.project).font(.caption).foregroundStyle(.secondary) }
             if backend.isRunning && !settings.meetingInfo.isEmpty {
                 Text("· \(settings.meetingInfo)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }

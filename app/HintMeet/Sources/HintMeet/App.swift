@@ -275,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
         let prep = item(kbPrep.isRunning ? "Convert Documents (running…)" : "Convert Documents (kb_prep)…",
                         #selector(showKBPrep), "")
-        let find = item("Find Document…", #selector(showFind), "f")
+        let find = item("Find Documents…", #selector(showFind), "f")
         find.isEnabled = !settings.project.isEmpty && settings.backendReady
         let add = item("Add Folder as Knowledge Base…", #selector(addKBFolder), "")
         add.isEnabled = !kbPrep.isRunning && !preparer.isRunning && settings.backendReady
@@ -296,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if findWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            w.title = "Find Document"
+            w.title = "Find Documents"
             w.contentView = NSHostingView(rootView: FindView(search: searchService, settings: settings))
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("HintMeetFind")
