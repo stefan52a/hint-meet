@@ -3,8 +3,7 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Afmetingen die je zelf aan het paneel geeft met de greep rechtsonder (ResizeGrip); de hoogte is een minimum,
-/// want meer inhoud laat het paneel nog steeds meegroeien.
+/// Standaard- en minimumbreedte van het paneel (het venster zelf bepaalt de maat; macOS onthoudt hem).
 @MainActor
 final class PanelLayout: ObservableObject {
     static let defaultWidth: CGFloat = 760   // breed genoeg voor transcript en hint naast elkaar
@@ -52,25 +51,29 @@ final class OverlayPanel: NSPanel {
     /// van een meeting de focus terug.
     var previousApp: NSRunningApplication?
 
+    static let defaultSize = NSSize(width: PanelLayout.defaultWidth, height: 560)
+
+    /// Een gewoon venster (titelbalk met sluiten, minimaliseren en maximaliseren, overal te vergroten) dat
+    /// standaard boven andere vensters blijft en geen focus steelt.
     init(content: NSView) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: PanelLayout.defaultWidth, height: 200),
-                   styleMask: [.nonactivatingPanel, .borderless],
+        super.init(contentRect: NSRect(origin: .zero, size: Self.defaultSize),
+                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel],
                    backing: .buffered, defer: false)
-        minSize = NSSize(width: PanelLayout.minWidth, height: 80)
+        title = "HintMeet"
+        minSize = NSSize(width: PanelLayout.minWidth, height: 220)
         isFloatingPanel = true
-        level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        isMovableByWindowBackground = false   // verslepen via de kopbalk (WindowDragArea); elders zijn klikken voor de tekst
+        level = UserDefaults.standard.object(forKey: "keepOnTop") as? Bool ?? true ? .floating : .normal
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .managed]
+        isMovableByWindowBackground = false   // verslepen via de titelbalk of de kopbalk; elders zijn klikken voor de tekst
         hidesOnDeactivate = false
-        backgroundColor = .clear
-        isOpaque = false
+        isReleasedWhenClosed = false   // sluiten verbergt; Show Overlay, het Dock-icoon of 💡 haalt hem terug
         hasShadow = true
         contentView = content
     }
     override var canBecomeKey: Bool { acceptsKeyboard() }
 
     /// Hoogte van de kopbalk (hint-meet · project) vanaf de bovenrand van het paneel.
-    static let headerHeight: CGFloat = 40
+    static let headerHeight: CGFloat = 70   // titelbalk plus de regel hint-meet · project
 
     /// Buiten een meeting maakt elke klik op het paneel HintMeet de actieve app, zodat de menubalk linksboven
     /// weer van HintMeet is. Tijdens een meeting alleen een klik op de kopbalk: klikken op hints, ◀ ▶, 👍 en
@@ -126,29 +129,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                openSettings: { [weak self] in self?.showSettings() },
                                addFolder: { [weak self] in self?.addKBFolder() })
         hosting = ClickThroughHostingView(rootView: view)
-        // alleen de gemeten maat doorgeven (voor fit); min/max zouden het venster op de inhoud vastzetten
-        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.sizingOptions = []   // het venster bepaalt de maat (jij sleept); de inhoud vult het
         panel = OverlayPanel(content: hosting)
         panel.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
-        panel.setFrameTopLeftPoint(initialTopLeft())
-        fit()
+        // macOS onthoudt plek en maat; de eerste keer rechtsboven op het hoofdscherm
+        if !panel.setFrameUsingName(Self.frameName) {
+            let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+            panel.setFrameTopLeftPoint(NSPoint(x: f.maxX - OverlayPanel.defaultSize.width - 20, y: f.maxY - 20))
+        }
+        panel.setFrameAutosaveName(Self.frameName)
         panel.orderFrontRegardless()
-        // meegroeien met de inhoud, met de bovenrand vast; en onthouden waar het paneel staat
-        changes = store.objectWillChange.merge(with: backend.objectWillChange, layout.objectWillChange,
-                                               preparer.objectWillChange).sink {
-            [weak self] _ in
-            DispatchQueue.main.async { self?.fit() }
-            // het regeltje over een ingetrokken hint verdwijnt na een paar seconden: dan opnieuw passen
-            self?.refitLater()
-        }
-        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
-            [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let f = self.panel.frame
-                UserDefaults.standard.set([f.minX, f.maxY], forKey: self.topLeftKey)
-            }
-        }
 
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -284,7 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func overlayItems() -> [NSMenuItem] {
         [item(panel.isVisible ? "Hide Overlay" : "Show Overlay", #selector(togglePanel), ""),
-         item("Reset Overlay Size", #selector(resetPanelSize), "")]
+         item("Reset Overlay Size", #selector(resetPanelSize), ""),
+         { let it = item("Keep Overlay on Top", #selector(toggleKeepOnTop), ""); it.state = panel.level == .floating ? .on : .off; return it }()]
     }
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
@@ -496,36 +487,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: paneel
 
-    private func initialTopLeft() -> NSPoint {
-        if let saved = UserDefaults.standard.array(forKey: topLeftKey) as? [Double], saved.count == 2 {
-            let p = NSPoint(x: saved[0], y: saved[1])
-            if NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -20, dy: -20).contains(p) }) { return p }
-        }
-        let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        return NSPoint(x: f.maxX - layout.width - 20, y: f.maxY - 20)
-    }
+    private static let frameName = "HintMeetOverlay"
 
-    @objc func resetPanelSize() { layout.reset() }
-
-    /// Eén uitgestelde fit, die bij elke nieuwe wijziging opnieuw begint (geen stapel timers tijdens streamen).
-    private func refitLater() {
-        refit?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.fit() }
-        refit = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.5, execute: work)
-    }
-
-    func fit() {
-        hosting.layoutSubtreeIfNeeded()
-        let size = hosting.fittingSize
+    @objc func resetPanelSize() {
         var frame = panel.frame
         let top = frame.maxY
-        frame.size = NSSize(width: max(size.width, PanelLayout.minWidth), height: size.height)
+        frame.size = OverlayPanel.defaultSize
         frame.origin.y = top - frame.height
-        if let vf = panel.screen?.visibleFrame, frame.minY < vf.minY {
-            frame.origin.y = min(vf.minY, vf.maxY - frame.height)   // onderrand niet buiten beeld laten groeien
-        }
-        panel.setFrame(frame, display: true)
+        panel.setFrame(frame, display: true, animate: true)
+    }
+
+    @objc func toggleKeepOnTop() {
+        let onTop = panel.level != .floating
+        panel.level = onTop ? .floating : .normal
+        UserDefaults.standard.set(onTop, forKey: "keepOnTop")
     }
 
     @objc func togglePanel() {

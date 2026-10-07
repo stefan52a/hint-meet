@@ -15,6 +15,7 @@ struct OverlayView: View {
     let openSettings: () -> Void
     let addFolder: () -> Void
     @State private var tick = Date()
+    @State private var size = CGSize(width: PanelLayout.defaultWidth, height: 560)
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -23,10 +24,10 @@ struct OverlayView: View {
             if backend.state == .stopping { stopping }
             if store.transcript.isEmpty && store.listHints.isEmpty {
                 hintColumn(height: transcriptHeight)
-            } else if layout.width >= Self.twoColumnWidth {
+            } else if size.width >= Self.twoColumnWidth {
                 // links het gesprek, rechts de hints op volgorde; de uitspraak van de hint in het midden is gemarkeerd
                 HStack(alignment: .top, spacing: 12) {
-                    TranscriptView(store: store).frame(width: layout.width * 0.45, height: transcriptHeight)
+                    TranscriptView(store: store).frame(width: size.width * 0.45, height: transcriptHeight)
                     Divider().frame(height: transcriptHeight)
                     hintColumn(height: transcriptHeight).frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -41,18 +42,21 @@ struct OverlayView: View {
             }
         }
         .padding(14)
-        .frame(width: layout.width, alignment: .topLeading)
-        .frame(minHeight: layout.minHeight, alignment: .topLeading)
-        .overlay(alignment: .bottomTrailing) { ResizeGrip(layout: layout).frame(width: 18, height: 18).padding(3) }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // vult het venster
+        .background(.regularMaterial)
+        .background(GeometryReader { g in   // breedte en hoogte van het venster, voor de indeling
+            Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
+        })
         .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
     }
 
     /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
     static let twoColumnWidth: CGFloat = 560
 
-    /// Hoogte van het transcript: groeit mee als je het paneel met de greep hoger maakt.
-    private var transcriptHeight: CGFloat { max(240, layout.minHeight - 70) }
+    /// Hoogte van transcript en hints: wat het venster overlaat onder de kopregels.
+    private var transcriptHeight: CGFloat {
+        max(160, size.height - 14 * 2 - 32 - (backend.state == .stopping ? 60 : 0) - (store.summaryPath != nil ? 26 : 0))
+    }
 
     /// Rechterkolom: bladeren en de hints op volgorde (of de knoppen om te beginnen), en intrekkingen.
     @ViewBuilder private func hintColumn(height: CGFloat) -> some View {
@@ -261,65 +265,6 @@ struct HintCard: View {
                     Button("👍") { rate(1) }.buttonStyle(.borderless).opacity(hint.rating == -1 ? 0.3 : 1)
                     Button("👎") { rate(-1) }.buttonStyle(.borderless).opacity(hint.rating == 1 ? 0.3 : 1)
                 }
-            }
-        }
-    }
-}
-
-/// Greep rechtsonder om het paneel groter of kleiner te slepen. Een randloos paneel dat geen focus
-/// mag krijgen heeft geen sleepranden van macOS, en slepen op de achtergrond verplaatst het paneel.
-struct ResizeGrip: NSViewRepresentable {
-    let layout: PanelLayout
-
-    func makeNSView(context: Context) -> GripView { GripView(layout: layout) }
-    func updateNSView(_ view: GripView, context: Context) {}
-
-    final class GripView: NSView {
-        let layout: PanelLayout
-        private var start: (mouse: NSPoint, width: CGFloat, height: CGFloat)?
-
-        init(layout: PanelLayout) {
-            self.layout = layout
-            super.init(frame: .zero)
-        }
-        required init?(coder: NSCoder) { fatalError() }
-
-        override var mouseDownCanMoveWindow: Bool { false }   // anders sleept het hele paneel mee
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
-
-        override func draw(_ dirtyRect: NSRect) {
-            NSColor.tertiaryLabelColor.setStroke()
-            let path = NSBezierPath()
-            for i in 1...3 {   // drie schuine streepjes, zoals een klassieke venstergreep
-                let d = CGFloat(i) * 4
-                path.move(to: NSPoint(x: bounds.maxX - d - 2, y: 2))
-                path.line(to: NSPoint(x: bounds.maxX - 2, y: d + 2))
-            }
-            path.lineWidth = 1
-            path.stroke()
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            guard let window else { return }
-            start = (NSEvent.mouseLocation, window.frame.width, window.frame.height)
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            guard let start else { return }
-            let now = NSEvent.mouseLocation
-            MainActor.assumeIsolated {
-                layout.width = max(start.width + now.x - start.mouse.x, PanelLayout.minWidth)
-                layout.minHeight = max(start.height - (now.y - start.mouse.y), 0)   // schermcoördinaten: y omhoog
-            }
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            start = nil
-            MainActor.assumeIsolated {
-                layout.clamp(to: window?.screen?.visibleFrame.size)
-                layout.save()
             }
         }
     }
