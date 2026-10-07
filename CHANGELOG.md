@@ -6,7 +6,8 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
-- **Find Documents during a meeting** searches the knowledge base the meeting already loaded, so it isn't loaded a second time (no extra memory, and instant). While the meeting is still loading, it says so.
+- *Load KB* is now **Preload KB**, with a hint below it to do this well before a meeting: the first time can take hours, even days for very large folders.
+- **Find Documents during a meeting** (button next to *Stop*, also with a recorded meeting) searches the knowledge base the meeting already loaded, so it isn't loaded a second time (no extra memory, and instant). While the meeting is still loading, it says so; if the meeting doesn't answer within 10 seconds, it says that too.
 - *Play Recording…* is now **Start with a Recorded Meeting…**.
 - **Find Documents stays loaded:** closing the window no longer unloads the knowledge base, so the next search is instant. After *Load KB* or *Add Folder* it loads in the background right away. During a meeting it's paused to save memory (the meeting loads the knowledge base itself) and comes back afterwards.
 - **Load KB only when needed:** the button appears only if the chosen knowledge base was never loaded (or loading was stopped), or if documents changed in the source folder or the knowledge base since the last load. HintMeet checks this in the background when you choose a project, after loading or converting, and when you switch back to HintMeet.

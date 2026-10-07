@@ -1,6 +1,6 @@
 import Foundation
 
-/// Of de gekozen kennisbank(en) geladen moeten worden ("Load KB" alleen tonen als het nodig is): nog nooit met
+/// Of de gekozen kennisbank(en) geladen moeten worden ("Preload KB" alleen tonen als het nodig is): nog nooit met
 /// succes geladen, of sindsdien iets veranderd in de bronmap of de kennisbank. Controle in de achtergrond,
 /// die stopt bij de eerste wijziging.
 @MainActor
@@ -13,7 +13,7 @@ final class KBStatus: ObservableObject {
 
     private static func key(_ project: String) -> String { "preparedAt." + project }
 
-    /// Na een geslaagde Load KB / Add Folder: deze projecten zijn bijgewerkt tot het moment dat het laden
+    /// Na een geslaagde Preload KB / Add Folder: deze projecten zijn bijgewerkt tot het moment dat het laden
     /// begon (wat tijdens het laden veranderde, telt dus nog als nieuw).
     func markLoaded(_ projects: [String], startedAt: Date) {
         for p in projects { UserDefaults.standard.set(startedAt.timeIntervalSince1970, forKey: Self.key(p)) }

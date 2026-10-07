@@ -5,8 +5,8 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 **What it's for.** Conversations where details from a large dossier matter: with a tax advisor, notary, bank, buyer or shareholder. Someone mentions an amount, date or agreement that isn't right, or asks a question whose answer is somewhere in your documents. HintMeet finds that document and briefly says what actually applies, so you don't have to search or guess.
 
 **How to use it.**
-1. Turn a folder of documents (PDF, Word, Excel, mail, scans, …) into a knowledge base: *Add Folder…* in the knowledge base menu, *Convert Documents* in the app, or `tools/kb_prep.py`. **The first time can take a long time**: every passage is embedded once (hours for very large folders); HintMeet warns you and shows the estimated time. You can stop and continue later with *Load KB*; after that, loading takes seconds.
-2. In HintMeet, select one or more projects and click *Load KB*, so the meeting can start right away.
+1. Turn a folder of documents (PDF, Word, Excel, mail, scans, …) into a knowledge base: *Add Folder…* in the knowledge base menu, *Convert Documents* in the app, or `tools/kb_prep.py`. **The first time can take a long time**: every passage is embedded once (hours for very large folders); HintMeet warns you and shows the estimated time. You can stop and continue later with *Preload KB*; after that, loading takes seconds.
+2. In HintMeet, select one or more projects and click *Preload KB*, **well before the meeting**: the first time, embedding the documents can take hours (days for very large folders). After that the meeting starts right away; the button only appears when something needs loading.
 3. Optionally fill in *Meeting info* (with whom, where), choose the language of the conversation, and start the meeting. Hints appear in a floating panel above your meeting without taking over your keyboard. The transcript runs alongside; ◀ ▶, scrolling or clicking takes you back to earlier hints.
 4. Afterwards the report with action items is in `<KB>/meetings/`; the transcript is in `logs/`.
 5. Looking for a document? *Find Documents* (⌘F) searches the knowledge base by content (words, amounts, names, topics) and opens the original file.
@@ -193,7 +193,7 @@ Supported: `.docx .xlsx .xlsm .csv .pptx .pdf .html .htm .txt .md .json .rtf .em
 hint-meet eval-kb data/eval/acme-vragen.yaml
 ```
 
-To index a new or substantially grown KB in advance, so a meeting starts right away: *Load KB* in the app, or `hint-meet --project <name> prepare` (updates documents from the source folder, indexes, loads speech recognition). Indexing only: `hint-meet --project <name> index` (Contoso, 4,000 chunks: about 8 minutes, once; after that only new chunks).
+To index a new or substantially grown KB in advance, so a meeting starts right away: *Preload KB* in the app, or `hint-meet --project <name> prepare` (updates documents from the source folder, indexes, loads speech recognition). Indexing only: `hint-meet --project <name> index` (Contoso, 4,000 chunks: about 8 minutes, once; after that only new chunks).
 
 A question list is YAML with, per question, the documents where the answer is; see `data/eval/` (not in git, because it contains dossier content).
 

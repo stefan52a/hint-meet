@@ -13,7 +13,7 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var since: Date?
     /// Wat er bezig is, voor in het paneel (bv. "Ingesting Finance").
     @Published private(set) var title = ""
-    /// Fasen uit "@plan" (Load KB, Add Folder): voor een overzicht per fase en een totaalvoortgang.
+    /// Fasen uit "@plan" (Preload KB, Add Folder): voor een overzicht per fase en een totaalvoortgang.
     @Published private(set) var phases: [Phase] = []
     /// "@note …": een melding tijdens het werk, bv. dat de eerste keer inbedden lang kan duren.
     @Published private(set) var note = ""
@@ -129,7 +129,7 @@ final class ProgressTask: ObservableObject {
         } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
             let done: [String]
             markRunningDone()
-            if stepKey == "done" {   // Load KB: eigen eindregel, plus wat kb_prep per project deed
+            if stepKey == "done" {   // Preload KB: eigen eindregel, plus wat kb_prep per project deed
                 done = [step] + summaries.map { "Documents: " + $0 }
             } else {
                 done = [summaries.last.map { "Done: " + $0 } ?? (step.isEmpty ? "Done" : step)]

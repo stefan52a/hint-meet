@@ -105,6 +105,13 @@ final class SearchService: ObservableObject {
             lastRequest += 1
             meetingNote = ""
             sendToMeeting(["type": "search", "id": lastRequest, "query": q])
+            let request = lastRequest
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in   // geen antwoord (meeting voorbij,
+                guard let self, self.searching, self.lastRequest == request else { return }   // verbinding weg)
+                self.searching = false
+                self.meetingNote = "No answer from the meeting. Search again; if the meeting has ended, HintMeet loads the knowledge base itself."
+                if !self.meetingActive() { self.state = .idle }
+            }
             return
         }
         if state == .meeting { state = .idle }   // meeting voorbij: weer met een eigen zoekproces

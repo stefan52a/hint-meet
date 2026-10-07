@@ -288,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if sub.items.isEmpty { sub.addItem(NSMenuItem(title: "No projects in \(settings.kbRoot)", action: nil, keyEquivalent: "")) }
         projectItem.submenu = sub
-        let load = item(preparer.isRunning ? "Load KB (running…)" : "Load KB", #selector(prepareKB), "l")
+        let load = item(preparer.isRunning ? "Preload KB (running…)" : "Preload KB", #selector(prepareKB), "l")
         load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
         let prep = item(kbPrep.isRunning ? "Convert Documents (running…)" : "Convert Documents (kb_prep)…",
                         #selector(showKBPrep), "")
@@ -307,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
 
-    /// "Load KB" alleen tonen als het nodig is: opnieuw controleren bij een ander project, na laden of omzetten,
+    /// "Preload KB" alleen tonen als het nodig is: opnieuw controleren bij een ander project, na laden of omzetten,
     /// en als je naar HintMeet terugschakelt.
     private func watchKBStatus() {
         kbStatus.refresh()
@@ -361,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
     /// "Add Folder…": een map wordt een kennisbank. kb_prep zet om (kan uren duren; Stop bewaart wat klaar is,
-    /// Load KB op dat project gaat later verder), daarna wordt het project gekozen en volgt Load KB vanzelf.
+    /// Preload KB op dat project gaat later verder), daarna wordt het project gekozen en volgt Preload KB vanzelf.
     @objc func addKBFolder() {
         guard !kbPrep.isRunning, !preparer.isRunning else { return }
         let open = NSOpenPanel()
@@ -379,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func ingest(folder url: URL) {
         let source = url.resolvingSymlinksInPath().path   // zoals kb_prep het pad opslaat
         let project = projectName(for: source)
-        settings.project = project   // de nieuwe kennisbank kiezen; Load KB gaat er later ook mee verder
+        settings.project = project   // de nieuwe kennisbank kiezen; Preload KB gaat er later ook mee verder
         // één taak met fasen: documenten omzetten, model, lezen, woordindex, embeddings, spraakherkenning
         preparer.startIngest(settings, source: source, project: project)
         panel.orderFrontRegardless()

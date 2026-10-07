@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Voortgang van Load KB / Add Folder per fase (bijwerken, model, lezen, woordindex, embeddings,
+/// Voortgang van Preload KB / Add Folder per fase (bijwerken, model, lezen, woordindex, embeddings,
 /// spraakherkenning), met bovenaan de totaalvoortgang. Valt terug op TaskProgressView zonder plan.
 struct PhasedProgressView: View {
     @ObservedObject var task: ProgressTask
@@ -19,7 +19,7 @@ struct PhasedProgressView: View {
                         Text(task.since.map { TaskProgressView.elapsed(from: $0, to: tick) } ?? "")
                             .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                         Button("Stop") { task.stop() }.controlSize(.small)
-                            .help("Stop; finished work is kept and Load KB continues where it left off")
+                            .help("Stop; finished work is kept and Preload KB continues where it left off")
                     }
                 }
                 if task.isRunning && !task.note.isEmpty {

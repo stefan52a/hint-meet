@@ -333,7 +333,7 @@ def search_cmd(a) -> int:
 
 
 def prepare_cmd(a) -> int:
-    """Voor "Load KB" en "Add Folder…" in HintMeet. Regels die met @ beginnen leest de app:
+    """Voor "Preload KB" en "Add Folder…" in HintMeet. Regels die met @ beginnen leest de app:
     "@plan [[sleutel, tekst], …]" (alle fasen vooraf, voor de totaalvoortgang), "@step <sleutel> <tekst>"
     bij het begin van een fase, en "@progress <klaar> <totaal> <tekst>"; de rest gaat naar het logboek."""
     import json

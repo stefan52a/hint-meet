@@ -130,7 +130,7 @@ struct OverlayView: View {
                     ProjectMenu(settings: settings, addFolder: addFolder).disabled(preparer.isRunning || kbPrep.isRunning)
                     if !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
                         if kbStatus.needsLoad {   // alleen als er iets te laden valt (nieuw of gewijzigd)
-                            Button("Load KB") { preparer.startPrepare(settings) }
+                            Button("Preload KB") { preparer.startPrepare(settings) }
                             .help("In advance: update documents from the source folder, index the KB and load speech "
                                   + "recognition, so the meeting starts quickly")
                         }
@@ -142,6 +142,12 @@ struct OverlayView: View {
                         .buttonStyle(.borderless).help("Settings")
                 }
                 .controlSize(.small)
+                if kbStatus.needsLoad && !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
+                    Label("Preload the knowledge base well before a meeting: the first time, embedding the documents "
+                          + "can take a long time (hours, even days for very large folders). You can stop and continue later.",
+                          systemImage: "clock")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 if kbPrep.state != .idle {   // een map wordt een kennisbank (kan uren duren; Stop en later verder)
                     Text(kbPrep.isRunning ? kbPrep.title : kbPrep.title.replacingOccurrences(of: "Ingesting", with: "Ingested"))
                         .font(.caption.weight(.medium))
@@ -214,6 +220,9 @@ struct OverlayView: View {
             }
             Spacer()
             if backend.state == .running {
+                Button { find() } label: { Label("Find Documents", systemImage: "magnifyingglass") }
+                    .buttonStyle(.borderless).font(.caption)
+                    .help("Find a document by its content in the meeting's knowledge base (⌘F)")
                 Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)
             }
             Button { openSettings() } label: { Image(systemName: "gearshape") }

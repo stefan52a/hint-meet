@@ -49,7 +49,7 @@ struct KBPrepView: View {
                 }
                 TaskProgressView(task: task, tick: tick)
             }
-            Text("Later changes in the source folder are also picked up by Load KB in the panel; it runs the same step.")
+            Text("Later changes in the source folder are also picked up by Preload KB in the panel; it runs the same step.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
