@@ -6,6 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **Add Folder…** in the knowledge base menu (panel and Knowledge Base menu): point to a folder and HintMeet turns it into a knowledge base with kb_prep, with progress in the panel. When that's done, the new project is selected and *Load KB* runs automatically. Large folders can take hours: *Stop* keeps what's done, and *Load KB* on that project continues later. Choosing the same folder again also continues; a different folder with the same name gets its own project (`-2`).
 - **All languages:** the language menu now lists all 100 languages Whisper recognizes, alphabetically by English name, with *Multilingual* at the top. With the menu open, type the first letter (D for Dutch) to jump there. Hints and the report follow the chosen language; for languages other than Dutch, English, German and French the fixed texts in the report file are in English.
 
 ## 2026-10-06

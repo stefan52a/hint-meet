@@ -11,6 +11,8 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var step = ""
     @Published private(set) var fraction: Double?   // nil: duur onbekend (schatting of wieltje)
     @Published private(set) var since: Date?
+    /// Wat er bezig is, voor in het paneel (bv. "Ingesting Finance").
+    @Published private(set) var title = ""
     private var process: Process?
     private var stopRequested = false
     private var summaries: [String] = []   // "3 converted, …" uit kb_prep's @summary, per project
@@ -176,12 +178,14 @@ extension ProgressTask {
     /// "KB laden": documenten bijwerken, indexeren, spraakherkenning laden voor de gekozen projecten.
     func startPrepare(_ settings: Settings) {
         guard !settings.project.isEmpty else { return }
+        title = "Loading \(settings.projectLabel)"
         start(settings, args: ["-m", "hint_meet.cli", "--project", settings.project, "prepare"],
               estimateKey: "prepareDurations." + settings.project, what: "Loading the KB")
     }
 
     /// tools/kb_prep.py met zijn opties: bronmap → KB_ROOT/<project>.
     func startKBPrep(_ settings: Settings, source: String, project: String, force: Bool, noOCR: Bool) {
+        title = "Ingesting \(project)"
         var args = [settings.repoPath + "/tools/kb_prep.py", source, "--project", project]
         if force { args.append("--force") }
         if noOCR { args.append("--no-ocr") }

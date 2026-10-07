@@ -117,12 +117,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         backend = Backend(settings: settings, port: port)
         preparer = ProgressTask(logName: "prepare")
 
-        let view = OverlayView(store: store, backend: backend, preparer: preparer, settings: settings, layout: layout,
+        let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep,
+                               settings: settings, layout: layout,
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
                                playRecording: { [weak self] in self?.playRecording() },
                                stopMeeting: { [weak self] in self?.stopMeeting() },
-                               openSettings: { [weak self] in self?.showSettings() })
+                               openSettings: { [weak self] in self?.showSettings() },
+                               addFolder: { [weak self] in self?.addKBFolder() })
         hosting = ClickThroughHostingView(rootView: view)
         // alleen de gemeten maat doorgeven (voor fit); min/max zouden het venster op de inhoud vastzetten
         hosting.sizingOptions = [.intrinsicContentSize]
@@ -162,6 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let project = parts.count > 1 ? parts[1] : KBPrepView.projectName(for: parts[0])
             openKBPrep(source: parts[0], project: project)
             kbPrep.startKBPrep(settings, source: parts[0], project: project, force: false, noOCR: false)
+        }
+        if let folder = ProcessInfo.processInfo.environment["HINT_MEET_ADD_FOLDER"] {   // test: Add Folder zonder kiesvenster
+            ingest(folder: URL(fileURLWithPath: folder))
         }
         if ProcessInfo.processInfo.environment["HINT_MEET_AUTOSTART"] != nil {
             startMeeting()
@@ -272,7 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
         let prep = item(kbPrep.isRunning ? "Convert Documents (running…)" : "Convert Documents (kb_prep)…",
                         #selector(showKBPrep), "")
-        return [projectItem, load, prep]
+        let add = item("Add Folder as Knowledge Base…", #selector(addKBFolder), "")
+        add.isEnabled = !kbPrep.isRunning && !preparer.isRunning && settings.backendReady
+        return [projectItem, load, add, prep]
     }
 
     private func overlayItems() -> [NSMenuItem] {
@@ -281,6 +288,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
+
+    /// Project waarvoor na het omzetten (kb_prep) automatisch Load KB volgt.
+    private var loadAfterIngest: String?
+    private var ingestWatch: AnyCancellable?
+
+    /// "Add Folder…": een map wordt een kennisbank. kb_prep zet om (kan uren duren; Stop bewaart wat klaar is,
+    /// Load KB op dat project gaat later verder), daarna wordt het project gekozen en volgt Load KB vanzelf.
+    @objc func addKBFolder() {
+        guard !kbPrep.isRunning, !preparer.isRunning else { return }
+        let open = NSOpenPanel()
+        open.title = "Add Folder as Knowledge Base"
+        open.message = "HintMeet converts the documents in this folder into a knowledge base. Large folders can take hours; you can stop and continue later."
+        open.prompt = "Add"
+        open.canChooseDirectories = true
+        open.canChooseFiles = false
+        NSApp.activate(ignoringOtherApps: true)
+        guard open.runModal() == .OK, let url = open.url else { return }
+        ingest(folder: url)
+    }
+
+    /// Map omzetten en daarna laden (ook gebruikt door HINT_MEET_ADD_FOLDER voor tests).
+    func ingest(folder url: URL) {
+        let source = url.resolvingSymlinksInPath().path   // zoals kb_prep het pad opslaat
+        let project = projectName(for: source)
+        loadAfterIngest = project
+        ingestWatch = kbPrep.$state.dropFirst().sink { [weak self] state in
+            DispatchQueue.main.async { self?.ingestFinished(state) }
+        }
+        kbPrep.startKBPrep(settings, source: source, project: project, force: false, noOCR: false)
+        panel.orderFrontRegardless()
+    }
+
+    private func ingestFinished(_ state: ProgressTask.State) {
+        guard let project = loadAfterIngest else { return }
+        switch state {
+        case .running, .idle:
+            return
+        case .done:
+            settings.project = project   // de nieuwe kennisbank kiezen en meteen laden
+            preparer.startPrepare(settings)
+        case .failed:
+            break   // gestopt of mislukt: later verder met Load KB op dit project
+        }
+        loadAfterIngest = nil
+        ingestWatch = nil
+    }
+
+    /// Projectnaam voor een map: zijn naam, of met -2, -3 … als die naam al bij een andere bronmap hoort.
+    /// Dezelfde map nog eens kiezen gaat verder in zijn bestaande kennisbank.
+    private func projectName(for source: String) -> String {
+        let base = KBPrepView.projectName(for: source)
+        var name = base, n = 2
+        while let bound = sourceRoot(of: name), bound != source {
+            name = "\(base)-\(n)"
+            n += 1
+        }
+        return name
+    }
+
+    private func sourceRoot(of project: String) -> String? {
+        let manifest = URL(fileURLWithPath: settings.kbRoot).appendingPathComponent(project)
+            .appendingPathComponent("_manifest.json")
+        guard let data = try? Data(contentsOf: manifest),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // map bestaat zonder manifest (bv. zelf gevuld): niet overschrijven, andere naam kiezen
+            return FileManager.default.fileExists(atPath: manifest.deletingLastPathComponent().path) ? "" : nil
+        }
+        return json["source_root"] as? String ?? ""
+    }
     @objc func previousHint() { store.back() }
     @objc func nextHint() { store.forward() }
     @objc func latestHint() { store.latest() }

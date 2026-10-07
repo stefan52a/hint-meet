@@ -5,6 +5,7 @@ struct OverlayView: View {
     @ObservedObject var store: HintStore
     @ObservedObject var backend: Backend
     @ObservedObject var preparer: ProgressTask
+    @ObservedObject var kbPrep: ProgressTask
     @ObservedObject var settings: Settings
     @ObservedObject var layout: PanelLayout
     let send: ([String: Any]) -> Void
@@ -12,6 +13,7 @@ struct OverlayView: View {
     let playRecording: () -> Void
     let stopMeeting: () -> Void
     let openSettings: () -> Void
+    let addFolder: () -> Void
     @State private var tick = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -120,14 +122,19 @@ struct OverlayView: View {
                 }
                 HStack {
                     Text("Knowledge base")
-                    ProjectMenu(settings: settings).disabled(preparer.isRunning)
-                    if !settings.project.isEmpty && !preparer.isRunning {
+                    ProjectMenu(settings: settings, addFolder: addFolder).disabled(preparer.isRunning || kbPrep.isRunning)
+                    if !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
                         Button("Load KB") { preparer.startPrepare(settings) }
                             .help("In advance: update documents from the source folder, index the KB and load speech "
                                   + "recognition, so the meeting starts quickly")
                     }
                 }
                 .controlSize(.small)
+                if kbPrep.state != .idle {   // een map wordt een kennisbank (kan uren duren; Stop en later verder)
+                    Text(kbPrep.isRunning ? kbPrep.title : kbPrep.title.replacingOccurrences(of: "Ingesting", with: "Ingested"))
+                        .font(.caption.weight(.medium))
+                    TaskProgressView(task: kbPrep, tick: tick)
+                }
                 preparation
                 HStack {
                     TextField("Meeting info (e.g. with whom, where) – used in the report name", text: $settings.meetingInfo)
@@ -146,7 +153,7 @@ struct OverlayView: View {
                         Button("Play Recording…") { playRecording() }
                     }
                     .controlSize(.small)
-                    .disabled(preparer.isRunning)
+                    .disabled(preparer.isRunning || kbPrep.isRunning)
                 }
             }
         }
