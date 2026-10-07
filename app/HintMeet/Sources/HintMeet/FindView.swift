@@ -10,7 +10,8 @@ final class SearchService: ObservableObject {
         var id: String { ref }
         var name: String { (ref as NSString).lastPathComponent }
     }
-    enum State: Equatable { case idle, loading, ready(Int), failed(String) }
+    /// meeting: tijdens een meeting zoeken in de KB die de meeting al geladen heeft (geen tweede kopie)
+    enum State: Equatable { case idle, loading, ready(Int), meeting, failed(String) }
 
     @Published private(set) var state: State = .idle
     @Published private(set) var results: [Result] = []
@@ -18,6 +19,11 @@ final class SearchService: ObservableObject {
     @Published private(set) var searching = false
     /// Zoekvraag die gesteld wordt zodra de kennisbank geladen is (voor tests: HINT_MEET_FIND).
     var pendingQuery: String?
+    /// Loopt er een meeting? Dan via de meeting-pijplijn zoeken in plaats van een eigen zoekproces.
+    var meetingActive: () -> Bool = { false }
+    var sendToMeeting: ([String: Any]) -> Void = { _ in }
+    /// Melding bij zoeken via de meeting, bv. dat die de kennisbank nog aan het laden is.
+    @Published private(set) var meetingNote = ""
     let loading = ProgressTask(logName: "search")   // alleen voor de fasen tijdens het laden
     private var process: Process?
     private var input: FileHandle?
@@ -32,6 +38,10 @@ final class SearchService: ObservableObject {
 
     /// Start (of herstart, als de gekozen projecten veranderd zijn) de zoekdienst.
     func ensureRunning() {
+        if meetingActive() {   // de meeting heeft de KB al geladen: daarin zoeken, niets extra laden
+            if state != .meeting { stop(); state = .meeting }
+            return
+        }
         if process?.isRunning == true && projects == settings.project { return }
         stop()
         guard settings.backendReady, !settings.project.isEmpty else {
@@ -88,6 +98,16 @@ final class SearchService: ObservableObject {
     func search(_ query: String) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         guard !q.isEmpty else { return }
+        if meetingActive() {
+            if state != .meeting { stop(); state = .meeting }
+            searching = true
+            lastQuery = q
+            lastRequest += 1
+            meetingNote = ""
+            sendToMeeting(["type": "search", "id": lastRequest, "query": q])
+            return
+        }
+        if state == .meeting { state = .idle }   // meeting voorbij: weer met een eigen zoekproces
         if projects != settings.project {   // ander project gekozen: eerst die kennisbank laden, dan zoeken
             pendingQuery = q
             ensureRunning()
@@ -102,6 +122,20 @@ final class SearchService: ObservableObject {
         lastQuery = q
         lastRequest += 1
         input.write(Data("\(lastRequest)\t\(q.replacingOccurrences(of: "\t", with: " "))\n".utf8))
+    }
+
+    /// Antwoord van de meeting-pijplijn op een zoekvraag.
+    func receiveMeetingResults(_ msg: [String: Any]) {
+        guard (msg["id"] as? Int) == lastRequest else { return }   // antwoord op een eerdere vraag
+        searching = false
+        if msg["error"] as? String == "loading" {
+            results = []
+            meetingNote = "The meeting is still loading the knowledge base; try again in a moment."
+            return
+        }
+        let list = msg["results"] as? [[String: Any]] ?? []
+        results = list.map { Result(ref: $0["ref"] as? String ?? "", heading: $0["heading"] as? String ?? "",
+                                    snippet: $0["snippet"] as? String ?? "", path: $0["path"] as? String ?? "") }
     }
 
     func stop() {
@@ -159,16 +193,12 @@ struct FindView: View {
             case .failed(let why):
                 Text(why).font(.callout).foregroundStyle(.orange)
             case .ready(let chunks):
-                if search.results.isEmpty {
-                    Text(search.lastQuery.isEmpty ? "Ready: \(chunks) passages searchable."
-                         : search.searching ? "Searching…" : "Nothing found for “\(search.lastQuery)”.")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else {
-                    Text("\(search.results.count) documents for “\(search.lastQuery)”, best match first")
-                        .font(.caption).foregroundStyle(.secondary)
-                    List(search.results) { r in row(r) }
-                        .listStyle(.inset)
+                resultList(empty: "Ready: \(chunks) passages searchable.")
+            case .meeting:
+                if !search.meetingNote.isEmpty {
+                    Text(search.meetingNote).font(.callout).foregroundStyle(.orange)
                 }
+                resultList(empty: "Searching the knowledge base of the running meeting.")
             }
             Spacer(minLength: 0)
         }
@@ -178,7 +208,25 @@ struct FindView: View {
         .onAppear { search.ensureRunning() }
     }
 
-    private var isReady: Bool { if case .ready = search.state { return true }; return false }
+    private var isReady: Bool {
+        switch search.state {
+        case .ready, .meeting: return true
+        default: return false
+        }
+    }
+
+    @ViewBuilder private func resultList(empty: String) -> some View {
+        if search.results.isEmpty {
+            Text(search.lastQuery.isEmpty ? empty
+                 : search.searching ? "Searching…" : "Nothing found for “\(search.lastQuery)”.")
+                .font(.callout).foregroundStyle(.secondary)
+        } else {
+            Text("\(search.results.count) documents for “\(search.lastQuery)”, best match first")
+                .font(.caption).foregroundStyle(.secondary)
+            List(search.results) { r in row(r) }
+                .listStyle(.inset)
+        }
+    }
 
     private func row(_ r: SearchService.Result) -> some View {
         VStack(alignment: .leading, spacing: 3) {

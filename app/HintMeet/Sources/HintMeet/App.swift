@@ -148,6 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.orderFrontRegardless()
 
         watchKBStatus()
+        // Find Documents tijdens een meeting: zoeken in de KB die de meeting al geladen heeft
+        searchService.meetingActive = { [weak self] in self?.backend.isRunning ?? false }
+        searchService.sendToMeeting = { [weak self] msg in self?.connection.send(msg) }
+        store.onSearchResults = { [weak self] msg in self?.searchService.receiveMeetingResults(msg) }
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "💡"
@@ -164,8 +168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             kbPrep.startKBPrep(settings, source: parts[0], project: project, force: false, noOCR: false)
         }
         if let q = ProcessInfo.processInfo.environment["HINT_MEET_FIND"] {   // test: Find Document met een zoekvraag
-            searchService.pendingQuery = q
-            showFind()
+            if ProcessInfo.processInfo.environment["HINT_MEET_AUTOSTART"] != nil {
+                // test van zoeken tijdens een meeting: als de meeting zijn KB heeft geladen
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    self?.showFind()
+                    self?.searchService.search(q)
+                }
+            } else {
+                searchService.pendingQuery = q
+                showFind()
+            }
         }
         if let folder = ProcessInfo.processInfo.environment["HINT_MEET_ADD_FOLDER"] {   // test: Add Folder zonder kiesvenster
             ingest(folder: URL(fileURLWithPath: folder))
@@ -258,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let live = item("Latest Hint", #selector(latestHint), "")
         live.isEnabled = store.isBrowsing
         items += [prev, next, live]
-        let replay = item("Play Recording…", #selector(playRecording), "o")
+        let replay = item("Start with a Recorded Meeting…", #selector(playRecording), "o")
         replay.isEnabled = !backend.isRunning && !settings.project.isEmpty && settings.backendReady && !preparer.isRunning
         items.append(replay)
         return items
@@ -459,6 +471,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func pauseSearchForMeeting() {
         searchWasWarm = searchService.isLoaded
         searchService.stop()
+        DispatchQueue.main.async { [weak self] in   // venster open? dan meteen zoeken via de meeting
+            guard let self, self.findWindow?.isVisible == true else { return }
+            self.searchService.ensureRunning()
+        }
     }
 
     @objc func startMeeting() {
@@ -500,7 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Een eerdere opname (bv. van de Plaud) afspelen alsof het een live meeting is.
     @objc func playRecording() {
         let panel = NSOpenPanel()
-        panel.title = "Play Recording"
+        panel.title = "Start with a Recorded Meeting"
         panel.allowedContentTypes = [.audio, .mpeg4Audio, .mp3, .wav]
         panel.allowsMultipleSelection = false
         NSApp.activate(ignoringOtherApps: true)

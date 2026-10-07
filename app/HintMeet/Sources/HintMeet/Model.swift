@@ -40,6 +40,8 @@ final class HintStore: ObservableObject {
     /// Het hele transcript van deze meeting, op volgorde, voor de scrollbare kolom in het paneel.
     @Published private(set) var transcript: [Utterance] = []
     private(set) var session = ""
+    /// Zoekresultaten van de meeting-pijplijn gaan naar Find Documents.
+    var onSearchResults: (([String: Any]) -> Void)?
 
     /// Alle definitieve hints van deze meeting, oudste eerst: de geschiedenis om door te bladeren.
     var history: [Hint] { hints.filter { $0.state == .final }.sorted { $0.id < $1.id } }
@@ -164,6 +166,8 @@ final class HintStore: ObservableObject {
             hints.removeAll { $0.id == id }
             hints.append(hint)
             hints = Array(hints.suffix(500))   // ruim genoeg voor een lange meeting, om terug te bladeren
+        case "search_results":
+            onSearchResults?(msg)
         case "status":
             status = msg["text"] as? String ?? ""
         case "summary":

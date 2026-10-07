@@ -162,7 +162,7 @@ struct OverlayView: View {
                     HStack {
                         Button("Start Meeting · \(settings.projectLabel)") { startMeeting() }
                             .buttonStyle(.borderedProminent)
-                        Button("Play Recording…") { playRecording() }
+                        Button("Start with a Recorded Meeting…") { playRecording() }
                     }
                     .controlSize(.small)
                     .disabled(preparer.isRunning || kbPrep.isRunning)

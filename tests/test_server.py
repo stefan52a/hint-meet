@@ -158,3 +158,36 @@ def test_other_language_gets_english_report_scaffolding(tmp_path):
     u = [Utterance(5, "Ana", "Hola")]
     es = write_note(tmp_path, u, [], "## Resumen\nSobre el préstamo.", time.time(), language="es")
     assert "## Hints shown" in es.read_text(encoding="utf-8")
+
+
+def test_search_results_are_not_replayed_to_new_clients():
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.send(type="hint", id=1, text="x")
+    hub.send(type="search_results", id=7, results=[])
+    assert len(hub.backlog) == 1   # alleen de hint
+
+
+def test_document_results_give_ref_snippet_and_path(tmp_path):
+    import zlib
+    import numpy as np
+    from hint_meet.cli import document_results
+    from hint_meet.kb import KB
+
+    class Fake:
+        name = "fake"
+        def _v(self, t):
+            v = np.zeros(64, dtype=np.float32)
+            for w in t.lower().split():
+                v[zlib.crc32(w.encode()) % 64] += 1
+            return v / (np.linalg.norm(v) or 1)
+        def passages(self, texts):
+            return np.stack([self._v(t) for t in texts])
+        def query(self, t):
+            return self._v(t)
+
+    (tmp_path / "loan.md").write_text("# Loan\nThe loan of 250,000 was cancelled.", encoding="utf-8")
+    (tmp_path / "vat.md").write_text("# VAT\nNo VAT: transfer of a going concern.", encoding="utf-8")
+    kb = KB(tmp_path, Fake())
+    res = document_results(kb, [tmp_path], {"vat.md": "/bron/vat.eml"}, "VAT going concern")
+    assert res[0]["ref"] == "vat.md" and res[0]["path"] == "/bron/vat.eml" and "going concern" in res[0]["snippet"]
+    assert res[1]["path"] == str(tmp_path / "loan.md")

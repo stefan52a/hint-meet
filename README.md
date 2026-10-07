@@ -249,7 +249,7 @@ PYTHONPATH=src python examples/make_demo_audio.py              # speaks examples
 hint-meet --project demo live --audio examples/demo-meeting.wav --channels Stefan,Anna --language en
 ```
 
-In the app: *Convert Documents* with `examples/demo-dossier` as source folder, then choose project *demo*, language *English*, and *Play Recording…* with `examples/demo-meeting.wav`.
+In the app: *Convert Documents* with `examples/demo-dossier` as source folder, then choose project *demo*, language *English*, and *Start with a Recorded Meeting…* with `examples/demo-meeting.wav`.
 
 ## Usage
 

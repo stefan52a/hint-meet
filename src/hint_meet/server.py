@@ -115,6 +115,8 @@ class Hub:
         with self.lock:
             if msg.get("type") == "hello":
                 self.hello, self.backlog = data, []
+            elif msg.get("type") == "search_results":
+                pass   # antwoord op een zoekvraag: niet opnieuw afspelen bij een nieuwe verbinding
             else:
                 self.backlog = (self.backlog + [data])[-200:]
         self.outbox.put(data)

@@ -265,6 +265,18 @@ def first_time_note(total: int, left: float) -> str:
             f"(about {fmt_left(left)}). You can stop and continue later; after this, loading is fast.")
 
 
+def document_results(kb, roots, paths: dict, query: str) -> list[dict]:
+    """Find Documents: per document het best passende stukje, met pad naar het oorspronkelijke bestand.
+    Gebruikt door `search --serve` en, tijdens een meeting, door de pijplijn zelf (geen tweede KB in het geheugen)."""
+    out = []
+    for hit in kb.find_documents(query):
+        c = hit.chunk
+        text = " ".join(c.text.split())
+        out.append({"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
+                    "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)})
+    return out
+
+
 def search_cmd(a) -> int:
     """Documenten vinden op inhoud. Met --serve (voor "Find Document" in de app): @plan/@step/@progress
     tijdens het laden, dan "@ready <stukjes>", en per vraag op stdin één regel "@results <json>"."""
@@ -304,13 +316,7 @@ def search_cmd(a) -> int:
         paths.update({prefix + k: v for k, v in source_paths(r).items()})
 
     def answer(query: str) -> list[dict]:
-        out = []
-        for hit in kb.find_documents(query):
-            c = hit.chunk
-            text = " ".join(c.text.split())
-            out.append({"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
-                        "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)})
-        return out
+        return document_results(kb, roots, paths, query)
 
     if not a.serve:
         for i, r in enumerate(answer(" ".join(a.query)), 1):
@@ -432,6 +438,7 @@ def live_cmd(a) -> int:
     started = time.time()
     hub = feedback = None
     sources_by_ref = {}
+    loaded = {}   # "kb" zodra de kennisbank geladen is (voor zoekvragen uit de app)
     stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
     if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
         from .server import FeedbackLog, Hub, source_paths
@@ -445,6 +452,13 @@ def live_cmd(a) -> int:
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 stop_requested.set()
+            elif msg.get("type") == "search":   # Find Documents tijdens de meeting: in de KB die hier al geladen is
+                kb_now = loaded.get("kb")
+                if kb_now is None:
+                    hub.send(type="search_results", id=msg.get("id"), error="loading")
+                else:
+                    hub.send(type="search_results", id=msg.get("id"),
+                             results=document_results(kb_now, roots, sources_by_ref, str(msg.get("query", ""))))
 
         hub = Hub(port=a.port, on_message=on_message)
         hub.start()
@@ -475,6 +489,7 @@ def live_cmd(a) -> int:
             hub.send(type="stopped")
             hub.stop()
         return 0
+    loaded["kb"] = kb   # vanaf nu kan Find Documents in deze geladen KB zoeken
     status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
     config["advise"]["language"] = None if a.language == "multi" else a.language
