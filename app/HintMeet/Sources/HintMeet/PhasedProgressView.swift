@@ -22,6 +22,10 @@ struct PhasedProgressView: View {
                             .help("Stop; finished work is kept and Load KB continues where it left off")
                     }
                 }
+                if task.isRunning && !task.note.isEmpty {
+                    Label(task.note, systemImage: "hourglass")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(task.phases) { phase in row(phase) }
                 if !task.isRunning { TaskProgressView(task: task, tick: tick) }   // uitkomst en logboek
             }

@@ -255,6 +255,16 @@ def run_kb_prep(args: list[str]) -> tuple[int, str]:
 REASON_EN = {"geen bron": "no source", "herhaling": "repeat"}   # reden van intrekken, voor de app
 
 
+FIRST_TIME_CHUNKS = 500   # vanaf zoveel nieuwe stukjes waarschuwen dat het inbedden lang kan duren,
+FIRST_TIME_SECONDS = 60   # en alleen als de schatting minstens zo lang is
+
+
+def first_time_note(total: int, left: float) -> str:
+    """Waarschuwing bij de eerste keer inbedden van veel documenten (eenmalig; daarna gaat laden snel)."""
+    return (f"First time for these documents: embedding {total:,} passages can take a long time "
+            f"(about {fmt_left(left)}). You can stop and continue later; after this, loading is fast.")
+
+
 def search_cmd(a) -> int:
     """Documenten vinden op inhoud. Met --serve (voor "Find Document" in de app): @plan/@step/@progress
     tijdens het laden, dan "@ready <stukjes>", en per vraag op stdin één regel "@results <json>"."""
@@ -278,8 +288,13 @@ def search_cmd(a) -> int:
         if a.serve:
             print(f"@step {key} {labels.get(key, key)}", flush=True)
 
+    warned = []
+
     def progress(done, total, left):
         if a.serve:
+            if total >= FIRST_TIME_CHUNKS and left >= FIRST_TIME_SECONDS and not warned:
+                warned.append(True)
+                print("@note " + first_time_note(total, left), flush=True)
             print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
 
     kb = KB(roots, progress=progress, on_phase=step)
@@ -362,7 +377,12 @@ def prepare_cmd(a) -> int:
             print(last or f"kb_prep stopte met code {code}; zie het logboek.", file=sys.stderr)
             return code
 
+    warned = []
+
     def progress(done, total, left):
+        if total >= FIRST_TIME_CHUNKS and left >= FIRST_TIME_SECONDS and not warned:   # eerste keer: veel stukjes in te bedden
+            warned.append(True)
+            print("@note " + first_time_note(total, left), flush=True)
         print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
 
     def word_progress(done, total, left):
@@ -440,7 +460,9 @@ def live_cmd(a) -> int:
 
     def kb_progress(done, total, left):
         print_progress(done, total, left)
-        status(f"Preparing KB: {done}/{total} chunks · ~{fmt_left(left)} left")
+        first = " (first time only: embedding the documents; you can stop and continue later)" \
+            if total >= FIRST_TIME_CHUNKS and left >= FIRST_TIME_SECONDS else ""
+        status(f"Preparing KB: {done}/{total} chunks · ~{fmt_left(left)} left{first}")
         if stop_requested.is_set():
             raise Stopped   # wat al klaar is, staat in de cache; volgende start gaat verder
 

@@ -15,6 +15,8 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var title = ""
     /// Fasen uit "@plan" (Load KB, Add Folder): voor een overzicht per fase en een totaalvoortgang.
     @Published private(set) var phases: [Phase] = []
+    /// "@note …": een melding tijdens het werk, bv. dat de eerste keer inbedden lang kan duren.
+    @Published private(set) var note = ""
 
     struct Phase: Identifiable, Equatable {
         enum Status: Equatable { case pending, running, done, stopped }
@@ -98,6 +100,7 @@ final class ProgressTask: ObservableObject {
             stopRequested = false
             summaries = []
             phases = []
+            note = ""
             warnings = []
             lastMessage = ""
             errorMessage = ""
@@ -149,6 +152,7 @@ final class ProgressTask: ObservableObject {
     func begin(title: String) {
         self.title = title
         phases = []
+        note = ""
         summaries = []
         warnings = []
         lastMessage = ""
@@ -239,6 +243,8 @@ final class ProgressTask: ObservableObject {
                     phases[i].detail = parts[2]
                 }
             }
+        } else if line.hasPrefix("@note ") {
+            note = String(line.dropFirst(6))
         } else if line.hasPrefix("@warn ") {
             warnings.append(String(line.dropFirst(6)))
         } else if line.hasPrefix("@error ") {

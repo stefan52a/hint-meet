@@ -318,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !kbPrep.isRunning, !preparer.isRunning else { return }
         let open = NSOpenPanel()
         open.title = "Add Folder as Knowledge Base"
-        open.message = "HintMeet converts the documents in this folder into a knowledge base. Large folders can take hours; you can stop and continue later."
+        open.message = "HintMeet converts the documents in this folder into a knowledge base and embeds them. The first time this can take a long time (hours for very large folders); you can stop and continue later. After that, loading is fast."
         open.prompt = "Add"
         open.canChooseDirectories = true
         open.canChooseFiles = false
