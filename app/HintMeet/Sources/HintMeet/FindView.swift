@@ -75,7 +75,13 @@ final class SearchService: ObservableObject {
 
     func search(_ query: String) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
-        guard !q.isEmpty, let input, case .ready = state else { return }
+        guard !q.isEmpty else { return }
+        if projects != settings.project {   // ander project gekozen: eerst die kennisbank laden, dan zoeken
+            pendingQuery = q
+            ensureRunning()
+            return
+        }
+        guard let input, case .ready = state else { return }
         searching = true
         lastQuery = q
         input.write(Data((q + "\n").utf8))
@@ -96,6 +102,7 @@ final class SearchService: ObservableObject {
         } else if line.hasPrefix("@results "), let data = line.dropFirst(9).data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let list = json["results"] as? [[String: Any]] {
+            guard json["query"] as? String == lastQuery else { return }   // antwoord op een eerdere vraag
             results = list.map { Result(ref: $0["ref"] as? String ?? "", heading: $0["heading"] as? String ?? "",
                                         snippet: $0["snippet"] as? String ?? "", path: $0["path"] as? String ?? "") }
             searching = false
