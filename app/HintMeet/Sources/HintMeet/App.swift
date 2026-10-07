@@ -100,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var preparer: ProgressTask!
     let kbPrep = ProgressTask(logName: "kb_prep")
     var kbPrepWindow: NSWindow?
+    var findWindow: NSWindow?
+    lazy var searchService = SearchService(settings: settings)
     private let meetingMenu = NSMenu(title: "Meeting")
     private let kbMenu = NSMenu(title: "Knowledge Base")
     private let windowMenu = NSMenu(title: "Window")
@@ -127,7 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                playRecording: { [weak self] in self?.playRecording() },
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() },
-                               addFolder: { [weak self] in self?.addKBFolder() })
+                               addFolder: { [weak self] in self?.addKBFolder() },
+                               find: { [weak self] in self?.showFind() })
         hosting = ClickThroughHostingView(rootView: view)
         hosting.sizingOptions = []   // het venster bepaalt de maat (jij sleept); de inhoud vult het
         panel = OverlayPanel(content: hosting)
@@ -154,6 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let project = parts.count > 1 ? parts[1] : KBPrepView.projectName(for: parts[0])
             openKBPrep(source: parts[0], project: project)
             kbPrep.startKBPrep(settings, source: parts[0], project: project, force: false, noOCR: false)
+        }
+        if let q = ProcessInfo.processInfo.environment["HINT_MEET_FIND"] {   // test: Find Document met een zoekvraag
+            searchService.pendingQuery = q
+            showFind()
         }
         if let folder = ProcessInfo.processInfo.environment["HINT_MEET_ADD_FOLDER"] {   // test: Add Folder zonder kiesvenster
             ingest(folder: URL(fileURLWithPath: folder))
@@ -188,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         preparer.stop()   // indexeren bewaart per batch; de volgende keer gaat hij verder
+        searchService.stop()
         kbPrep.stop()     // kb_prep legt bij Ctrl-C het manifest vast
         backend.stopNow()   // geen losse pijplijn achterlaten die nog naar de microfoon luistert
     }
@@ -267,9 +275,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         load.isEnabled = !preparer.isRunning && !backend.isRunning && !settings.project.isEmpty && settings.backendReady
         let prep = item(kbPrep.isRunning ? "Convert Documents (running…)" : "Convert Documents (kb_prep)…",
                         #selector(showKBPrep), "")
+        let find = item("Find Document…", #selector(showFind), "f")
+        find.isEnabled = !settings.project.isEmpty && settings.backendReady
         let add = item("Add Folder as Knowledge Base…", #selector(addKBFolder), "")
         add.isEnabled = !kbPrep.isRunning && !preparer.isRunning && settings.backendReady
-        return [projectItem, load, add, prep]
+        return [projectItem, load, find, add, prep]
     }
 
     private func overlayItems() -> [NSMenuItem] {
@@ -279,6 +289,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
+
+    /// "Find Document": zoeken op inhoud in de gekozen kennisbank(en). De zoekdienst blijft draaien zolang
+    /// het venster open is en stopt bij sluiten (geeft het geheugen van de geladen KB weer vrij).
+    @objc func showFind() {
+        if findWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            w.title = "Find Document"
+            w.contentView = NSHostingView(rootView: FindView(search: searchService, settings: settings))
+            w.isReleasedWhenClosed = false
+            w.setFrameAutosaveName("HintMeetFind")
+            if w.frame.origin == .zero { w.center() }
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) {
+                [weak self] _ in MainActor.assumeIsolated { self?.searchService.stop() }
+            }
+            findWindow = w
+        }
+        searchService.ensureRunning()
+        NSApp.activate(ignoringOtherApps: true)
+        findWindow?.makeKeyAndOrderFront(nil)
+    }
 
 
     /// "Add Folder…": een map wordt een kennisbank. kb_prep zet om (kan uren duren; Stop bewaart wat klaar is,

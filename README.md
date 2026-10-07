@@ -9,6 +9,7 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 2. In HintMeet, select one or more projects and click *Load KB*, so the meeting can start right away.
 3. Optionally fill in *Meeting info* (with whom, where), choose the language of the conversation, and start the meeting. Hints appear in a floating panel above your meeting without taking over your keyboard. The transcript runs alongside; ◀ ▶, scrolling or clicking takes you back to earlier hints.
 4. Afterwards the report with action items is in `<KB>/meetings/`; the transcript is in `logs/`.
+5. Looking for a document? *Find…* (⌘F) searches the knowledge base by content (words, amounts, names, topics) and opens the original file.
 
 ![HintMeet during an English conversation: the transcript on the left with the utterance the hint responds to highlighted, the hints on the right with sources](docs/images/hints-english.jpg)
 

@@ -14,6 +14,7 @@ struct OverlayView: View {
     let stopMeeting: () -> Void
     let openSettings: () -> Void
     let addFolder: () -> Void
+    let find: () -> Void
     @State private var tick = Date()
     @State private var size = CGSize(width: PanelLayout.defaultWidth, height: 560)
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -131,6 +132,8 @@ struct OverlayView: View {
                         Button("Load KB") { preparer.startPrepare(settings) }
                             .help("In advance: update documents from the source folder, index the KB and load speech "
                                   + "recognition, so the meeting starts quickly")
+                        Button { find() } label: { Label("Find…", systemImage: "magnifyingglass") }
+                            .help("Find a document by its content (⌘F)")
                     }
                 }
                 .controlSize(.small)

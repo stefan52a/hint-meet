@@ -488,6 +488,15 @@ class KB:
         best = sorted(fused, key=fused.get, reverse=True)[:k]
         return [Hit(self.chunks[i], fused[i], rank_d.get(i), rank_s.get(i)) for i in best]
 
+    def find_documents(self, query: str, k: int = 15, pool: int = 300) -> list[Hit]:
+        """Voor "Find Document": per document het best passende stukje, beste documenten eerst."""
+        best: dict[str, Hit] = {}
+        for hit in self.search(query, k=pool, pool=pool):
+            best.setdefault(hit.chunk.ref, hit)
+            if len(best) == k:
+                break
+        return list(best.values())
+
     def search_docs(self, query: str, k: int = 5) -> list[str]:
         """Unieke documenten in volgorde van hun beste stukje."""
         seen: list[str] = []

@@ -29,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     pp = sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning "
                                         "laden; voortgang als @plan/@step/@progress-regels voor de app")
     pp.add_argument("--source", help="bronmap voor een nieuwe kennisbank (anders die uit het manifest)")
+    sp = sub.add_parser("search", help="documenten vinden op inhoud in de KB")
+    sp.add_argument("query", nargs="*", help="zoekvraag (zonder: met --serve vragen per regel via stdin)")
+    sp.add_argument("--serve", action="store_true", help="voor de app: KB één keer laden, dan vragen per regel")
     lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
     lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
@@ -74,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         return live_cmd(a)
     if a.cmd == "prepare":
         return prepare_cmd(a)
+    if a.cmd == "search":
+        return search_cmd(a)
     if a.cmd == "index":
         try:
             roots = kb_dirs(a.project)
@@ -248,6 +253,60 @@ def run_kb_prep(args: list[str]) -> tuple[int, str]:
 
 
 REASON_EN = {"geen bron": "no source", "herhaling": "repeat"}   # reden van intrekken, voor de app
+
+
+def search_cmd(a) -> int:
+    """Documenten vinden op inhoud. Met --serve (voor "Find Document" in de app): @plan/@step/@progress
+    tijdens het laden, dan "@ready <stukjes>", en per vraag op stdin één regel "@results <json>"."""
+    import json
+    from .server import source_paths
+
+    try:
+        roots = kb_dirs(a.project)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    labels = {"model": "Loading embedding model"}
+    for r in roots:
+        labels[f"read-{r.name}"] = f"{r.name}: reading documents"
+        labels[f"words-{r.name}"] = f"{r.name}: word index"
+        labels[f"embed-{r.name}"] = f"{r.name}: embeddings"
+    if a.serve:
+        print("@plan " + json.dumps(list(labels.items())), flush=True)
+
+    def step(key):
+        if a.serve:
+            print(f"@step {key} {labels.get(key, key)}", flush=True)
+
+    def progress(done, total, left):
+        if a.serve:
+            print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
+
+    kb = KB(roots, progress=progress, on_phase=step)
+    paths = {}
+    for r in roots:   # bij meerdere projecten begint elke referentie met de projectnaam
+        prefix = f"{r.name}/" if len(roots) > 1 else ""
+        paths.update({prefix + k: v for k, v in source_paths(r).items()})
+
+    def answer(query: str) -> list[dict]:
+        out = []
+        for hit in kb.find_documents(query):
+            c = hit.chunk
+            text = " ".join(c.text.split())
+            out.append({"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
+                        "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)})
+        return out
+
+    if not a.serve:
+        for i, r in enumerate(answer(" ".join(a.query)), 1):
+            print(f"{i:2}. {r['ref']}" + (f" › {r['heading']}" if r["heading"] else "") + f"\n    {r['snippet'][:160]}")
+        return 0
+    print(f"@ready {len(kb.chunks)}", flush=True)
+    for line in sys.stdin:
+        query = line.strip()
+        if query:
+            print("@results " + json.dumps({"query": query, "results": answer(query)}, ensure_ascii=False), flush=True)
+    return 0
 
 
 def prepare_cmd(a) -> int:

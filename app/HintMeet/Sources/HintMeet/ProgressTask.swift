@@ -145,6 +145,34 @@ final class ProgressTask: ObservableObject {
         p.interrupt()
     }
 
+    /// Voor een proces dat iemand anders beheert (de zoekdienst): alleen de voortgangsregels hierheen sturen.
+    func begin(title: String) {
+        self.title = title
+        phases = []
+        summaries = []
+        warnings = []
+        lastMessage = ""
+        errorMessage = ""
+        durationsKey = "searchDurations"
+        durations = UserDefaults.standard.dictionary(forKey: durationsKey) as? [String: Double] ?? [:]
+        stepKey = "start"
+        stepStart = Date()
+        step = "Starting…"
+        fraction = nil
+        since = Date()
+        state = .running
+    }
+
+    func feed(_ line: String) { read(line) }
+
+    func end() {
+        markRunningDone()
+        durations[stepKey] = Date().timeIntervalSince(stepStart)
+        UserDefaults.standard.set(durations, forKey: durationsKey)
+        since = nil
+        state = .done("Ready")
+    }
+
     private func markRunningDone() {
         for i in phases.indices where phases[i].status == .running {
             phases[i].status = .done
