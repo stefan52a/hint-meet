@@ -231,6 +231,7 @@ final class ProgressTask: ObservableObject {
             stepStart = Date()
             step = parts.count > 1 ? parts[1] : ""
             fraction = nil
+            note = ""   // een melding hoort bij de fase waarin hij kwam (bv. het inbedden)
             markRunningDone()
             if let i = phases.firstIndex(where: { $0.key == stepKey }) { phases[i].status = .running }
         } else if line.hasPrefix("@progress ") {
