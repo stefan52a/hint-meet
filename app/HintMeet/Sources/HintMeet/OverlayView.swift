@@ -6,6 +6,7 @@ struct OverlayView: View {
     @ObservedObject var backend: Backend
     @ObservedObject var preparer: ProgressTask
     @ObservedObject var kbPrep: ProgressTask
+    @ObservedObject var kbStatus: KBStatus
     @ObservedObject var settings: Settings
     @ObservedObject var layout: PanelLayout
     let send: ([String: Any]) -> Void
@@ -128,9 +129,11 @@ struct OverlayView: View {
                     Text("Knowledge base")
                     ProjectMenu(settings: settings, addFolder: addFolder).disabled(preparer.isRunning || kbPrep.isRunning)
                     if !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
-                        Button("Load KB") { preparer.startPrepare(settings) }
+                        if kbStatus.needsLoad {   // alleen als er iets te laden valt (nieuw of gewijzigd)
+                            Button("Load KB") { preparer.startPrepare(settings) }
                             .help("In advance: update documents from the source folder, index the KB and load speech "
                                   + "recognition, so the meeting starts quickly")
+                        }
                         Button { find() } label: { Label("Find Documents", systemImage: "magnifyingglass") }
                             .help("Find a document by its content (⌘F)")
                     }

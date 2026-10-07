@@ -102,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var kbPrepWindow: NSWindow?
     var findWindow: NSWindow?
     lazy var searchService = SearchService(settings: settings)
+    lazy var kbStatus = KBStatus(settings: settings)
+    private var statusWatches: [AnyCancellable] = []
+    private var loadingProjects: [String] = []
     private let meetingMenu = NSMenu(title: "Meeting")
     private let kbMenu = NSMenu(title: "Knowledge Base")
     private let windowMenu = NSMenu(title: "Window")
@@ -122,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         backend = Backend(settings: settings, port: port)
         preparer = ProgressTask(logName: "prepare")
 
-        let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep,
+        let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,
                                settings: settings, layout: layout,
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
@@ -143,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.setFrameAutosaveName(Self.frameName)
         panel.orderFrontRegardless()
 
+        watchKBStatus()
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "💡"
@@ -289,6 +293,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func prepareKB() { preparer.startPrepare(settings) }
+
+    /// "Load KB" alleen tonen als het nodig is: opnieuw controleren bij een ander project, na laden of omzetten,
+    /// en als je naar HintMeet terugschakelt.
+    private func watchKBStatus() {
+        kbStatus.refresh()
+        statusWatches = [
+            settings.$project.dropFirst().sink { [weak self] _ in
+                DispatchQueue.main.async { self?.kbStatus.refresh() }
+            },
+            preparer.$state.sink { [weak self] state in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch state {
+                    case .running: self.loadingProjects = self.settings.selectedProjects
+                    case .done: self.kbStatus.markLoaded(self.loadingProjects)
+                    case .failed: self.kbStatus.refresh()
+                    case .idle: break
+                    }
+                }
+            },
+            kbPrep.$state.sink { [weak self] state in   // Convert Documents kan een kennisbank wijzigen
+                if case .done = state { DispatchQueue.main.async { self?.kbStatus.refresh() } }
+            },
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in
+                DispatchQueue.main.async { self?.kbStatus.refresh() }
+            },
+        ]
+    }
 
     /// "Find Document": zoeken op inhoud in de gekozen kennisbank(en). De zoekdienst blijft draaien zolang
     /// het venster open is en stopt bij sluiten (geeft het geheugen van de geladen KB weer vrij).
