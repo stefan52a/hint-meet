@@ -13,11 +13,11 @@ final class KBStatus: ObservableObject {
 
     private static func key(_ project: String) -> String { "preparedAt." + project }
 
-    /// Na een geslaagde Load KB / Add Folder: deze projecten zijn bijgewerkt tot nu.
-    func markLoaded(_ projects: [String]) {
-        let now = Date().timeIntervalSince1970
-        for p in projects { UserDefaults.standard.set(now, forKey: Self.key(p)) }
-        needsLoad = false
+    /// Na een geslaagde Load KB / Add Folder: deze projecten zijn bijgewerkt tot het moment dat het laden
+    /// begon (wat tijdens het laden veranderde, telt dus nog als nieuw).
+    func markLoaded(_ projects: [String], startedAt: Date) {
+        for p in projects { UserDefaults.standard.set(startedAt.timeIntervalSince1970, forKey: Self.key(p)) }
+        refresh()
     }
 
     func refresh() {

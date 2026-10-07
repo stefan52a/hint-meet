@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var kbStatus = KBStatus(settings: settings)
     private var statusWatches: [AnyCancellable] = []
     private var loadingProjects: [String] = []
+    private var loadingStarted = Date()
     private let meetingMenu = NSMenu(title: "Meeting")
     private let kbMenu = NSMenu(title: "Knowledge Base")
     private let windowMenu = NSMenu(title: "Window")
@@ -306,8 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     switch state {
-                    case .running: self.loadingProjects = self.settings.selectedProjects
-                    case .done: self.kbStatus.markLoaded(self.loadingProjects)
+                    case .running:
+                        self.loadingProjects = self.settings.selectedProjects
+                        self.loadingStarted = Date()
+                    case .done: self.kbStatus.markLoaded(self.loadingProjects, startedAt: self.loadingStarted)
                     case .failed: self.kbStatus.refresh()
                     case .idle: break
                     }
