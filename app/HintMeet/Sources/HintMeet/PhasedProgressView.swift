@@ -35,6 +35,7 @@ struct PhasedProgressView: View {
                 case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 case .running: ProgressView().controlSize(.mini)
                 case .pending: Image(systemName: "circle").foregroundStyle(.tertiary)
+                case .stopped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
                 }
             }
             .frame(width: 14)

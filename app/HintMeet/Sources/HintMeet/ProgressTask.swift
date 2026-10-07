@@ -17,7 +17,7 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var phases: [Phase] = []
 
     struct Phase: Identifiable, Equatable {
-        enum Status: Equatable { case pending, running, done }
+        enum Status: Equatable { case pending, running, done, stopped }
         let key: String
         var label: String
         var status: Status = .pending
@@ -118,6 +118,9 @@ final class ProgressTask: ObservableObject {
         process = nil
         fraction = nil
         since = nil
+        if !(proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus)) || stopRequested {
+            for i in phases.indices where phases[i].status == .running { phases[i].status = .stopped }
+        }
         if stopRequested {
             state = .failed("Stopped; finished work is kept, the next run continues where it left off")
         } else if proc.terminationReason == .exit && okCodes.contains(proc.terminationStatus) {
@@ -162,6 +165,7 @@ final class ProgressTask: ObservableObject {
             switch p.status {
             case .done: done += w
             case .running: done += w * (p.fraction ?? guess ?? 0)
+            case .stopped: done += w * (p.fraction ?? 0)
             case .pending: break
             }
         }
