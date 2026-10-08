@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-08
+
+### Documentation
+
+- README and `.env.example` describe the gatekeeper as it actually works: Jev (default) or Claude Haiku, chosen in `config/gate.yaml`. The unused `PROVIDER` and `LAYA_URL` settings and the never-built Jev reranker are removed from the docs.
+
 ## 2026-10-07
 
 ### App

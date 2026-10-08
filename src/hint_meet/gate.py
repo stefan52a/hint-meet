@@ -4,7 +4,7 @@ Zoals Jev: alleen getypeerde antwoorden (een kans, een keuze, een score). De gat
 beurten en de best passende passages uit de KB, zodat ze ook een bewering kan herkennen die
 botst met het dossier.
 
-Providers: claude (Haiku, tot M3), jev en laya volgen in M3.
+Providers (config/gate.yaml, gate.provider): jev (standaard) en claude (Haiku, als terugvaloptie).
 """
 from __future__ import annotations
 

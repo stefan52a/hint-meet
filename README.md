@@ -37,7 +37,7 @@ audio.py        Whisper (MLX) per utterance, local; live.py keeps the last turns
 gate.py         Jev: intervene? (Noul) · kind of moment (Choice) · KB collection (Choice) · urgency (Score)
         │  only above the threshold
         ▼
-kb.py           embeddings over the Markdown KB + BM25, Jev reranker (Noul per passage, ≥ 0.7)
+kb.py           local embeddings over the Markdown KB + BM25 (hybrid search)
         │
         ▼
 advise.py       Claude, 1 to 4 short bullet points with source  ──►  server.py  ──►  HintMeet.app (overlay)
@@ -52,9 +52,9 @@ hint-meet/
 ├── README.md
 ├── CHANGELOG.md
 ├── pyproject.toml
-├── .env.example            PROVIDER, API keys, KB_ROOT + KB_PROJECT
+├── .env.example            API keys, KB_ROOT + KB_PROJECT
 ├── config/
-│   └── gate.yaml           thresholds for gate, reranker and advice
+│   └── gate.yaml           gatekeeper (jev or claude), thresholds and advice settings
 ├── src/hint_meet/
 │   ├── cli.py              hint-meet live | prepare | index | replay | calibrate | eval-kb
 │   ├── audio.py            Whisper (MLX), voice activity detection, KB terms as a vocabulary hint
@@ -275,15 +275,16 @@ System audio (Teams, Zoom, Meet, calls via the Mac) needs [BlackHole](https://gi
 
 In the KB, a heading with `[VERVALLEN]` marks that section as superseded; hint-meet only uses such a passage to say *that* something is superseded.
 
-## Providers
+## Gatekeeper
 
-`PROVIDER` in `.env` chooses the decision layer:
+`gate.provider` in `config/gate.yaml` chooses who decides whether a hint is needed:
 
-| Value       | What                                                                        |
-| ----------- | --------------------------------------------------------------------------- |
-| `jev`     | TypeSafe Jev via the API (key required)                                     |
-| `laya`    | Laya locally via `laya-serve`, same endpoint, no cloud call                 |
-| `adapter` | TypeSafe's system-one adapter on an ordinary LLM, to test without a Jev key |
+| Value    | What                                                                                  |
+| -------- | ------------------------------------------------------------------------------------- |
+| `jev`    | TypeSafe Jev via the API (default; key required). The model actually used is logged. |
+| `claude` | Claude Haiku, as a fallback without a Jev key (slower, more hints on noise)          |
+
+Jev is only the gatekeeper: it returns probabilities, choices and scores, not text. The hints and the report are written by Claude; searching the knowledge base is done locally (embeddings + BM25). A local Jev-compatible model (Laya) and a Jev reranker for passages were considered but are not implemented; search proved good enough without a reranker (20/20 test questions found the right document in the top 5).
 
 ## Calibrating thresholds
 
