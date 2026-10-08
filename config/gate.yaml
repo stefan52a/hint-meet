@@ -2,12 +2,16 @@
 # Calibrate with: hint-meet replay data/eval/acme-gesprek.txt
 window_turns: 3            # this many last turns go to gate and advice
 
+audio:
+  min_silence_ms: 400      # an utterance ends after this much silence; 300 split a real meeting 29% more often
+
 gate:
   provider: jev            # jev | claude (Haiku, as a fallback)
   model: claude-haiku-4-5  # for provider claude
   jev_model: jev-latest    # for provider jev; the actual model (e.g. jev-1.13.0) is logged
   intervene_min: 0.55      # Jev; calibrated 5-10-2026 (Haiku needed 0.7)
   urgency_min: 1           # 0-4
+  timeout_s: 3             # Jev or Haiku slower than this: skip this utterance (one retry, then give up)
 
 moments:                   # Choice: what kind of moment is this (values are used in the code; keep them)
   - vraag_aan_mij
@@ -35,3 +39,4 @@ advise:
   effort: low              # speed over depth; the advice is short
   max_points: 4            # bullet points, 1 to 4 short points
   max_words: 40            # readable in a few seconds
+  timeout_s: 15            # no response for this long: drop the hint instead of holding up the meeting

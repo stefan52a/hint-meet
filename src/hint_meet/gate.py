@@ -49,14 +49,28 @@ def format_passages(hits) -> str:
     )
 
 
+def claude_client(timeout_s: float):
+    """Anthropic-client voor de live pijplijn: kort wachten en hooguit één nieuwe poging. De standaard (10 minuten,
+    twee pogingen) kan een hele meeting ophouden, want alles na de spraakherkenning wacht op dit antwoord."""
+    import anthropic
+    return anthropic.Anthropic(timeout=timeout_s, max_retries=1)
+
+
+def jev_client(timeout_s: float):
+    """TypeSafe-client voor gate en reranker: per aanroep timeout_s, met één snelle nieuwe poging."""
+    from typesafe_sdk import TypeSafeClient
+    from typesafe_sdk._core.retry import RetryPolicy
+    return TypeSafeClient(timeout=timeout_s,
+                          retry=RetryPolicy(max_retries=1, backoff_initial=0.1, backoff_max=0.2, timeout=2 * timeout_s))
+
+
 def format_window(window) -> str:
     return "\n".join(str(u) for u in window)
 
 
 class ClaudeGate:
     def __init__(self, config: dict, client=None):
-        import anthropic
-        self.client = client or anthropic.Anthropic()
+        self.client = client or claude_client(config["gate"].get("timeout_s", 3))
         self.model = config["gate"]["model"]
         self.moments = config["moments"]
         self.schema = {
@@ -115,8 +129,8 @@ class JevGate:
     TypeSafe zwak op grote, rommelige states."""
 
     def __init__(self, config: dict, client=None):
-        from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
-        self.client = client or TypeSafeClient()
+        from typesafe_sdk import Choice, Noul, Score
+        self.client = client or jev_client(config["gate"].get("timeout_s", 3))
         self.model = config["gate"].get("jev_model", "jev-latest")
         self.moments = config["moments"]
         self.questions = {

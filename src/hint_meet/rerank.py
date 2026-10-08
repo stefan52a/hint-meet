@@ -30,9 +30,11 @@ class PassageScore:
 
 class JevReranker:
     def __init__(self, config: dict, client=None):
-        from typesafe_sdk import Noul, TypeSafeClient
+        from typesafe_sdk import Noul
+
+        from .gate import jev_client
         self.Noul = Noul
-        self.client = client or TypeSafeClient()
+        self.client = client or jev_client(config.get("rerank", {}).get("timeout_s", 3))
         self.model = config["gate"].get("jev_model", "jev-latest")
         self.last_model = None
 

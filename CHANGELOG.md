@@ -4,6 +4,13 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ## 2026-10-08
 
+### Speed and reliability
+
+- **Transcript stays live while a hint is written:** speech recognition and the hint pipeline run separately. Before, an utterance right after a hint could wait up to 2.8 s before it appeared; now at most a few milliseconds. On the test conversation the first words of a hint now come a median of 1.9 s after the speaker stops (was 3.0 s).
+- **No more stalls:** every call to Jev and Claude has a short time limit (3 s for the gatekeeper, 15 s for a hint). A call that hangs or fails costs that one hint; the meeting continues. Before, one hanging call held up the meeting for 48 s, and 14 utterances got no hint.
+- **Faster end of an utterance:** an utterance counts as finished after 400 ms of silence instead of 500 ms (`audio.min_silence_ms` in `config/gate.yaml`). 300 ms would split a real meeting into 29% more pieces.
+- **Multilingual is as fast as a fixed language:** HintMeet remembers each speaker's language instead of detecting it for every utterance (which took twice as long), and checks again regularly or when Whisper is unsure.
+
 ### Hints and Find Documents
 
 - **Jev reranker:** Jev now also scores every passage found for how relevant it is (with the Jev gatekeeper). Only relevant passages go to Claude for a hint; if none is relevant, HintMeet stays silent right away. It runs at the same time as the gatekeeper; if Jev takes more than 3 seconds longer, the hint comes anyway, unfiltered.

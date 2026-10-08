@@ -64,7 +64,7 @@ class Segment:
 class Segmenter:
     """Knipt één kanaal in uitspraken. feed() per blok van FRAME samples; geeft klare segmenten terug."""
 
-    def __init__(self, channel: str, threshold=0.5, neg_threshold=0.35, min_silence_ms=500,
+    def __init__(self, channel: str, threshold=0.5, neg_threshold=0.35, min_silence_ms=400,
                  min_speech_ms=250, pad_ms=150, max_segment_s=20.0, vad=None):
         self.channel = channel
         self.vad = vad or SileroVAD()
@@ -128,20 +128,54 @@ def kb_terms(chunks, limit: int = 40) -> list[str]:
 
 
 class Transcriber:
+    # Meertalig: taalherkenning kost een extra encoder-ronde (780 ms i.p.v. 360 ms per uitspraak). Daarom per
+    # spreker de laatst herkende taal onthouden, en alleen opnieuw herkennen na zoveel uitspraken of als Whisper
+    # weinig zeker is (bij een verkeerde taal zakt avg_logprob meestal onder -0.5; bij de goede taal ~ -0.1).
+    RECHECK_EVERY = 4
+    MIN_LOGPROB = -0.5
+
     def __init__(self, terms: list[str] | None = None, model: str = WHISPER_MODEL, language: str | None = "nl"):
-        """language: "nl", "en", "de", "fr", … of None voor meertalig (Whisper herkent de taal per uitspraak)."""
+        """language: "nl", "en", "de", "fr", … of None voor meertalig (Whisper herkent de taal per spreker)."""
         import mlx_whisper
         self.mlx_whisper = mlx_whisper
         self.model, self.language = model, language
         self.prompt = ", ".join(terms) + "." if terms else None
+        self.spoken: dict[str, tuple[str, int]] = {}   # meertalig: spreker → (taal, uitspraken sinds herkenning)
         # eerste aanroep laadt het model: nu doen, niet midden in een gesprek
         self.mlx_whisper.transcribe(np.zeros(RATE, dtype=np.float32), path_or_hf_repo=model, language=language)
 
-    def __call__(self, audio: np.ndarray) -> tuple[str, float]:
+    def _transcribe(self, audio: np.ndarray, language: str | None) -> dict:
+        return self.mlx_whisper.transcribe(audio, path_or_hf_repo=self.model, language=language,
+                                           initial_prompt=self.prompt, condition_on_previous_text=False)
+
+    def _language_for(self, speaker: str | None) -> str | None:
+        """Vaste taal, of bij meertalig de onthouden taal van deze spreker (None = laten herkennen)."""
+        if self.language is not None or speaker is None or speaker not in self.spoken:
+            return self.language
+        lang, since = self.spoken[speaker]
+        return lang if since < self.RECHECK_EVERY else None
+
+    @staticmethod
+    def _sureness(r: dict) -> float:
+        return min((seg["avg_logprob"] for seg in r.get("segments", [])), default=0.0)
+
+    def __call__(self, audio: np.ndarray, speaker: str | None = None) -> tuple[str, float]:
         t = time.perf_counter()
-        r = self.mlx_whisper.transcribe(audio.astype(np.float32), path_or_hf_repo=self.model,
-                                        language=self.language, initial_prompt=self.prompt,
-                                        condition_on_previous_text=False)
+        audio = audio.astype(np.float32)
+        lang = self._language_for(speaker)
+        r = self._transcribe(audio, lang)
+        if self.language is None and speaker is not None:
+            if lang is not None and self._sureness(r) < self.MIN_LOGPROB:
+                # misschien een andere taal: opnieuw met herkenning, en het zekerste resultaat houden
+                detected = self._transcribe(audio, None)
+                if self._sureness(detected) > self._sureness(r):
+                    lang, r = None, detected
+            if lang is None and r.get("language"):
+                # herkenning op een heel korte uitspraak ("Goed idee.") is onbetrouwbaar: dan snel opnieuw kijken
+                short = len(audio) < 1.5 * RATE
+                self.spoken[speaker] = (r["language"], self.RECHECK_EVERY - 1 if short else 0)
+            elif speaker in self.spoken:
+                self.spoken[speaker] = (self.spoken[speaker][0], self.spoken[speaker][1] + 1)
         text = r["text"].strip()
         # verzinsels zijn korte losse zinnen; een echte uitspraak die toevallig "ondertitel" bevat blijft staan
         if (HALLUCINATIONS.search(text) and len(text.split()) <= 12) or not re.search(r"\w", text):

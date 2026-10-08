@@ -121,7 +121,7 @@ def audio_replay(segments, transcriber, pipeline, script, timeline, out_csv: Pat
     utterances, steps, timings = [], [], []
     try:
         for seg in segments:
-            text, asr_ms = transcriber(seg.audio)
+            text, asr_ms = transcriber(seg.audio, seg.channel)
             if not text:
                 continue
             idx = match_script(seg, timeline) if timeline else None

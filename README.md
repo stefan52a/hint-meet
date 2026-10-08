@@ -21,7 +21,7 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 
 Speech recognition (Whisper via MLX), the knowledge base and search run locally. During the meeting, the last few turns of the conversation plus the passages found go to the language models (gatekeeper and Claude); afterwards the full transcript goes to Claude for the report (can be turned off in Settings or with `--no-summary`).
 
-Conversations can be in any of the 100 languages Whisper knows (Dutch, English, German, French, Spanish, Chinese, …), or multilingual (language recognized per utterance). Hints and the report follow the language of the conversation.
+Conversations can be in any of the 100 languages Whisper knows (Dutch, English, German, French, Spanish, Chinese, …), or multilingual (language recognized per speaker). Hints and the report follow the language of the conversation.
 
 > Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -31,9 +31,9 @@ Conversations can be in any of the 100 languages Whisper knows (Dutch, English, 
 microphone + system audio (BlackHole)
         │
         ▼
-audio.py        Whisper (MLX) per utterance, local; live.py keeps the last turns
-        │
-        ▼
+audio.py        Silero VAD (utterance ends after 400 ms silence) + Whisper (MLX), local
+        │           speech thread: every utterance goes to the overlay right away
+        ▼           pipeline thread (live.py): the steps below, one utterance at a time
 gate.py         Jev: intervene? (Noul) · kind of moment (Choice) · KB collection (Choice) · urgency (Score)
         │  only above the threshold
         ▼
@@ -45,6 +45,8 @@ rerank.py       Jev per passage: relevant? (Noul) · instructions to an AI? (Nou
         ▼
 advise.py       Claude, 1 to 4 short bullet points with source  ──►  server.py  ──►  HintMeet.app (overlay)
 ```
+
+Speech recognition and the pipeline run on separate threads, so the transcript stays live while Claude writes a hint. Every API call has a short timeout (`timeout_s` in `config/gate.yaml`: 3 s for Jev, 15 s for advice, one retry); a call that fails or takes too long costs that one hint, not the meeting. Measured on the 4.5-minute test conversation: from the end of an utterance to the first words of a hint takes a median of 1.9 s, of which about 1 s is Claude.
 
 Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a probability in a fraction of a second, so the LLM only runs when there is really something to say. Background and sources are in [docs/meeting-copilot-jev-conversation.md](docs/meeting-copilot-jev-conversation.md); the development plan and milestones are in [docs/plan-prototype-to-mac-app.md](docs/plan-prototype-to-mac-app.md).
 
@@ -312,7 +314,7 @@ hint-meet replay recording.wav --out logs/replay.csv
 
 - `jev-latest` can change without notice. Log the returned model version and pin a tested version.
 - Jev is weak on long, messy input. Only send the last two or three turns.
-- Whisper is multilingual. With a fixed language it transcribes other languages poorly (it tries to make them fit); for mixed conversations choose Multilingual, which is less reliable for very short utterances ("Yes.", "OK").
+- Whisper is multilingual. With a fixed language it transcribes other languages poorly (it tries to make them fit); for mixed conversations choose Multilingual. HintMeet then remembers each speaker's language (detecting it costs an extra Whisper pass) and detects again every 4th utterance, or sooner when Whisper is unsure. Language detection on very short utterances ("Yes.", "OK") is unreliable, so those count only briefly. If several people share one audio channel (everyone on the call comes in through BlackHole) and switch languages, the first utterance after a switch can come out in the previous language.
 
 ## License
 

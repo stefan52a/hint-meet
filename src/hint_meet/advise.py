@@ -96,8 +96,8 @@ class ClaudeAdvisor:
     """Streamt de hint; on_text krijgt de zichtbare tekst tot nu toe (zonder de BRONNEN-regel)."""
 
     def __init__(self, config: dict, client=None):
-        import anthropic
-        self.client = client or anthropic.Anthropic()
+        from .gate import claude_client
+        self.client = client or claude_client(config["advise"].get("timeout_s", 15))
         self.model = config["advise"]["model"]
         self.effort = config["advise"].get("effort", "low")
         thinking = config["advise"].get("thinking")

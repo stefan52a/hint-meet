@@ -547,18 +547,28 @@ def live_cmd(a) -> int:
 
     shown_hints: list[str] = []
 
-    def on_text(partial):
+    streamed: set[int] = set()   # uitspraken waarvan een hint in wording naar de app ging
+
+    def on_text(partial, uid):
         sys.stdout.write("\r\033[K  💡 " + partial.replace("\n", " ")[:cols - 5])
         sys.stdout.flush()
         if hub:
-            hub.send(type="hint", id=len(session.utterances) - 1, state="streaming", text=partial)
+            streamed.add(uid)
+            hub.send(type="hint", id=uid, state="streaming", text=partial)
 
-    def on_event(ev):
-        st, u = ev.step, ev.utterance
-        uid = len(session.utterances) - 1
+    def on_utterance(uid, u):   # spraakdraad: meteen in het transcript, ook als de pijplijn nog bezig is
         if hub:
             hub.send(type="utterance", id=uid, time=f"{u.seconds // 60:02d}:{u.seconds % 60:02d}",
                      speaker=u.speaker, text=u.text)
+
+    def on_event(ev):
+        st, u, uid = ev.step, ev.utterance, ev.index
+        if ev.error:
+            sys.stdout.write("\r\033[K")
+            print(f"  ⚠ geen hint: {ev.error}")
+            if hub and uid in streamed:   # half geschreven hint niet laten staan
+                hub.send(type="hint", id=uid, state="retracted", text="", reason="No answer in time")
+        if hub:
             if st is not None and st.advice is not None:
                 if st.shown:
                     srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(ref_path(roots, r))} for r in st.advice.sources]
@@ -574,7 +584,7 @@ def live_cmd(a) -> int:
         if st is None:
             print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {'(achterstand) ' if ev.stale else ''}{u.speaker}: {u.text}")
             return
-        lat = ev.wait_ms + ev.asr_ms + st.ms.get("zoeken", 0) + st.ms.get("gate", 0)
+        lat = ev.wait_ms + ev.asr_ms + ev.pipe_wait_ms + st.ms.get("zoeken", 0) + st.ms.get("gate", 0)
         if st.advice is None and st.suppressed:   # gate open, maar de reranker vond niets relevants
             print(f"  · stil: {st.suppressed}")
         if st.advice is not None:
@@ -586,7 +596,8 @@ def live_cmd(a) -> int:
                 print(f"  ✗ ingetrokken ({st.suppressed or 'geen bron'})")
         print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
 
-    session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text)
+    session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
+                          on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400))
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
@@ -604,10 +615,13 @@ def live_cmd(a) -> int:
               f"{LiveSession.STALE_MS / 1000:.0f} s.")
     if session.events:
         waits = [e.wait_ms for e in session.events]
-        firsts = [e.wait_ms + e.asr_ms + e.step.ms.get("zoeken", 0) + e.step.ms.get("gate", 0)
+        pipe_waits = [e.pipe_wait_ms for e in session.events]
+        firsts = [e.wait_ms + e.asr_ms + e.pipe_wait_ms + e.step.ms.get("zoeken", 0) + e.step.ms.get("gate", 0)
                   + e.step.ms["advies_eerste"] for e in session.events
                   if e.step and e.step.shown and "advies_eerste" in e.step.ms]
-        print(f"\n{len(session.events)} uitspraken · wachtrij mediaan {statistics.median(waits):.0f} ms, max {max(waits):.0f} ms"
+        print(f"\n{len(session.events)} uitspraken · wachtrij spraak mediaan {statistics.median(waits):.0f} ms, "
+              f"max {max(waits):.0f} ms · wachtrij pijplijn mediaan {statistics.median(pipe_waits):.0f} ms, "
+              f"max {max(pipe_waits):.0f} ms"
               + (f" · na einde-detectie tot eerste woorden: mediaan {statistics.median(firsts):.0f} ms, max {max(firsts):.0f} ms" if firsts else ""))
     print(f"Transcript: {out}")
     if not a.no_summary and len(session.utterances) >= 3:
