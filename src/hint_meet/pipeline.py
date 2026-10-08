@@ -1,7 +1,9 @@
-"""Per transcriptblok: zoeken in de KB → gate → (alleen als de gate open is) advies."""
+"""Per transcriptblok: zoeken in de KB → gate (en tegelijk de reranker) → (alleen als de gate open is en er een
+relevante passage is) advies."""
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .advise import Advice
@@ -16,6 +18,7 @@ class Step:
     advice: Advice | None = None
     suppressed: str = ""             # reden als een advies niet getoond wordt
     ms: dict = field(default_factory=dict)
+    rerank: list | None = None       # PassageScore per gevonden passage (None: geen reranker)
 
     @property
     def shown(self) -> bool:
@@ -23,8 +26,10 @@ class Step:
 
 
 class Pipeline:
-    def __init__(self, kb, gate, advisor, config: dict):
+    def __init__(self, kb, gate, advisor, config: dict, reranker=None):
         self.kb, self.gate, self.advisor, self.config = kb, gate, advisor, config
+        self.reranker = reranker
+        self.pool = ThreadPoolExecutor(2) if reranker else None
         self.last_sources: set[str] = set()
         self.last_index = -10
         self.last_hint = ""
@@ -43,10 +48,25 @@ class Pipeline:
         gate_hits = hits[:cfg["kb"]["gate_passages"]]
         # zolang de vorige hint nog binnen het venster valt, weet de gate dat die er al was
         previous = self.last_hint if index - self.last_index < cfg["window_turns"] else None
+        if self.reranker:   # tegelijk met de gate: kost geen extra wachttijd
+            from .gate import format_window
+            from .rerank import hit_passages
+            question = ("Gesprek (de onderste beurt is net gezegd):\n" + format_window(window))
+            scores_future = self.pool.submit(self.reranker.score, question, hit_passages(hits))
         result = self.gate.evaluate(window, gate_hits, previous)
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
+        if self.reranker:
+            step.rerank = scores_future.result()
+            ms["rerank"] = (time.perf_counter() - t) * 1000
+            if step.rerank is not None:   # alleen relevante passages zonder verborgen instructies
+                r = cfg.get("rerank", {})
+                hits = [h for h, s in zip(hits, step.rerank)
+                        if s.relevance >= r.get("min_relevance", 0.7) and s.injection < r.get("max_injection", 0.5)]
         if not result.open(cfg):
+            return step
+        if not hits:   # niets relevants in het dossier: meteen zwijgen, zonder Claude-aanroep
+            step.suppressed = "geen relevante passage"
             return step
 
         t = time.perf_counter()

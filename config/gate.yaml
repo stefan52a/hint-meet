@@ -17,6 +17,12 @@ moments:                   # Choice: what kind of moment is this (values are use
   - smalltalk
   - overig
 
+rerank:                    # Jev scores every passage (only with gate provider jev)
+  enabled: true
+  min_relevance: 0.5       # advice only uses passages at least this relevant; none left = silence
+  max_injection: 0.5       # passages that look like instructions to an AI are dropped
+  find_min_relevance: 0.5  # Find Documents shows documents at least this relevant
+
 kb:
   query_turns: 2           # this many last turns form the search query
   gate_passages: 3         # this many passages are shown to the gate

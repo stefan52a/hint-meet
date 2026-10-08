@@ -7,8 +7,17 @@ import SwiftUI
 final class SearchService: ObservableObject {
     struct Result: Identifiable, Equatable {
         let ref: String, heading: String, snippet: String, path: String
+        /// Jev-relevantie (0…1), als de reranker meedeed; injection: lijkt instructies aan een AI te bevatten.
+        var relevance: Double? = nil
+        var injection = false
         var id: String { ref }
         var name: String { (ref as NSString).lastPathComponent }
+
+        init(_ d: [String: Any]) {
+            ref = d["ref"] as? String ?? ""; heading = d["heading"] as? String ?? ""
+            snippet = d["snippet"] as? String ?? ""; path = d["path"] as? String ?? ""
+            relevance = d["relevance"] as? Double; injection = d["injection"] as? Bool ?? false
+        }
     }
     /// meeting: tijdens een meeting zoeken in de KB die de meeting al geladen heeft (geen tweede kopie)
     enum State: Equatable { case idle, loading, ready(Int), meeting, failed(String) }
@@ -17,6 +26,8 @@ final class SearchService: ObservableObject {
     @Published private(set) var results: [Result] = []
     @Published private(set) var lastQuery = ""
     @Published private(set) var searching = false
+    /// Heeft Jev de resultaten beoordeeld? Dan betekent een lege lijst "niets relevants", niet "niets gevonden".
+    @Published private(set) var reranked = false
     /// Zoekvraag die gesteld wordt zodra de kennisbank geladen is (voor tests: HINT_MEET_FIND).
     var pendingQuery: String?
     /// Loopt er een meeting? Dan via de meeting-pijplijn zoeken in plaats van een eigen zoekproces.
@@ -140,9 +151,8 @@ final class SearchService: ObservableObject {
             meetingNote = "The meeting is still loading the knowledge base; try again in a moment."
             return
         }
-        let list = msg["results"] as? [[String: Any]] ?? []
-        results = list.map { Result(ref: $0["ref"] as? String ?? "", heading: $0["heading"] as? String ?? "",
-                                    snippet: $0["snippet"] as? String ?? "", path: $0["path"] as? String ?? "") }
+        results = (msg["results"] as? [[String: Any]] ?? []).map(Result.init)
+        reranked = msg["reranked"] as? Bool ?? false
     }
 
     func stop() {
@@ -162,8 +172,8 @@ final class SearchService: ObservableObject {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let list = json["results"] as? [[String: Any]] {
             guard json["id"] as? String == String(lastRequest) else { return }   // antwoord op een eerdere vraag
-            results = list.map { Result(ref: $0["ref"] as? String ?? "", heading: $0["heading"] as? String ?? "",
-                                        snippet: $0["snippet"] as? String ?? "", path: $0["path"] as? String ?? "") }
+            results = list.map(Result.init)
+            reranked = json["reranked"] as? Bool ?? false
             searching = false
         } else if line.hasPrefix("@") {
             loading.feed(line)   // @plan / @step / @progress: voortgang van het laden
@@ -225,10 +235,12 @@ struct FindView: View {
     @ViewBuilder private func resultList(empty: String) -> some View {
         if search.results.isEmpty {
             Text(search.lastQuery.isEmpty ? empty
-                 : search.searching ? "Searching…" : "Nothing found for “\(search.lastQuery)”.")
+                 : search.searching ? "Searching…"
+                 : search.reranked ? "Nothing relevant found for “\(search.lastQuery)”."
+                 : "Nothing found for “\(search.lastQuery)”.")
                 .font(.callout).foregroundStyle(.secondary)
         } else {
-            Text("\(search.results.count) documents for “\(search.lastQuery)”, best match first")
+            Text("\(search.results.count) \(search.reranked ? "relevant " : "")documents for “\(search.lastQuery)”, best match first")
                 .font(.caption).foregroundStyle(.secondary)
             List(search.results) { r in row(r) }
                 .listStyle(.inset)
@@ -240,6 +252,10 @@ struct FindView: View {
             HStack {
                 Image(systemName: "doc.text").foregroundStyle(.secondary)
                 Text(r.name).font(.headline).lineLimit(1)
+                if let rel = r.relevance {
+                    Text("\(Int((rel * 100).rounded()))% relevant").font(.caption).foregroundStyle(.secondary)
+                        .help("How well this passage answers your search, judged by Jev")
+                }
                 Spacer()
                 Button("Open") { NSWorkspace.shared.open(URL(fileURLWithPath: r.path)) }
                     .buttonStyle(.link)
@@ -251,6 +267,10 @@ struct FindView: View {
                 Text(r.heading).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
             }
             Text(r.snippet).font(.callout).foregroundStyle(.secondary).lineLimit(3).textSelection(.enabled)
+            if r.injection {
+                Label("This passage seems to contain instructions to an AI; HintMeet doesn't use it for hints.",
+                      systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            }
         }
         .padding(.vertical, 4)
     }

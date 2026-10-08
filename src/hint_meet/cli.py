@@ -9,6 +9,7 @@ import sys
 from dotenv import find_dotenv, load_dotenv
 
 from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
+from .rerank import make_reranker
 
 
 def language_code(value: str) -> str:
@@ -129,7 +130,8 @@ def audio_replay_cmd(a, config, roots) -> int:
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
-    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
+    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
+                        make_reranker(config))
 
     def show(u, step, timing):
         mark = "◆" if u.expect else " "
@@ -186,7 +188,8 @@ def replay_cmd(a) -> int:
     utterances = load(a.transcript)
     print(f"KB: {', '.join(map(str, roots))}\nTranscript: {len(utterances)} beurten, "
           f"{sum(1 for u in utterances if u.expect)} gemarkeerde momenten\n")
-    pipeline = Pipeline(KB(roots), make_gate(config), ClaudeAdvisor(config), config)
+    pipeline = Pipeline(KB(roots), make_gate(config), ClaudeAdvisor(config), config,
+                        make_reranker(config))
 
     def show(u, step):
         mark = "◆" if u.expect else " "
@@ -265,15 +268,27 @@ def first_time_note(total: int, left: float) -> str:
             f"(about {fmt_left(left)}). You can stop and continue later; after this, loading is fast.")
 
 
-def document_results(kb, roots, paths: dict, query: str) -> list[dict]:
+def document_results(kb, roots, paths: dict, query: str, reranker=None, config: dict | None = None) -> list[dict]:
     """Find Documents: per document het best passende stukje, met pad naar het oorspronkelijke bestand.
-    Gebruikt door `search --serve` en, tijdens een meeting, door de pijplijn zelf (geen tweede KB in het geheugen)."""
+    Gebruikt door `search --serve` en, tijdens een meeting, door de pijplijn zelf (geen tweede KB in het geheugen).
+    Met een reranker: gesorteerd op Jev-relevantie, alleen boven find_min_relevance, en een vlag voor passages
+    die instructies aan een AI lijken te bevatten."""
+    from .rerank import hit_passages
+    hits = kb.find_documents(query)
+    scores = reranker.score(f"Zoekvraag: {query}", hit_passages(hits)) if reranker and hits else None
     out = []
-    for hit in kb.find_documents(query):
+    for i, hit in enumerate(hits):
         c = hit.chunk
         text = " ".join(c.text.split())
-        out.append({"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
-                    "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)})
+        item = {"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
+                "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)}
+        if scores is not None:
+            item["relevance"] = round(scores[i].relevance, 3)
+            item["injection"] = scores[i].injection >= (config or {}).get("rerank", {}).get("max_injection", 0.5)
+        out.append(item)
+    if scores is not None:
+        least = (config or {}).get("rerank", {}).get("find_min_relevance", 0.5)
+        out = sorted((r for r in out if r["relevance"] >= least), key=lambda r: -r["relevance"])
     return out
 
 
@@ -315,19 +330,29 @@ def search_cmd(a) -> int:
         prefix = f"{r.name}/" if len(roots) > 1 else ""
         paths.update({prefix + k: v for k, v in source_paths(r).items()})
 
+    import yaml
+    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    reranker = make_reranker(config)
+
     def answer(query: str) -> list[dict]:
-        return document_results(kb, roots, paths, query)
+        return document_results(kb, roots, paths, query, reranker, config)
 
     if not a.serve:
-        for i, r in enumerate(answer(" ".join(a.query)), 1):
-            print(f"{i:2}. {r['ref']}" + (f" › {r['heading']}" if r["heading"] else "") + f"\n    {r['snippet'][:160]}")
+        found = answer(" ".join(a.query))
+        if not found:
+            print("Nothing relevant found." if reranker else "Nothing found.")
+        for i, r in enumerate(found, 1):
+            rel = f"  [{r['relevance']:.0%} relevant{', ⚠ contains instructions to an AI' if r['injection'] else ''}]" \
+                if "relevance" in r else ""
+            print(f"{i:2}. {r['ref']}" + (f" › {r['heading']}" if r["heading"] else "") + rel + f"\n    {r['snippet'][:160]}")
         return 0
     print(f"@ready {len(kb.chunks)}", flush=True)
     for line in sys.stdin:   # "<id>\t<vraag>" (de app koppelt zo het antwoord aan de vraag) of alleen "<vraag>"
         rid, _, query = line.rstrip("\n").rpartition("\t")
         query = query.strip()
         if query:
-            print("@results " + json.dumps({"id": rid, "query": query, "results": answer(query)}, ensure_ascii=False),
+            print("@results " + json.dumps({"id": rid, "query": query, "results": answer(query),
+                                           "reranked": reranker is not None}, ensure_ascii=False),
                   flush=True)
     return 0
 
@@ -439,6 +464,7 @@ def live_cmd(a) -> int:
     hub = feedback = None
     sources_by_ref = {}
     loaded = {}   # "kb" zodra de kennisbank geladen is (voor zoekvragen uit de app)
+    pipeline_ref = {}   # "reranker" van de pijplijn, ook voor zoekvragen uit de app
     stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
     if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
         from .server import FeedbackLog, Hub, source_paths
@@ -458,7 +484,9 @@ def live_cmd(a) -> int:
                     hub.send(type="search_results", id=msg.get("id"), error="loading")
                 else:
                     hub.send(type="search_results", id=msg.get("id"),
-                             results=document_results(kb_now, roots, sources_by_ref, str(msg.get("query", ""))))
+                             results=document_results(kb_now, roots, sources_by_ref, str(msg.get("query", "")),
+                                                      pipeline_ref.get("reranker"), config),
+                             reranked=pipeline_ref.get("reranker") is not None)
 
         hub = Hub(port=a.port, on_message=on_message)
         hub.start()
@@ -493,7 +521,9 @@ def live_cmd(a) -> int:
     status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
     config["advise"]["language"] = None if a.language == "multi" else a.language
-    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config)
+    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
+                        make_reranker(config))
+    pipeline_ref["reranker"] = pipeline.reranker
     if a.wav:
         try:
             wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
@@ -540,6 +570,8 @@ def live_cmd(a) -> int:
             print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {'(achterstand) ' if ev.stale else ''}{u.speaker}: {u.text}")
             return
         lat = ev.wait_ms + ev.asr_ms + st.ms.get("zoeken", 0) + st.ms.get("gate", 0)
+        if st.advice is None and st.suppressed:   # gate open, maar de reranker vond niets relevants
+            print(f"  · stil: {st.suppressed}")
         if st.advice is not None:
             sys.stdout.write("\r\033[K")
             if st.shown:

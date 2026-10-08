@@ -4,9 +4,15 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ## 2026-10-08
 
+### Hints and Find Documents
+
+- **Jev reranker:** Jev now also scores every passage found for how relevant it is (with the Jev gatekeeper). Only relevant passages go to Claude for a hint; if none is relevant, HintMeet stays silent right away. It runs at the same time as the gatekeeper, so hints don't come later.
+- **Protection against hidden instructions:** passages that look like instructions to an AI ("ignore previous instructions…") instead of document content are never used for hints.
+- **Find Documents** shows how relevant each document is (for example *88% relevant*), best first, leaves out documents that don't really match, and says *Nothing relevant found* when nothing fits. A document with a passage that looks like instructions to an AI gets a warning.
+
 ### Documentation
 
-- README and `.env.example` describe the gatekeeper as it actually works: Jev (default) or Claude Haiku, chosen in `config/gate.yaml`. The unused `PROVIDER` and `LAYA_URL` settings and the never-built Jev reranker are removed from the docs.
+- README and `.env.example` describe the gatekeeper as it actually works: Jev (default) or Claude Haiku, chosen in `config/gate.yaml`. The unused `PROVIDER` and `LAYA_URL` settings are removed from the docs.
 
 ## 2026-10-07
 
