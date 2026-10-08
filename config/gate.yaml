@@ -22,6 +22,7 @@ rerank:                    # Jev scores every passage (only with gate provider j
   min_relevance: 0.5       # advice only uses passages at least this relevant; none left = silence
   max_injection: 0.5       # passages that look like instructions to an AI are dropped
   find_min_relevance: 0.5  # Find Documents shows documents at least this relevant
+  timeout_s: 3             # Jev slower than this (after the gate): advise without filtering
 
 kb:
   query_turns: 2           # this many last turns form the search query

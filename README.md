@@ -292,13 +292,13 @@ Jev returns probabilities, choices and scores, not text. The hints and the repor
 
 ### Reranker
 
-Hybrid search always returns a top list, even when nothing really fits, and its scores only compare passages within one search. With `gate.provider: jev`, Jev also scores every passage found, at the same time as the gate decides (so it adds no waiting time):
+Hybrid search always returns a top list, even when nothing really fits, and its scores only compare passages within one search. With `gate.provider: jev`, Jev also scores every passage found, at the same time as the gate decides. When the gate stays closed HintMeet doesn't wait for it; when it opens, it waits at most `rerank.timeout_s` (3 s) more:
 
 - **Relevance** (0–1): does this passage answer the question or check the claim? Only passages at or above `rerank.min_relevance` go to Claude. If none are left, HintMeet stays silent without calling Claude.
-- **Prompt injection:** passages that look like instructions to an AI ("ignore previous instructions…") instead of document content are dropped (`rerank.max_injection`).
+- **Prompt injection:** passages that look like instructions to an AI ("ignore previous instructions…") instead of document content are dropped before advice (`rerank.max_injection`). Jev sees each passage in full, exactly as Claude would get it. This is a safety net, not a guarantee: the gate itself (which only returns numbers) still sees the top passages, and when Jev fails or is too slow nothing is filtered.
 - **Find Documents** sorts by the same relevance, shows it as a percentage, hides documents below `rerank.find_min_relevance` and says *Nothing relevant found* when nothing is left. A passage that looks like instructions to an AI is still shown, with a warning.
 
-`min_relevance` is 0.5: on the test conversation 0.7 missed 3 of 10 moments; 0.5 hits all 10 with no more noise than without the reranker. Without Jev (no key, provider `claude`, or an error) nothing is filtered. Turn it off with `rerank.enabled: false`.
+`min_relevance` is 0.5: on the test conversation 0.7 missed 3 of 10 moments; 0.5 hits all 10 with no more noise than without the reranker. Without Jev (no key, provider `claude`, an error or a timeout) nothing is filtered, and Find Documents then doesn't call its results "relevant". Turn it off with `rerank.enabled: false`.
 
 ## Calibrating thresholds
 

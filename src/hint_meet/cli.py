@@ -268,14 +268,18 @@ def first_time_note(total: int, left: float) -> str:
             f"(about {fmt_left(left)}). You can stop and continue later; after this, loading is fast.")
 
 
-def document_results(kb, roots, paths: dict, query: str, reranker=None, config: dict | None = None) -> list[dict]:
+def document_results(kb, roots, paths: dict, query: str, reranker=None,
+                     config: dict | None = None) -> tuple[list[dict], bool]:
     """Find Documents: per document het best passende stukje, met pad naar het oorspronkelijke bestand.
     Gebruikt door `search --serve` en, tijdens een meeting, door de pijplijn zelf (geen tweede KB in het geheugen).
     Met een reranker: gesorteerd op Jev-relevantie, alleen boven find_min_relevance, en een vlag voor passages
-    die instructies aan een AI lijken te bevatten."""
+    die instructies aan een AI lijken te bevatten. Geeft (resultaten, of Jev ze echt beoordeeld heeft)."""
     from .rerank import hit_passages
     hits = kb.find_documents(query)
     scores = reranker.score(f"Zoekvraag: {query}", hit_passages(hits)) if reranker and hits else None
+    if reranker and not hits:
+        scores = []
+    least = (config or {}).get("rerank", {}).get("find_min_relevance", 0.5)
     out = []
     for i, hit in enumerate(hits):
         c = hit.chunk
@@ -283,13 +287,14 @@ def document_results(kb, roots, paths: dict, query: str, reranker=None, config: 
         item = {"ref": c.ref, "heading": c.heading, "snippet": text[:320] + ("…" if len(text) > 320 else ""),
                 "path": paths.get(c.ref) or str(ref_path(roots, c.ref)), "score": round(hit.score, 4)}
         if scores is not None:
+            if scores[i].relevance < least:
+                continue
             item["relevance"] = round(scores[i].relevance, 3)
             item["injection"] = scores[i].injection >= (config or {}).get("rerank", {}).get("max_injection", 0.5)
         out.append(item)
     if scores is not None:
-        least = (config or {}).get("rerank", {}).get("find_min_relevance", 0.5)
-        out = sorted((r for r in out if r["relevance"] >= least), key=lambda r: -r["relevance"])
-    return out
+        out.sort(key=lambda r: -r["relevance"])
+    return out, scores is not None
 
 
 def search_cmd(a) -> int:
@@ -334,13 +339,13 @@ def search_cmd(a) -> int:
     config = yaml.safe_load(open(a.config, encoding="utf-8"))
     reranker = make_reranker(config)
 
-    def answer(query: str) -> list[dict]:
+    def answer(query: str) -> tuple[list[dict], bool]:
         return document_results(kb, roots, paths, query, reranker, config)
 
     if not a.serve:
-        found = answer(" ".join(a.query))
+        found, reranked = answer(" ".join(a.query))
         if not found:
-            print("Nothing relevant found." if reranker else "Nothing found.")
+            print("Nothing relevant found." if reranked else "Nothing found.")
         for i, r in enumerate(found, 1):
             rel = f"  [{r['relevance']:.0%} relevant{', ⚠ contains instructions to an AI' if r['injection'] else ''}]" \
                 if "relevance" in r else ""
@@ -351,8 +356,9 @@ def search_cmd(a) -> int:
         rid, _, query = line.rstrip("\n").rpartition("\t")
         query = query.strip()
         if query:
-            print("@results " + json.dumps({"id": rid, "query": query, "results": answer(query),
-                                           "reranked": reranker is not None}, ensure_ascii=False),
+            found, reranked = answer(query)
+            print("@results " + json.dumps({"id": rid, "query": query, "results": found, "reranked": reranked},
+                                           ensure_ascii=False),
                   flush=True)
     return 0
 
@@ -483,10 +489,9 @@ def live_cmd(a) -> int:
                 if kb_now is None:
                     hub.send(type="search_results", id=msg.get("id"), error="loading")
                 else:
-                    hub.send(type="search_results", id=msg.get("id"),
-                             results=document_results(kb_now, roots, sources_by_ref, str(msg.get("query", "")),
-                                                      pipeline_ref.get("reranker"), config),
-                             reranked=pipeline_ref.get("reranker") is not None)
+                    found, reranked = document_results(kb_now, roots, sources_by_ref, str(msg.get("query", "")),
+                                                       pipeline_ref.get("reranker"), config)
+                    hub.send(type="search_results", id=msg.get("id"), results=found, reranked=reranked)
 
         hub = Hub(port=a.port, on_message=on_message)
         hub.start()

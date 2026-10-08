@@ -188,6 +188,7 @@ def test_document_results_give_ref_snippet_and_path(tmp_path):
     (tmp_path / "loan.md").write_text("# Loan\nThe loan of 250,000 was cancelled.", encoding="utf-8")
     (tmp_path / "vat.md").write_text("# VAT\nNo VAT: transfer of a going concern.", encoding="utf-8")
     kb = KB(tmp_path, Fake())
-    res = document_results(kb, [tmp_path], {"vat.md": "/bron/vat.eml"}, "VAT going concern")
+    res, reranked = document_results(kb, [tmp_path], {"vat.md": "/bron/vat.eml"}, "VAT going concern")
+    assert not reranked
     assert res[0]["ref"] == "vat.md" and res[0]["path"] == "/bron/vat.eml" and "going concern" in res[0]["snippet"]
     assert res[1]["path"] == str(tmp_path / "loan.md")

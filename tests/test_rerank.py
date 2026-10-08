@@ -101,8 +101,49 @@ def test_find_documents_sorted_by_relevance_and_filtered(tmp_path):
     kb = KB(tmp_path, Fake())
     rr = FixedReranker({"a.md": PassageScore(0.6, 0.0), "b.md": PassageScore(0.2, 0.0),
                         "c.md": PassageScore(0.9, 0.95)})
-    res = document_results(kb, [tmp_path], {}, "VAT going concern", rr, RCONFIG)
-    assert [r["ref"] for r in res] == ["c.md", "a.md"]            # b.md onder 0.5 valt weg
+    res, reranked = document_results(kb, [tmp_path], {}, "VAT going concern", rr, RCONFIG)
+    assert reranked and [r["ref"] for r in res] == ["c.md", "a.md"]   # b.md onder 0.5 valt weg
     assert res[0]["injection"] is True and res[1]["injection"] is False
-    nothing = document_results(kb, [tmp_path], {}, "VAT", FixedReranker({}), RCONFIG)
-    assert nothing == []                                         # niets relevant: lege lijst
+    nothing, reranked = document_results(kb, [tmp_path], {}, "VAT", FixedReranker({}), RCONFIG)
+    assert nothing == [] and reranked                                 # niets relevant: lege lijst
+    almost, _ = document_results(kb, [tmp_path], {}, "VAT", FixedReranker({"a.md": PassageScore(0.4996, 0.0)}),
+                                 RCONFIG)
+    assert almost == []                                               # afronden haalt de drempel niet
+
+    class Broken:
+        def score(self, question, passages):
+            return None
+    found, reranked = document_results(kb, [tmp_path], {}, "VAT", Broken(), RCONFIG)
+    assert found and not reranked                     # Jev faalde: ongefilterd, en de app zegt niet "relevant"
+
+
+def test_closed_gate_does_not_wait_for_the_reranker():
+    import threading
+    release = threading.Event()
+
+    class Slow(FixedReranker):
+        def score(self, question, passages):
+            release.wait(5)
+            return super().score(question, passages)
+    adv = FakeAdvisor(Advice("Rente 3%.", ["rente.md"]))
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), adv, RCONFIG, Slow({}))
+    import time
+    t = time.perf_counter()
+    step = p.step(parse(TRANSCRIPT), 0)
+    assert time.perf_counter() - t < 1 and step.rerank is None
+    release.set()
+
+
+def test_slow_reranker_does_not_hold_up_the_hint():
+    import threading
+    release = threading.Event()
+
+    class Slow(FixedReranker):
+        def score(self, question, passages):
+            release.wait(5)
+            return super().score(question, passages)
+    adv = AdvisorSeeingHits(Advice("Rente 3%.", ["rente.md"]))
+    config = {**RCONFIG, "rerank": {**RCONFIG["rerank"], "timeout_s": 0.2}}
+    steps = replay(parse(TRANSCRIPT), Pipeline(FakeKB(), ScriptedGate([0.1, 0.9, 0.1, 0.1]), adv, config, Slow({})))
+    release.set()
+    assert steps[1].shown and adv.hits == ["rente.md", "ander.md", "derde.md"]   # te traag: ongefilterd

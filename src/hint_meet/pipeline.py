@@ -2,8 +2,9 @@
 relevante passage is) advies."""
 from __future__ import annotations
 
+import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 
 from .advise import Advice
@@ -56,15 +57,18 @@ class Pipeline:
         result = self.gate.evaluate(window, gate_hits, previous)
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
+        if not result.open(cfg):
+            return step   # gate dicht: niet op de reranker wachten
         if self.reranker:
-            step.rerank = scores_future.result()
+            r = cfg.get("rerank", {})
+            try:   # Jev te traag: niet filteren in plaats van de hint op te houden
+                step.rerank = scores_future.result(timeout=r.get("timeout_s", 3))
+            except FutureTimeout:
+                print("Reranker (Jev) te traag: passages niet gefilterd", file=sys.stderr)
             ms["rerank"] = (time.perf_counter() - t) * 1000
             if step.rerank is not None:   # alleen relevante passages zonder verborgen instructies
-                r = cfg.get("rerank", {})
                 hits = [h for h, s in zip(hits, step.rerank)
-                        if s.relevance >= r.get("min_relevance", 0.7) and s.injection < r.get("max_injection", 0.5)]
-        if not result.open(cfg):
-            return step
+                        if s.relevance >= r.get("min_relevance", 0.5) and s.injection < r.get("max_injection", 0.5)]
         if not hits:   # niets relevants in het dossier: meteen zwijgen, zonder Claude-aanroep
             step.suppressed = "geen relevante passage"
             return step

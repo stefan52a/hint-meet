@@ -8,7 +8,8 @@ beantwoordt, vergelijkbaar over vragen heen. Daarmee:
 - toont Find Documents alleen relevante documenten, of zegt dat er niets is;
 - vallen passages af die instructies aan een AI bevatten in plaats van dossierinhoud.
 
-Zonder Jev (geen sleutel, andere provider, fout) geeft score() None en werkt alles zoals zonder reranker.
+Zonder Jev (geen sleutel, andere provider, fout, te traag) geeft score() None en werkt alles zoals zonder
+reranker: dan wordt ook niet op verborgen instructies gefilterd.
 """
 from __future__ import annotations
 
@@ -16,8 +17,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-BATCH = 8            # zoveel passages per Jev-aanroep (twee vragen per passage); grotere sets parallel
-PASSAGE_CHARS = 1500  # Jev is zwak op grote states: per passage niet meer dan dit
+BATCH = 8   # zoveel passages per Jev-aanroep (twee vragen per passage); grotere sets parallel
+# Passages gaan heel naar Jev, zodat de injectiecheck precies de tekst ziet die de adviseur krijgt. Dat kan
+# omdat kb.py ze al kort houdt (CHUNK_CHARS), wat Jev ook nodig heeft: het is zwak op grote states.
 
 
 @dataclass
@@ -61,7 +63,7 @@ class JevReranker:
         state = {
             "vraag_of_moment": question,
             "passages": [{"nummer": i, "document": p.get("document", ""), "kop": p.get("kop", ""),
-                          "tekst": p.get("tekst", "")[:PASSAGE_CHARS]} for i, p in enumerate(passages, 1)],
+                          "tekst": p.get("tekst", "")} for i, p in enumerate(passages, 1)],
         }
         r = self.client.system_one(state, self._questions(len(passages)), model=self.model)
         self.last_model = r.model
