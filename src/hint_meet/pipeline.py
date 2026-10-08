@@ -58,12 +58,15 @@ class Pipeline:
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
         if not result.open(cfg):
-            return step   # gate dicht: niet op de reranker wachten
+            if self.reranker:
+                scores_future.cancel()   # gate dicht: niet wachten, en nog niet gestart = niet meer doen
+            return step
         if self.reranker:
             r = cfg.get("rerank", {})
             try:   # Jev te traag: niet filteren in plaats van de hint op te houden
                 step.rerank = scores_future.result(timeout=r.get("timeout_s", 3))
             except FutureTimeout:
+                scores_future.cancel()
                 print("Reranker (Jev) te traag: passages niet gefilterd", file=sys.stderr)
             ms["rerank"] = (time.perf_counter() - t) * 1000
             if step.rerank is not None:   # alleen relevante passages zonder verborgen instructies

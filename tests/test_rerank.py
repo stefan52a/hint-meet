@@ -126,11 +126,16 @@ def test_closed_gate_does_not_wait_for_the_reranker():
             release.wait(5)
             return super().score(question, passages)
     adv = FakeAdvisor(Advice("Rente 3%.", ["rente.md"]))
-    p = Pipeline(FakeKB(), ScriptedGate([0.1]), adv, RCONFIG, Slow({}))
+    p = Pipeline(FakeKB(), ScriptedGate([0.1, 0.1, 0.1]), adv, RCONFIG, Slow({}))
     import time
     t = time.perf_counter()
     step = p.step(parse(TRANSCRIPT), 0)
     assert time.perf_counter() - t < 1 and step.rerank is None
+    futures, submit = [], p.pool.submit
+    p.pool.submit = lambda *a: futures.append(submit(*a)) or futures[-1]
+    p.step(parse(TRANSCRIPT), 0)   # beide threads hangen nu in Jev
+    p.step(parse(TRANSCRIPT), 0)   # deze call staat in de wachtrij en wordt geannuleerd: geen achterstand
+    assert futures[-1].cancelled()
     release.set()
 
 
