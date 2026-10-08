@@ -267,3 +267,50 @@ def test_live_api_clients_have_short_timeouts(monkeypatch):
     from hint_meet.gate import claude_client
     c = claude_client(3)
     assert c.timeout == 3 and c.max_retries == 1
+
+
+def test_pipeline_thread_survives_a_failing_callback_and_stop_skips_queued_advice():
+    import threading
+    calls = []
+
+    def on_event(ev):
+        calls.append(ev.index)
+        if ev.index == 0:
+            raise RuntimeError("fout in de app-koppeling")
+    pipe = FakePipeline()
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("tekst", 5.0), pipeline=pipe, on_event=on_event)
+    session.worker = threading.Thread(target=session._pipeline_loop)
+    session.worker.start()
+    session._handle(FakeSegment(), ready_at=time.monotonic())
+    session._handle(FakeSegment(1), ready_at=time.monotonic())
+    session.work.put(None)
+    session.worker.join()
+    assert calls == [0, 1] and pipe.calls == 2              # na de fout liep de draad door
+    session.worker = None                                   # zoals run() na afloop
+    session.stop()
+    session.on_event = None
+    session._handle(FakeSegment(2), ready_at=time.monotonic())    # nog na Stop afgemaakt
+    assert pipe.calls == 2 and session.events[-1].step is None   # alleen transcript, geen pijplijn meer
+
+
+def test_stop_skips_advice_for_utterances_still_queued():
+    import threading
+    release = threading.Event()
+
+    class Blocking(FakePipeline):
+        def step(self, history, index, on_text=None):
+            release.wait(5)   # hint voor uitspraak 0 is bezig
+            return super().step(history, index, on_text)
+    pipe = Blocking()
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("tekst", 5.0), pipeline=pipe)
+    session.worker = threading.Thread(target=session._pipeline_loop)
+    session.worker.start()
+    for i in range(3):
+        session._handle(FakeSegment(i), ready_at=time.monotonic())
+    time.sleep(0.1)
+    session.stop()                 # 1 en 2 staan nog in de wachtrij
+    release.set()
+    session.work.put(None)
+    session.worker.join()
+    assert pipe.calls == 1                                           # de lopende hint maakt af, de rest niet
+    assert [e.step is None for e in session.events] == [False, True, True]

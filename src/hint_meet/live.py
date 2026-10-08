@@ -208,12 +208,17 @@ class LiveSession:
 
     def _pipeline_loop(self):
         while (item := self.work.get()) is not None:
-            self._advise(*item)
+            try:
+                self._advise(*item)
+            except Exception as e:  # noqa: BLE001 - bv. een fout in on_event: de draad moet blijven lopen
+                print(f"Pijplijndraad: fout bij uitspraak {item[0]}: {type(e).__name__}: {e}", file=sys.stderr)
 
     def _advise(self, index: int, queued_at: float, wait_ms: float, asr_ms: float, advise: bool):
         """Pijplijndraad: zoeken → gate → reranker → advies voor één uitspraak."""
         pipe_wait_ms = (time.monotonic() - queued_at) * 1000
         stale = wait_ms + asr_ms + pipe_wait_ms > self.STALE_MS
+        if self.stop_flag.is_set():   # Stop gedrukt: wat nog wacht alleen in het transcript, geen API-aanroepen meer
+            advise = False
         step, error = None, None
         if advise and not stale:
             on_text = (lambda partial: self.on_text(partial, index)) if self.on_text else None
