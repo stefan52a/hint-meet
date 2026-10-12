@@ -48,5 +48,6 @@ confirm:                   # left column in the app: what was said and is backed
   min_words: 4             # shorter utterances ("yes, exactly") are skipped, like small talk
   min_relevance: 0.6       # Jev relevance a passage needs to count as backing (with the Jev reranker)
   passages: 3              # at most this many passages go to Claude
-  rerank_timeout_s: 5      # Jev slower than this: let Claude decide on the unfiltered passages
+  rerank_timeout_s: 5      # Jev slower than this (or unavailable): skip, no unfiltered confirmation
+  max_age_s: 8             # a confirmation that waited longer than this is dropped (the talk moved on)
   timeout_s: 8

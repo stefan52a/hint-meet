@@ -4,6 +4,7 @@ onderbouwt wat er gezegd is (linkerkolom in de app); dat houdt de volgende uitsp
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
@@ -28,12 +29,17 @@ class Step:
 
 
 class Pipeline:
+    CONFIRM_SLOTS = 2   # bevestigingen die tegelijk mogen lopen; komt er meer, dan valt de nieuwe weg
     def __init__(self, kb, gate, advisor, config: dict, reranker=None, confirmer=None):
         self.kb, self.gate, self.advisor, self.config = kb, gate, advisor, config
         self.reranker = reranker
-        self.pool = ThreadPoolExecutor(2) if reranker else None
         self.confirmer = confirmer
-        self.confirm_pool = ThreadPoolExecutor(2) if confirmer else None
+        # hooguit CONFIRM_SLOTS bevestigingen tegelijk, elk met hooguit één Jev-aanroep waar ze op wachten; de
+        # reranker krijgt daarvoor extra werkers, zodat de Jev-aanroep voor een hint nooit achter hen wacht
+        extra = self.CONFIRM_SLOTS if confirmer else 0
+        self.pool = ThreadPoolExecutor(2 + extra) if reranker else None
+        self.confirm_pool = ThreadPoolExecutor(self.CONFIRM_SLOTS) if confirmer else None
+        self.confirm_slots = threading.BoundedSemaphore(self.CONFIRM_SLOTS)
         self.last_sources: set[str] = set()
         self.last_index = -10
         self.last_hint = ""
@@ -62,10 +68,11 @@ class Pipeline:
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
         if not result.open(cfg):
-            if on_confirm and self._worth_confirming(result, window):
+            # vol = de bevestiger loopt achter: deze overslaan in plaats van een rij te laten groeien
+            if on_confirm and self._worth_confirming(result, window) and self.confirm_slots.acquire(blocking=False):
                 # de bevestiger wacht zelf op de reranker; de pijplijn gaat meteen door
                 self.confirm_pool.submit(self._confirm, window, hits, scores_future if self.reranker else None,
-                                         index, on_confirm)
+                                         index, on_confirm, time.monotonic())
             elif self.reranker:
                 scores_future.cancel()   # gate dicht: niet wachten, en nog niet gestart = niet meer doen
             return step
@@ -108,7 +115,7 @@ class Pipeline:
             return False
         return len(window[-1].text.split()) >= self.config.get("confirm", {}).get("min_words", 4)
 
-    def _confirm(self, window, hits, scores_future, index: int, on_confirm):
+    def _confirm(self, window, hits, scores_future, index: int, on_confirm, queued_at: float):
         c = self.config.get("confirm", {})
         try:
             if scores_future is not None:
@@ -117,20 +124,30 @@ class Pipeline:
                 except FutureTimeout:
                     scores_future.cancel()
                     scores = None
-                if scores is not None:   # zonder Jev beslist de bevestiger zelf (antwoord GEEN)
-                    max_injection = self.config.get("rerank", {}).get("max_injection", 0.5)
-                    hits = [h for h, s in zip(hits, scores)
-                            if s.relevance >= c.get("min_relevance", 0.6) and s.injection < max_injection]
+                if scores is None:
+                    # Jev te traag of weg: niet ongefilterd bevestigen, want dan is er ook geen
+                    # controle op passages met verborgen instructies (een hint gaat dan wel door)
+                    return
+                max_injection = self.config.get("rerank", {}).get("max_injection", 0.5)
+                hits = [h for h, s in zip(hits, scores)
+                        if s.relevance >= c.get("min_relevance", 0.6) and s.injection < max_injection]
+            # zonder reranker (niet ingesteld) beslist de bevestiger zelf (antwoord GEEN)
             hits = hits[:c.get("passages", 3)]
             if not hits:   # niets relevants in het dossier: geen Claude-aanroep
+                return
+            if time.monotonic() - queued_at > c.get("max_age_s", 8):   # het gesprek is al verder: niet meer doen
                 return
             confirmation = self.confirmer.confirm(window, hits)
             if confirmation.shown:
                 on_confirm(index, confirmation)
         except Exception as e:  # noqa: BLE001 - een bevestiging is een extraatje; de meeting loopt door
             print(f"Bevestiging faalde bij uitspraak {index}: {type(e).__name__}: {e}", file=sys.stderr)
+        finally:
+            self.confirm_slots.release()
 
     def close(self):
-        """Na Stop: bevestigingen die nog wachten niet meer uitvoeren."""
-        if self.confirm_pool:
-            self.confirm_pool.shutdown(wait=False, cancel_futures=True)
+        """Na Stop: bevestigingen en Jev-aanroepen die nog wachten niet meer uitvoeren. Wat al loopt, eindigt
+        binnen zijn timeout; LiveSession meldt het dan niet meer aan de app."""
+        for pool in (self.confirm_pool, self.pool):
+            if pool:
+                pool.shutdown(wait=False, cancel_futures=True)

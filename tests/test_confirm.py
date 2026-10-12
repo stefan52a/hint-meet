@@ -106,3 +106,52 @@ def test_claude_confirmer_none_reply_is_not_shown():
     client.create = lambda **kw: NS(stop_reason="end_turn", content=[NS(type="text", text="GEEN")])
     assert not ClaudeConfirmer(CCONFIG, client).confirm(TALK[:1], [hit("rente.md")]).shown
 
+
+
+def test_reranker_failure_skips_confirmation_instead_of_unfiltered():
+    class Down:
+        def score(self, question, passages):
+            return None   # Jev niet beschikbaar: dan ook geen injectiecheck
+    conf = FakeConfirmer(Advice("Klopt", ["rente.md"]))
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), CCONFIG, Down(), confirmer=conf)
+    assert run(p) == [] and conf.hits is None
+
+
+def test_reranker_timeout_skips_confirmation():
+    import time
+
+    class Slow:
+        def score(self, question, passages):
+            time.sleep(0.3)
+            return [PassageScore(0.9, 0.0)] * len(passages)
+    conf = FakeConfirmer(Advice("Klopt", ["rente.md"]))
+    config = {**CCONFIG, "confirm": {**CCONFIG["confirm"], "rerank_timeout_s": 0.05}}
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), config, Slow(), confirmer=conf)
+    assert run(p) == [] and conf.hits is None
+
+
+def test_stale_confirmation_is_dropped():
+    conf = FakeConfirmer(Advice("Klopt", ["rente.md"]))
+    config = {**CCONFIG, "confirm": {**CCONFIG["confirm"], "max_age_s": -1}}
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), config, confirmer=conf)
+    assert run(p) == [] and conf.hits is None
+
+
+def test_full_confirmer_skips_new_utterances_and_frees_slots_after():
+    import threading
+    release = threading.Event()
+
+    class Blocking(FakeConfirmer):
+        def confirm(self, window, hits):
+            release.wait(2)
+            return super().confirm(window, hits)
+    conf = Blocking(Advice("Klopt", ["rente.md"]))
+    talk = parse("# kop\n" + "".join(f"[00:0{i}] Maria: De koopprijs is twee miljoen euro.\n" for i in range(4)))
+    p = Pipeline(FakeKB(), ScriptedGate([0.1] * 4), FakeAdvisor(Advice("", [])), CCONFIG, confirmer=conf)
+    got = []
+    for i in range(3):   # twee lopen, de derde past er niet meer bij
+        p.step(talk[:i + 1], i, on_confirm=lambda idx, c: got.append(idx))
+    release.set()
+    p.confirm_pool.shutdown(wait=True)
+    assert sorted(got) == [0, 1]
+    assert p.confirm_slots.acquire(blocking=False) and p.confirm_slots.acquire(blocking=False)   # weer vrij

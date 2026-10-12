@@ -12,17 +12,19 @@ CONFIRM_SYSTEM = """Je helpt Stefan tijdens een meeting. Naast zijn scherm staat
 
 Beoordeel alleen de onderste beurt; de beurten erboven zijn context.
 
-Onderbouwen de passages een concrete bewering uit de onderste beurt (een bedrag, datum, afspraak, naam of feit), schrijf dan één korte regel (hooguit 15 woorden): wat er klopt, met het precieze gegeven uit het dossier. Geen inleiding, geen "klopt:" ervoor.
+Stefan ziet jouw regel als: dit is gecontroleerd en klopt. Wees daarom streng.
+
+Schrijf alleen een regel als de passages de concrete beweringen in de onderste beurt (bedragen, datums, afspraken, namen, feiten) onderbouwen, en geen enkele bewering in die beurt afwijkt van het dossier. Schrijf dan één korte regel (hooguit 15 woorden): wat er klopt, met het precieze gegeven uit het dossier. Geen inleiding, geen "klopt:" ervoor.
 - Gebruik alleen feiten uit de passages. Noem bedragen, datums en artikelen precies zoals ze daar staan.
 - Een passage die als vervallen gemarkeerd is, onderbouwt niets.
-- Het transcript komt van spraakherkenning: verkeerd verstane namen of getallen lees je zoals ze bedoeld moeten zijn.
+- Neem getallen, bedragen en datums zoals ze verstaan zijn; verbeter ze niet. Zijn ze onduidelijk verstaan of past de waarde niet precies bij het dossier, dan is het geen bevestiging.
 - {language_rule} Alleen het woord GEEN en de regel BRONNEN: blijven zoals hieronder.
 
 Antwoordvorm, precies zo:
 <de regel>
 BRONNEN: <nummers van de passages die de bewering onderbouwen, gescheiden door komma's>
 
-Bevat de onderste beurt geen concrete bewering, wijkt hij af van het dossier, of zeggen de passages er niets over, antwoord dan alleen: GEEN"""
+Bevat de onderste beurt geen concrete bewering, wijkt ook maar één bewering af van het dossier, zeggen de passages er niets over, of twijfel je, antwoord dan alleen: GEEN"""
 
 
 class ClaudeConfirmer:
