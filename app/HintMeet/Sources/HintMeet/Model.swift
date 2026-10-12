@@ -15,10 +15,12 @@ struct Hint: Identifiable, Equatable {
     var updated = Date()
 }
 
-/// Wat er gezegd is en klopt met het dossier (id = id van de uitspraak), voor de linkerkolom.
+/// Linkerkolom (id = id van de uitspraak): wat er gezegd is en klopt met het dossier (confirms), of wat het
+/// dossier zegt over het onderwerp of de vraag (about).
 struct Confirmation: Identifiable, Equatable {
     let id: Int
     let text: String
+    let confirms: Bool
     let sources: [Hint.Source]
 }
 
@@ -185,7 +187,8 @@ final class HintStore: ObservableObject {
                 Hint.Source(ref: $0["ref"] as? String ?? "", path: $0["path"] as? String ?? "")
             }
             confirmations.removeAll { $0.id == id }
-            confirmations.append(Confirmation(id: id, text: text, sources: srcs))
+            confirmations.append(Confirmation(id: id, text: text, confirms: msg["kind"] as? String != "about",
+                                              sources: srcs))
             // de bevestigingen komen uit een eigen draad en kunnen elkaar inhalen
             if let last = confirmations.dropLast().last, last.id > id { confirmations.sort { $0.id < $1.id } }
         case "search_results":

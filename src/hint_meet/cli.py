@@ -491,10 +491,10 @@ def live_cmd(a) -> int:
                     sensitivity.set_hints(msg["hints"])
                 if "confirm" in msg:
                     sensitivity.set_confirm(msg["confirm"])
-                print(f"Gevoeligheid: gate ≥ {config['gate']['intervene_min']}, "
-                      f"hint-relevantie ≥ {config['rerank']['min_relevance']}, "
-                      f"bevestiging ≥ {config['confirm']['min_relevance']} en ≥ {config['confirm']['min_words']} woorden",
-                      file=sys.stderr)
+                c = config.get("confirm", {})   # .get: ook als gate.yaml een sleutel niet noemt
+                print(f"Gevoeligheid: gate ≥ {config['gate'].get('intervene_min')}, "
+                      f"hint-relevantie ≥ {config.get('rerank', {}).get('min_relevance')}, "
+                      f"bevestiging ≥ {c.get('min_relevance')} en ≥ {c.get('min_words')} woorden", file=sys.stderr)
             elif msg.get("type") == "search":   # Find Documents tijdens de meeting: in de KB die hier al geladen is
                 kb_now = loaded.get("kb")
                 if kb_now is None:
@@ -575,7 +575,7 @@ def live_cmd(a) -> int:
 
     def on_confirm(uid, c):   # draad van de bevestiger: het dossier onderbouwt wat er gezegd is
         srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(ref_path(roots, r))} for r in c.sources]
-        hub.send(type="confirm", id=uid, text=c.text, sources=srcs)
+        hub.send(type="confirm", id=uid, text=c.text, kind=c.kind, sources=srcs)
 
     def on_event(ev):
         st, u, uid = ev.step, ev.utterance, ev.index

@@ -1,30 +1,44 @@
-"""De bevestiging: wat er gezegd is en klopt met het dossier, als korte regel met bron (linkerkolom in de app).
+"""De linkerkolom: wat het dossier zegt over wat er gezegd wordt, als korte regel met bron.
 
+Twee soorten regels:
+- KLOPT: een concrete bewering uit het gesprek wordt door het dossier onderbouwd (streng: niets wijkt af);
+- DOSSIER: het gesprek gaat over een onderwerp of vraag waar het dossier iets concreets over zegt.
 Draait naast de hints: alleen voor uitspraken waarbij de gate dicht bleef (geen correctie of antwoord nodig)
-maar het dossier wel relevante passages heeft. Een bevestiging zonder geldige bron wordt niet getoond.
+maar het dossier wel relevante passages heeft. Een regel zonder geldige bron wordt niet getoond.
 """
 from __future__ import annotations
+
+import re
 
 from .advise import Advice, language_rule, parse_reply
 from .gate import format_passages, format_window
 
-CONFIRM_SYSTEM = """Je helpt Stefan tijdens een meeting. Naast zijn scherm staat een kolom met wat er in het gesprek gezegd is en door zijn dossier onderbouwd wordt.
+CONFIRM_SYSTEM = """Je helpt Stefan tijdens een meeting. Naast zijn scherm staat een kolom die laat zien wat zijn dossier zegt over wat er in het gesprek gezegd wordt. Correcties staan elders; daar gaat deze kolom niet over.
 
 Beoordeel alleen de onderste beurt; de beurten erboven zijn context.
 
-Stefan ziet jouw regel als: dit is gecontroleerd en klopt. Wees daarom streng.
+Kies één van drie antwoorden:
 
-Schrijf alleen een regel als de passages de concrete beweringen in de onderste beurt (bedragen, datums, afspraken, namen, feiten) onderbouwen, en geen enkele bewering in die beurt afwijkt van het dossier. Schrijf dan één korte regel (hooguit 15 woorden): wat er klopt, met het precieze gegeven uit het dossier. Geen inleiding, geen "klopt:" ervoor.
+1. KLOPT — de onderste beurt bevat concrete beweringen (bedragen, datums, afspraken, namen, feiten), de passages onderbouwen ze, en geen enkele bewering wijkt af van het dossier. Stefan leest dit als: gecontroleerd en juist. Wees streng: neem getallen, bedragen en datums zoals ze verstaan zijn en verbeter ze niet; past een waarde niet precies, dan is het geen KLOPT.
+
+2. DOSSIER — de onderste beurt noemt een onderwerp, stelt een vraag of doet een uitspraak zonder concreet gegeven, en de passages zeggen daar iets concreets over. Geef dan het belangrijkste wat het dossier erover zegt.
+
+3. GEEN — smalltalk, de passages zeggen er niets concreets over, of de beurt bevat een bewering die afwijkt van het dossier (dat is een correctie, geen onderbouwing).
+
+Regels:
+- Eén korte regel, hooguit 15 woorden, met het precieze gegeven uit het dossier. Geen inleiding.
 - Gebruik alleen feiten uit de passages. Noem bedragen, datums en artikelen precies zoals ze daar staan.
 - Een passage die als vervallen gemarkeerd is, onderbouwt niets.
-- Neem getallen, bedragen en datums zoals ze verstaan zijn; verbeter ze niet. Zijn ze onduidelijk verstaan of past de waarde niet precies bij het dossier, dan is het geen bevestiging.
-- {language_rule} Alleen het woord GEEN en de regel BRONNEN: blijven zoals hieronder.
+- {language_rule} Alleen de woorden KLOPT, DOSSIER en GEEN en de regel BRONNEN: blijven zoals hieronder.
 
 Antwoordvorm, precies zo:
-<de regel>
-BRONNEN: <nummers van de passages die de bewering onderbouwen, gescheiden door komma's>
+KLOPT: <de regel>   of   DOSSIER: <de regel>
+BRONNEN: <nummers van de passages waarop de regel steunt, gescheiden door komma's>
 
-Bevat de onderste beurt geen concrete bewering, wijkt ook maar één bewering af van het dossier, zeggen de passages er niets over, of twijfel je, antwoord dan alleen: GEEN"""
+Of alleen: GEEN"""
+
+KINDS = {"KLOPT": "confirms", "DOSSIER": "about"}
+LABEL = re.compile(r"^\s*(?:-\s*)?(KLOPT|DOSSIER)\s*[:—-]\s*", re.I)
 
 
 class ClaudeConfirmer:
@@ -51,7 +65,12 @@ class ClaudeConfirmer:
         reply = "".join(b.text for b in response.content if b.type == "text")
         advice = parse_reply(reply, hits)
         # één regel: wat het model daarna nog toelicht valt weg
-        advice.text = next((line.strip().removeprefix("- ") for line in advice.text.splitlines() if line.strip()), "")
+        line = next((line.strip() for line in advice.text.splitlines() if line.strip()), "")
+        m = LABEL.match(line)
+        if not m:   # zonder soort weten we niet of het een bevestiging is: niet tonen
+            return Advice("")
+        advice.kind = KINDS[m.group(1).upper()]
+        advice.text = line[m.end():].strip()
         return advice
 
 

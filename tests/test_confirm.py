@@ -93,11 +93,11 @@ def test_failing_confirmer_does_not_break_the_pipeline():
 
 def test_claude_confirmer_keeps_one_line_and_maps_sources():
     client = FakeClient()
-    reply = "- Koopprijs € 2,1 mln (art. 3)\nToelichting.\nBRONNEN: 2, 9"
+    reply = "KLOPT: Koopprijs € 2,1 mln (art. 3)\nToelichting.\nBRONNEN: 2, 9"
     client.create = lambda **kw: (setattr(client, "kwargs", kw)
                                   or NS(stop_reason="end_turn", content=[NS(type="text", text=reply)]))
     c = ClaudeConfirmer(CCONFIG, client).confirm(TALK[:1], [hit("rente.md"), hit("koop.md")])
-    assert c.text == "Koopprijs € 2,1 mln (art. 3)" and c.sources == ["koop.md"]
+    assert c.text == "Koopprijs € 2,1 mln (art. 3)" and c.sources == ["koop.md"] and c.kind == "confirms"
     assert client.kwargs["model"] == "claude-haiku-5-5"
 
 
@@ -171,19 +171,46 @@ def test_late_confirmation_after_slow_claude_call_is_dropped():
 
 
 def test_sensitivity_midpoint_keeps_yaml_and_moves_thresholds():
+    import math
+
+    import pytest
+
     from hint_meet.pipeline import Sensitivity
-    config = {"gate": {"intervene_min": 0.55}, "rerank": {"min_relevance": 0.5},
+    config = {"gate": {"intervene_min": 0.97}, "rerank": {"min_relevance": 0.5},
               "confirm": {"min_relevance": 0.6, "min_words": 4}}
     s = Sensitivity(config)
     s.set_hints(0.5)
     s.set_confirm(0.5)
-    assert config["gate"]["intervene_min"] == 0.55 and config["rerank"]["min_relevance"] == 0.5
-    assert config["confirm"] == {"min_relevance": 0.6, "min_words": 4}
-    s.set_hints(1)        # meer hints: lagere drempels
+    assert config["gate"]["intervene_min"] == 0.97   # ook een ongewone yaml-waarde blijft precies staan
+    assert config["rerank"]["min_relevance"] == 0.5 and config["confirm"] == {"min_relevance": 0.6, "min_words": 4}
+    s.set_hints(1)        # meer hints: veel lagere drempels
     s.set_confirm(1)      # meer bevestigingen
-    assert config["gate"]["intervene_min"] == 0.3 and config["rerank"]["min_relevance"] == 0.3
-    assert config["confirm"] == {"min_relevance": 0.4, "min_words": 2}
+    assert config["gate"]["intervene_min"] == 0.05 and config["rerank"]["min_relevance"] == 0.05
+    assert config["confirm"] == {"min_relevance": 0.1, "min_words": 1}
     s.set_hints(0)
-    assert config["gate"]["intervene_min"] == 0.8 and config["rerank"]["min_relevance"] == 0.7
+    s.set_confirm(0)
+    assert config["gate"]["intervene_min"] == 0.95 and config["rerank"]["min_relevance"] == 0.9
+    assert config["confirm"] == {"min_relevance": 0.95, "min_words": 10}
+    s.set_hints(0.75)     # halverwege tussen yaml en het uiterste
+    assert config["rerank"]["min_relevance"] == 0.275
     s.set_hints(7)        # onzin van de app wordt begrensd
-    assert config["gate"]["intervene_min"] == 0.3
+    assert config["gate"]["intervene_min"] == 0.05
+    with pytest.raises(ValueError):
+        s.set_hints(math.nan)
+
+
+def fixed_reply(text):
+    client = FakeClient()
+    client.create = lambda **kw: NS(stop_reason="end_turn", content=[NS(type="text", text=text)])
+    return client
+
+
+def test_claude_confirmer_about_topic():
+    c = ClaudeConfirmer(CCONFIG, fixed_reply("DOSSIER: Art. 19.4: schadepenningen boven 1% op aparte rekening\nBRONNEN: 1"))
+    a = c.confirm(TALK[:1], [hit("reglement.md")])
+    assert a.shown and a.kind == "about" and a.text.startswith("Art. 19.4")
+
+
+def test_claude_confirmer_without_kind_label_is_not_shown():
+    c = ClaudeConfirmer(CCONFIG, fixed_reply("Koopprijs € 2,1 mln\nBRONNEN: 1"))
+    assert not c.confirm(TALK[:1], [hit("koop.md")]).shown

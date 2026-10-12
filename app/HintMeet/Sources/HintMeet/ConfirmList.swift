@@ -15,14 +15,12 @@ struct ConfirmList: View {
             Label("Backed by the knowledge base", systemImage: "checkmark.seal")
                 .font(.caption.weight(.medium)).foregroundStyle(.secondary)
             SensitivitySlider(title: "Sensitivity", value: $settings.confirmSensitivity,
-                              help: "More: also less clearly matching passages and shorter utterances count as backed. "
-                                  + "Fewer: only clear matches. A ✓ always means nothing in the utterance contradicts "
-                                  + "the documents.",
+                              help: "More: also less clearly matching passages and shorter utterances. Fewer: only clear matches. "
+                                  + "A ✓ always means nothing in the utterance contradicts the documents.",
                               changed: changed)
             if store.confirmations.isEmpty {
-                Text("What is said and matches the documents appears here, with its source.")
+                Text("✓ What is said and matches the documents, and 📄 what they say about the topic, with the source.")
                     .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -53,7 +51,10 @@ struct ConfirmList: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                // ✓ = wat gezegd is klopt; 📄 = wat het dossier over dit onderwerp zegt
+                Image(systemName: c.confirms ? "checkmark.circle.fill" : "doc.text")
+                    .foregroundStyle(c.confirms ? Color.green : Color.accentColor)
+                    .help(c.confirms ? "What was said matches the documents" : "What the documents say about this")
                 Text(c.text).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -64,6 +65,6 @@ struct ConfirmList: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .background((c.confirms ? Color.green : Color.accentColor).opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }

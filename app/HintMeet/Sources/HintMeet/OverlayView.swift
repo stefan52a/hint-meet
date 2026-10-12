@@ -43,10 +43,10 @@ struct OverlayView: View {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
                         TranscriptView(store: store).frame(maxHeight: .infinity)
-                        if !store.confirmations.isEmpty {
-                            Divider()
-                            ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(height: size.height * 0.3)
-                        }
+                        Divider()
+                        // ook leeg zichtbaar (alleen kop en schuifje), zodat je de gevoeligheid omhoog kunt zetten
+                        ConfirmList(store: store, settings: settings, changed: sendSensitivity)
+                            .frame(height: store.confirmations.isEmpty ? nil : size.height * 0.3)
                     }
                     .frame(width: size.width * 0.45).frame(maxHeight: .infinity)
                     Divider()
@@ -57,10 +57,9 @@ struct OverlayView: View {
                 hintColumn(listHeight: 200)
                 Divider()
                 TranscriptView(store: store).frame(maxHeight: .infinity)
-                if !store.confirmations.isEmpty {
-                    Divider()
-                    ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(height: 140)
-                }
+                Divider()
+                ConfirmList(store: store, settings: settings, changed: sendSensitivity)
+                    .frame(height: store.confirmations.isEmpty ? nil : 140)
             }
             if let path = store.summaryPath {
                 Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
@@ -334,7 +333,7 @@ struct TranscriptView: View {
     var body: some View {
         let focus = store.shown?.id
         let hinted = store.hinted
-        let confirmed = Set(store.confirmations.map(\.id))
+        let confirmed = Set(store.confirmations.filter(\.confirms).map(\.id))   // 📄-regels krijgen geen ✓
         GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {

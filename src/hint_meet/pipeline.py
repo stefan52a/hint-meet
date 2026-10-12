@@ -3,6 +3,7 @@ relevante passage is) advies. Blijft de gate dicht, dan kijkt een bevestiger op 
 onderbouwt wat er gezegd is (linkerkolom in de app); dat houdt de volgende uitspraak niet op."""
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -158,10 +159,22 @@ def clamp(x: float, lo: float, hi: float) -> float:
     return min(max(x, lo), hi)
 
 
+def between(s: float, fewer: float, base: float, more: float) -> float:
+    """Schuifje s (0..1) naar een drempel: 0 = fewer, 0,5 = precies base (gate.yaml), 1 = more; lineair ertussen."""
+    return fewer + (base - fewer) * s * 2 if s <= 0.5 else base + (more - base) * (s - 0.5) * 2
+
+
 class Sensitivity:
     """Schuifjes in de app (0 = minder, 1 = meer; 0,5 = de waarden uit gate.yaml) zetten de drempels van de
     lopende meeting. Hints: kans die de gate moet geven en relevantie van passages voor het advies.
-    Bevestigingen: relevantie die als onderbouwing telt en hoe lang een uitspraak minstens is."""
+    Bevestigingen: relevantie die als onderbouwing telt en hoe lang een uitspraak minstens is.
+    Helemaal naar "meer" vraagt bij bijna elke uitspraak Claude om advies (die zegt dan vaak GEEN)."""
+
+    # (fewer, more): de uitersten; het midden komt uit gate.yaml
+    HINT_GATE = (0.95, 0.05)
+    HINT_RELEVANCE = (0.9, 0.05)
+    CONFIRM_RELEVANCE = (0.95, 0.1)
+    CONFIRM_WORDS = (10, 1)
 
     def __init__(self, config: dict):
         self.config = config
@@ -172,12 +185,23 @@ class Sensitivity:
             "min_words": config["confirm"].get("min_words", 4),
         }
 
+    @staticmethod
+    def _slider(s) -> float:
+        s = float(s)
+        if not math.isfinite(s):
+            raise ValueError("gevoeligheid moet een getal zijn")
+        return clamp(s, 0.0, 1.0)
+
     def set_hints(self, s: float):
-        s = clamp(float(s), 0.0, 1.0)
-        self.config["gate"]["intervene_min"] = round(clamp(self.base["intervene_min"] + (0.5 - s) * 0.5, 0.2, 0.9), 3)
-        self.config["rerank"]["min_relevance"] = round(clamp(self.base["rerank_min"] + (0.5 - s) * 0.4, 0.1, 0.9), 3)
+        s = self._slider(s)
+        self.config["gate"]["intervene_min"] = round(between(s, self.HINT_GATE[0], self.base["intervene_min"],
+                                                             self.HINT_GATE[1]), 3)
+        self.config["rerank"]["min_relevance"] = round(between(s, self.HINT_RELEVANCE[0], self.base["rerank_min"],
+                                                               self.HINT_RELEVANCE[1]), 3)
 
     def set_confirm(self, s: float):
-        s = clamp(float(s), 0.0, 1.0)
-        self.config["confirm"]["min_relevance"] = round(clamp(self.base["confirm_min"] + (0.5 - s) * 0.4, 0.1, 0.9), 3)
-        self.config["confirm"]["min_words"] = max(2, round(self.base["min_words"] + (0.5 - s) * 4))
+        s = self._slider(s)
+        self.config["confirm"]["min_relevance"] = round(between(s, self.CONFIRM_RELEVANCE[0], self.base["confirm_min"],
+                                                                self.CONFIRM_RELEVANCE[1]), 3)
+        self.config["confirm"]["min_words"] = round(between(s, self.CONFIRM_WORDS[0], self.base["min_words"],
+                                                            self.CONFIRM_WORDS[1]))

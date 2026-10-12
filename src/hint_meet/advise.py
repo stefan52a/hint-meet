@@ -58,6 +58,7 @@ class Advice:
     text: str
     sources: list[str] = field(default_factory=list)
     first_ms: float | None = None   # tijd tot de eerste zichtbare tekst
+    kind: str = ""                  # bevestiger: "confirms" (klopt) of "about" (wat het dossier erover zegt)
 
     @property
     def shown(self) -> bool:
