@@ -132,7 +132,7 @@ class Pipeline:
                     # controle op passages met verborgen instructies (een hint gaat dan wel door)
                     return
                 max_injection = self.config.get("rerank", {}).get("max_injection", 0.5)
-                kept = [(s.relevance, i) for i, s in enumerate(scores)
+                kept = [(s.relevance, i) for i, s in enumerate(scores[:len(hits)])   # nooit meer scores dan passages
                         if s.relevance >= c.get("min_relevance", 0.6) and s.injection < max_injection]
                 # de relevantste eerst: het zoeken zet de beste passage niet altijd bovenaan
                 hits = [hits[i] for _, i in sorted(kept, key=lambda k: -k[0])]

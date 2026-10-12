@@ -25,7 +25,11 @@ Kies één van drie antwoorden:
 
 3. GEEN — smalltalk, de passages zeggen er niets concreets over, of de beurt bevat een bewering die afwijkt van het dossier (dat is een correctie, geen onderbouwing).
 
-Volgorde bij twijfel: een concreet gegeven dat afwijkt of dat je niet zeker kunt controleren, maakt KLOPT onmogelijk. Wijkt het af, dan GEEN. Kun je het alleen niet controleren, dan DOSSIER. GEEN alleen als de passages echt niets over het onderwerp zeggen.
+Beslis in deze volgorde:
+a. Wijkt een concreet gegeven in de beurt af van het dossier? Dan GEEN (dat is een correctie, die staat elders).
+b. Zijn alle concrete gegevens in de beurt door de passages onderbouwd? Dan KLOPT.
+c. Zeggen de passages iets concreets over het onderwerp (ook als een gegeven in de beurt niet te controleren is)? Dan DOSSIER.
+d. Anders GEEN.
 
 Regels:
 - Eén korte regel, hooguit 15 woorden, met het precieze gegeven uit het dossier. Geen inleiding.
