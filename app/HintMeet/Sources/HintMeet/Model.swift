@@ -182,12 +182,14 @@ final class HintStore: ObservableObject {
             hints.append(hint)
             hints = Array(hints.suffix(500))   // ruim genoeg voor een lange meeting, om terug te bladeren
         case "confirm":
-            guard let id = msg["id"] as? Int, let text = msg["text"] as? String, !text.isEmpty else { return }
+            // alleen een bekende soort: een ✓ zonder dat de pijplijn "confirms" zei, zou ten onrechte geruststellen
+            guard let id = msg["id"] as? Int, let text = msg["text"] as? String, !text.isEmpty,
+                  let kind = msg["kind"] as? String, kind == "confirms" || kind == "about" else { return }
             let srcs = (msg["sources"] as? [[String: Any]] ?? []).map {
                 Hint.Source(ref: $0["ref"] as? String ?? "", path: $0["path"] as? String ?? "")
             }
             confirmations.removeAll { $0.id == id }
-            confirmations.append(Confirmation(id: id, text: text, confirms: msg["kind"] as? String != "about",
+            confirmations.append(Confirmation(id: id, text: text, confirms: kind == "confirms",
                                               sources: srcs))
             // de bevestigingen komen uit een eigen draad en kunnen elkaar inhalen
             if let last = confirmations.dropLast().last, last.id > id { confirmations.sort { $0.id < $1.id } }

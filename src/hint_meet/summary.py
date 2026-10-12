@@ -1,6 +1,7 @@
-"""Na afloop: samenvatting, toezeggingen en actiepunten uit het transcript, als meetingnotitie in de KB.
+"""Na afloop: samenvatting, toezeggingen en actiepunten uit het transcript, als meetingnotitie.
 
-De notitie komt in <kb>/meetings/, zodat ze bij een volgende meeting zelf kennis is. kb_prep laat
+De notitie komt in <kb>/meetings/, naast de documenten van het project, maar hoort niet bij de kennis: kb.py
+slaat die map over (een verslag herhaalt het gesprek en zou de echte documenten wegdrukken). kb_prep laat
 die map met rust (alleen eigen schaduwbestanden worden opgeruimd)."""
 from __future__ import annotations
 

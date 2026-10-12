@@ -149,11 +149,16 @@ def chunk_markdown(ref: str, text: str) -> list[Chunk]:
     return chunks
 
 
+# verslagen van hint-meet zelf (summary.write_note): geen kennis. Ze herhalen wat er gezegd is en lijken daardoor
+# sterker op het gesprek dan de echte documenten (een vraag over "artikel 19.4" vond alleen een eerdere testmeeting)
+REPORTS_DIR = "meetings"
+
+
 def load_chunks(root: Path) -> list[Chunk]:
     chunks: list[Chunk] = []
     for md in sorted(root.rglob("*.md")):
         rel = md.relative_to(root)
-        if any(part.startswith(".") for part in rel.parts):
+        if any(part.startswith(".") for part in rel.parts) or rel.parts[0] == REPORTS_DIR:
             continue
         ref = str(rel)[:-len(SHADOW_SUFFIX)] if md.name.endswith(SHADOW_SUFFIX) else str(rel)
         chunks.extend(chunk_markdown(ref, md.read_text(encoding="utf-8", errors="replace")))

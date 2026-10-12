@@ -15,15 +15,17 @@ from .gate import format_passages, format_window
 
 CONFIRM_SYSTEM = """Je helpt Stefan tijdens een meeting. Naast zijn scherm staat een kolom die laat zien wat zijn dossier zegt over wat er in het gesprek gezegd wordt. Correcties staan elders; daar gaat deze kolom niet over.
 
-Beoordeel alleen de onderste beurt; de beurten erboven zijn context.
+Het gaat om de onderste beurt. Lees hem samen met de beurten erboven: een korte of onaffe beurt ("en het gaat over aanvullende dekking", "niet uit de polis maar uit het reglement") hoort bij het onderwerp dat daar al loopt.
 
 Kies één van drie antwoorden:
 
 1. KLOPT — de onderste beurt bevat concrete beweringen (bedragen, datums, afspraken, namen, feiten), de passages onderbouwen ze, en geen enkele bewering wijkt af van het dossier. Stefan leest dit als: gecontroleerd en juist. Wees streng: neem getallen, bedragen en datums zoals ze verstaan zijn en verbeter ze niet; past een waarde niet precies, dan is het geen KLOPT.
 
-2. DOSSIER — de onderste beurt noemt een onderwerp, stelt een vraag of doet een uitspraak zonder concreet gegeven, en de passages zeggen daar iets concreets over. Geef dan het belangrijkste wat het dossier erover zegt.
+2. DOSSIER — de onderste beurt (met zijn context) gaat over een onderwerp, document, artikel of vraag waar de passages iets concreets over zeggen. Geef dan het belangrijkste wat het dossier erover zegt, ook als het maar deels past. Dit is het gewone antwoord: Stefan wil zien wat zijn documenten zeggen over waar het gesprek over gaat.
 
 3. GEEN — smalltalk, de passages zeggen er niets concreets over, of de beurt bevat een bewering die afwijkt van het dossier (dat is een correctie, geen onderbouwing).
+
+Volgorde bij twijfel: een concreet gegeven dat afwijkt of dat je niet zeker kunt controleren, maakt KLOPT onmogelijk. Wijkt het af, dan GEEN. Kun je het alleen niet controleren, dan DOSSIER. GEEN alleen als de passages echt niets over het onderwerp zeggen.
 
 Regels:
 - Eén korte regel, hooguit 15 woorden, met het precieze gegeven uit het dossier. Geen inleiding.

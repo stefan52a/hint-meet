@@ -1,6 +1,6 @@
 """Per transcriptblok: zoeken in de KB → gate (en tegelijk de reranker) → (alleen als de gate open is en er een
-relevante passage is) advies. Blijft de gate dicht, dan kijkt een bevestiger op de achtergrond of het dossier
-onderbouwt wat er gezegd is (linkerkolom in de app); dat houdt de volgende uitspraak niet op."""
+relevante passage is) advies. Daarnaast kijkt een bevestiger op de achtergrond, los van de hint, wat het dossier
+zegt over wat er gezegd is (linkerkolom in de app); dat houdt de hint en de volgende uitspraak niet op."""
 from __future__ import annotations
 
 import math
@@ -68,13 +68,15 @@ class Pipeline:
         result = self.gate.evaluate(window, gate_hits, previous)
         ms["gate"] = (time.perf_counter() - t) * 1000
         step = Step(index, result, [h.chunk.ref for h in gate_hits], ms=ms)
+        # linkerkolom: los van de hint, ook als de gate open is (anders blijft hij leeg bij een gevoelige gate).
+        # Vol = de bevestiger loopt achter: deze overslaan in plaats van een rij te laten groeien
+        confirming = bool(on_confirm and self._worth_confirming(result, window)
+                          and self.confirm_slots.acquire(blocking=False))
+        if confirming:   # de bevestiger wacht zelf op de reranker; de pijplijn gaat meteen door
+            self.confirm_pool.submit(self._confirm, window, hits, scores_future if self.reranker else None,
+                                     index, on_confirm, time.monotonic())
         if not result.open(cfg):
-            # vol = de bevestiger loopt achter: deze overslaan in plaats van een rij te laten groeien
-            if on_confirm and self._worth_confirming(result, window) and self.confirm_slots.acquire(blocking=False):
-                # de bevestiger wacht zelf op de reranker; de pijplijn gaat meteen door
-                self.confirm_pool.submit(self._confirm, window, hits, scores_future if self.reranker else None,
-                                         index, on_confirm, time.monotonic())
-            elif self.reranker:
+            if self.reranker and not confirming:
                 scores_future.cancel()   # gate dicht: niet wachten, en nog niet gestart = niet meer doen
             return step
         if self.reranker:
@@ -130,8 +132,10 @@ class Pipeline:
                     # controle op passages met verborgen instructies (een hint gaat dan wel door)
                     return
                 max_injection = self.config.get("rerank", {}).get("max_injection", 0.5)
-                hits = [h for h, s in zip(hits, scores)
+                kept = [(s.relevance, i) for i, s in enumerate(scores)
                         if s.relevance >= c.get("min_relevance", 0.6) and s.injection < max_injection]
+                # de relevantste eerst: het zoeken zet de beste passage niet altijd bovenaan
+                hits = [hits[i] for _, i in sorted(kept, key=lambda k: -k[0])]
             # zonder reranker (niet ingesteld) beslist de bevestiger zelf (antwoord GEEN)
             hits = hits[:c.get("passages", 3)]
             if not hits:   # niets relevants in het dossier: geen Claude-aanroep
@@ -160,7 +164,10 @@ def clamp(x: float, lo: float, hi: float) -> float:
 
 
 def between(s: float, fewer: float, base: float, more: float) -> float:
-    """Schuifje s (0..1) naar een drempel: 0 = fewer, 0,5 = precies base (gate.yaml), 1 = more; lineair ertussen."""
+    """Schuifje s (0..1) naar een drempel: 0 = fewer, 0,5 = precies base (gate.yaml), 1 = more; lineair ertussen.
+    Ligt base buiten [more, fewer], dan schuift dat uiterste mee: "minder" maakt het nooit soepeler, "meer" nooit
+    strenger (drempels: hoger = minder; voor min_words net zo)."""
+    fewer, more = max(fewer, base), min(more, base)
     return fewer + (base - fewer) * s * 2 if s <= 0.5 else base + (more - base) * (s - 0.5) * 2
 
 

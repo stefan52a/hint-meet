@@ -226,3 +226,14 @@ def test_two_projects_are_searched_together(tmp_path, monkeypatch):
     assert ref_path([a, b], "acme/offerte.md") == b / "offerte.md"
     monkeypatch.setenv("KB_ROOT", str(tmp_path))
     assert kb_dirs("Finance, acme,Finance") == [a, b]
+
+
+
+def test_meeting_reports_are_not_in_the_kb(tmp_path):
+    from hint_meet.kb import load_chunks
+    (tmp_path / "reglement.md").write_text("# Art. 19.4\nSchadepenningen op aparte rekening.", encoding="utf-8")
+    (tmp_path / "meetings").mkdir()
+    (tmp_path / "meetings" / "2026-10-13-gesprek.md").write_text("# Gesprek\nVertel over 19.4.", encoding="utf-8")
+    (tmp_path / "dossier" / "meetings").mkdir(parents=True)   # alleen de map van hint-meet bovenaan telt
+    (tmp_path / "dossier" / "meetings" / "notulen.md").write_text("# Notulen\nBesluit.", encoding="utf-8")
+    assert sorted({c.ref for c in load_chunks(tmp_path)}) == ["dossier/meetings/notulen.md", "reglement.md"]

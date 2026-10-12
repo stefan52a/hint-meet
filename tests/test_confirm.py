@@ -49,10 +49,13 @@ def test_closed_gate_confirms_backed_statement():
     assert run(p) == [(0, "Koopprijs € 2,1 mln", ["rente.md"])]
 
 
-def test_open_gate_gives_hint_not_confirmation():
+def test_open_gate_gives_hint_and_left_column_too():
     conf = FakeConfirmer(Advice("x", ["rente.md"]))
     p = Pipeline(FakeKB(), ScriptedGate([0.9]), FakeAdvisor(Advice("Hint", ["rente.md"])), CCONFIG, confirmer=conf)
-    assert run(p) == [] and conf.hits is None
+    got = []
+    step = p.step(TALK[:1], 0, on_confirm=lambda i, c: got.append(i))
+    p.confirm_pool.shutdown(wait=True)
+    assert step.shown and got == [0]   # de gate bepaalt alleen de hint rechts
 
 
 def test_smalltalk_and_short_utterances_are_skipped():
@@ -189,7 +192,8 @@ def test_sensitivity_midpoint_keeps_yaml_and_moves_thresholds():
     assert config["confirm"] == {"min_relevance": 0.1, "min_words": 1}
     s.set_hints(0)
     s.set_confirm(0)
-    assert config["gate"]["intervene_min"] == 0.95 and config["rerank"]["min_relevance"] == 0.9
+    # yaml 0.97 ligt boven het uiterste 0.95: "minder" blijft dan 0.97 in plaats van soepeler te worden
+    assert config["gate"]["intervene_min"] == 0.97 and config["rerank"]["min_relevance"] == 0.9
     assert config["confirm"] == {"min_relevance": 0.95, "min_words": 10}
     s.set_hints(0.75)     # halverwege tussen yaml en het uiterste
     assert config["rerank"]["min_relevance"] == 0.275
@@ -214,3 +218,13 @@ def test_claude_confirmer_about_topic():
 def test_claude_confirmer_without_kind_label_is_not_shown():
     c = ClaudeConfirmer(CCONFIG, fixed_reply("Koopprijs € 2,1 mln\nBRONNEN: 1"))
     assert not c.confirm(TALK[:1], [hit("koop.md")]).shown
+
+
+def test_most_relevant_passages_go_to_the_confirmer_first():
+    conf = FakeConfirmer(Advice("Klopt", ["derde.md"]))
+    rr = FixedReranker({"rente.md": PassageScore(0.65, 0.0), "ander.md": PassageScore(0.7, 0.0),
+                        "derde.md": PassageScore(0.95, 0.0)})
+    config = {**CCONFIG, "confirm": {**CCONFIG["confirm"], "passages": 2}}
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), config, rr, confirmer=conf)
+    run(p)
+    assert conf.hits == ["derde.md", "ander.md"]
