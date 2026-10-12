@@ -40,3 +40,13 @@ advise:
   max_points: 4            # bullet points, 1 to 4 short points
   max_words: 40            # readable in a few seconds
   timeout_s: 15            # no response for this long: drop the hint instead of holding up the meeting
+
+confirm:                   # left column in the app: what was said and is backed by the KB
+  enabled: true
+  model: claude-haiku-5-5  # one short line; runs in the background, never holds up a hint
+  effort: low
+  min_words: 4             # shorter utterances ("yes, exactly") are skipped, like small talk
+  min_relevance: 0.6       # Jev relevance a passage needs to count as backing (with the Jev reranker)
+  passages: 3              # at most this many passages go to Claude
+  rerank_timeout_s: 5      # Jev slower than this: let Claude decide on the unfiltered passages
+  timeout_s: 8

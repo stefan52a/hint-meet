@@ -2,6 +2,14 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-13
+
+### App
+
+- **New left column: Backed by the knowledge base.** Next to the hints and corrections (right) and the transcript (middle), the panel now shows what was said and matches your documents: one short line per statement (for example *Purchase price € 2,100,000, payable on 1 March 2026*) with a link to the source. The utterance gets a green ✓ in the transcript. Small talk, very short replies and statements that need a correction are left out; corrections stay hints on the right.
+- The column runs in the background (Claude Haiku) and never delays a hint. On a panel narrower than about 860 points it moves below the transcript. The default panel width is now 900 to fit three columns.
+- Settings in `config/gate.yaml` under `confirm` (turn it off with `enabled: false`).
+
 ## 2026-10-08
 
 ### Speed and reliability

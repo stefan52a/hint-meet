@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Standaard- en minimumbreedte van het paneel (het venster zelf bepaalt de maat; macOS onthoudt hem).
 @MainActor
 final class PanelLayout: ObservableObject {
-    static let defaultWidth: CGFloat = 760   // breed genoeg voor transcript en hint naast elkaar
+    static let defaultWidth: CGFloat = 900   // breed genoeg voor onderbouwing, transcript en hint naast elkaar
     static let minWidth: CGFloat = 320
     @Published var width: CGFloat
     @Published var minHeight: CGFloat

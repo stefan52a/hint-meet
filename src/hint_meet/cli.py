@@ -456,6 +456,7 @@ def live_cmd(a) -> int:
 
     from .advise import ClaudeAdvisor
     from .audio import Transcriber, kb_terms
+    from .confirm import make_confirmer
     from .gate import make_gate
     from .live import DeviceSource, LiveSession, WavSource
     from .pipeline import Pipeline
@@ -526,8 +527,9 @@ def live_cmd(a) -> int:
     status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
     config["advise"]["language"] = None if a.language == "multi" else a.language
+    # bevestigingen (linkerkolom) alleen met de app erbij: in de terminal zouden ze de hints ondersneeuwen
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
-                        make_reranker(config))
+                        make_reranker(config), make_confirmer(config) if hub else None)
     pipeline_ref["reranker"] = pipeline.reranker
     if a.wav:
         try:
@@ -560,6 +562,10 @@ def live_cmd(a) -> int:
         if hub:
             hub.send(type="utterance", id=uid, time=f"{u.seconds // 60:02d}:{u.seconds % 60:02d}",
                      speaker=u.speaker, text=u.text)
+
+    def on_confirm(uid, c):   # draad van de bevestiger: het dossier onderbouwt wat er gezegd is
+        srcs = [{"ref": r, "path": sources_by_ref.get(r) or str(ref_path(roots, r))} for r in c.sources]
+        hub.send(type="confirm", id=uid, text=c.text, sources=srcs)
 
     def on_event(ev):
         st, u, uid = ev.step, ev.utterance, ev.index
@@ -597,7 +603,8 @@ def live_cmd(a) -> int:
         print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
 
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
-                          on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400))
+                          on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400),
+                          on_confirm=on_confirm if pipeline.confirmer else None)
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
@@ -607,6 +614,7 @@ def live_cmd(a) -> int:
     finally:
         status("Saving transcript…")  # de app toont tijdens het afsluiten waar de pijplijn is
         session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
+        pipeline.close()
     if session.overflows:
         print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
     stale = sum(1 for e in session.events if e.stale)

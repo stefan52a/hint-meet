@@ -15,6 +15,13 @@ struct Hint: Identifiable, Equatable {
     var updated = Date()
 }
 
+/// Wat er gezegd is en klopt met het dossier (id = id van de uitspraak), voor de linkerkolom.
+struct Confirmation: Identifiable, Equatable {
+    let id: Int
+    let text: String
+    let sources: [Hint.Source]
+}
+
 struct Utterance: Identifiable, Equatable {
     let id: Int
     let time: String
@@ -39,6 +46,8 @@ final class HintStore: ObservableObject {
     private(set) var spoken: [Int: Utterance] = [:]
     /// Het hele transcript van deze meeting, op volgorde, voor de scrollbare kolom in het paneel.
     @Published private(set) var transcript: [Utterance] = []
+    /// Uitspraken die het dossier onderbouwt, op volgorde van het transcript.
+    @Published private(set) var confirmations: [Confirmation] = []
     private(set) var session = ""
     /// Zoekresultaten van de meeting-pijplijn gaan naar Find Documents.
     var onSearchResults: (([String: Any]) -> Void)?
@@ -133,6 +142,7 @@ final class HintStore: ObservableObject {
             let new = msg["session"] as? String ?? ""
             if new != session {
                 hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
+                confirmations = []
                 session = new
             }
             project = msg["project"] as? String ?? ""
@@ -166,6 +176,15 @@ final class HintStore: ObservableObject {
             hints.removeAll { $0.id == id }
             hints.append(hint)
             hints = Array(hints.suffix(500))   // ruim genoeg voor een lange meeting, om terug te bladeren
+        case "confirm":
+            guard let id = msg["id"] as? Int, let text = msg["text"] as? String, !text.isEmpty else { return }
+            let srcs = (msg["sources"] as? [[String: Any]] ?? []).map {
+                Hint.Source(ref: $0["ref"] as? String ?? "", path: $0["path"] as? String ?? "")
+            }
+            confirmations.removeAll { $0.id == id }
+            confirmations.append(Confirmation(id: id, text: text, sources: srcs))
+            // de bevestigingen komen uit een eigen draad en kunnen elkaar inhalen
+            if let last = confirmations.dropLast().last, last.id > id { confirmations.sort { $0.id < $1.id } }
         case "search_results":
             onSearchResults?(msg)
         case "status":

@@ -6,6 +6,7 @@ Server → overlay, één JSON-bericht per gebeurtenis:
   {"type": "hint", "id": n, "state": "streaming", "text": ..}
   {"type": "hint", "id": n, "state": "final", "text": .., "sources": [{"ref": .., "path": ..}]}
   {"type": "hint", "id": n, "state": "retracted", "text": .., "reason": ..}
+  {"type": "confirm", "id": n, "text": .., "sources": [{"ref": .., "path": ..}]}   (dossier onderbouwt uitspraak n)
   {"type": "summary", "markdown": .., "path": ..}
   {"type": "stopped"}
 Overlay → server:

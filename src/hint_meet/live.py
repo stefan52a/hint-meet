@@ -119,11 +119,13 @@ class LiveSession:
     STALE_MS = 8000      # loopt de verwerking verder achter dan dit, dan geen advies meer
 
     def __init__(self, sources, transcriber, pipeline, on_event=None, on_text=None, on_utterance=None,
-                 min_silence_ms: int = 400):
+                 min_silence_ms: int = 400, on_confirm=None):
         """on_utterance(index, utterance): meteen na de spraakherkenning. on_text(partial, index): hint in wording.
-        on_event(LiveEvent): na de pijplijn. De laatste twee komen uit de pijplijndraad."""
+        on_event(LiveEvent): na de pijplijn. De laatste twee komen uit de pijplijndraad. on_confirm(index, Advice):
+        het dossier onderbouwt de uitspraak, later uit een draad van de bevestiger."""
         self.sources, self.transcriber, self.pipeline = sources, transcriber, pipeline
         self.on_event, self.on_text, self.on_utterance = on_event, on_text, on_utterance
+        self.on_confirm = on_confirm
         self.work: queue.Queue = queue.Queue()   # (index, klaar-tijd, wait_ms, asr_ms, advise) voor de pijplijn
         self.worker: threading.Thread | None = None
         self.min_silence_ms = min_silence_ms
@@ -223,7 +225,8 @@ class LiveSession:
         if advise and not stale:
             on_text = (lambda partial: self.on_text(partial, index)) if self.on_text else None
             try:
-                step = self.pipeline.step(self.utterances[:index + 1], index, on_text=on_text)
+                extra = {"on_confirm": self._confirmed} if self.on_confirm else {}
+                step = self.pipeline.step(self.utterances[:index + 1], index, on_text=on_text, **extra)
             except Exception as e:  # noqa: BLE001 - een trage of falende API mag de meeting niet stoppen
                 error = f"{type(e).__name__}: {e}"
                 print(f"Pijplijn faalde bij uitspraak {index}: {error}", file=sys.stderr)
@@ -231,6 +234,10 @@ class LiveSession:
         self.events.append(event)
         if self.on_event:
             self.on_event(event)
+
+    def _confirmed(self, index: int, confirmation):
+        if not self.stop_flag.is_set():   # na Stop niets nieuws meer in het paneel
+            self.on_confirm(index, confirmation)
 
     def save_transcript(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)

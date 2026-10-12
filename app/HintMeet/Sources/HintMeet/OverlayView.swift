@@ -27,10 +27,28 @@ struct OverlayView: View {
             // transcript en hints krijgen alle hoogte die het venster overlaat (geen vaste marges)
             if store.transcript.isEmpty && store.listHints.isEmpty {
                 hintColumn(listHeight: nil)
-            } else if size.width >= Self.twoColumnWidth {
-                // links het gesprek, rechts de hints op volgorde; de uitspraak van de hint in het midden is gemarkeerd
+            } else if size.width >= Self.threeColumnWidth {
+                // links wat het dossier onderbouwt, in het midden het gesprek, rechts de hints en correcties
                 HStack(alignment: .top, spacing: 12) {
-                    TranscriptView(store: store).frame(width: size.width * 0.45).frame(maxHeight: .infinity)
+                    ConfirmList(store: store).frame(width: size.width * 0.27).frame(maxHeight: .infinity, alignment: .top)
+                    Divider()
+                    TranscriptView(store: store).frame(width: size.width * 0.34).frame(maxHeight: .infinity)
+                    Divider()
+                    hintColumn(listHeight: nil).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                .frame(maxHeight: .infinity)
+            } else if size.width >= Self.twoColumnWidth {
+                // links het gesprek (met daaronder wat het dossier onderbouwt), rechts de hints op volgorde;
+                // de uitspraak van de hint in het midden is gemarkeerd
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TranscriptView(store: store).frame(maxHeight: .infinity)
+                        if !store.confirmations.isEmpty {
+                            Divider()
+                            ConfirmList(store: store).frame(height: size.height * 0.3)
+                        }
+                    }
+                    .frame(width: size.width * 0.45).frame(maxHeight: .infinity)
                     Divider()
                     hintColumn(listHeight: nil).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
@@ -39,6 +57,10 @@ struct OverlayView: View {
                 hintColumn(listHeight: 200)
                 Divider()
                 TranscriptView(store: store).frame(maxHeight: .infinity)
+                if !store.confirmations.isEmpty {
+                    Divider()
+                    ConfirmList(store: store).frame(height: 140)
+                }
             }
             if let path = store.summaryPath {
                 Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
@@ -56,6 +78,8 @@ struct OverlayView: View {
 
     /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
     static let twoColumnWidth: CGFloat = 560
+    /// Vanaf deze breedte krijgt wat het dossier onderbouwt een eigen kolom links.
+    static let threeColumnWidth: CGFloat = 860
 
 
     /// Rechterkolom: bladeren en de hints op volgorde (of de knoppen om te beginnen), en intrekkingen.
@@ -301,12 +325,14 @@ struct TranscriptView: View {
     var body: some View {
         let focus = store.shown?.id
         let hinted = store.hinted
+        let confirmed = Set(store.confirmations.map(\.id))
         GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(store.transcript) { u in
-                            row(u, focused: u.id == focus, hasHint: hinted.contains(u.id))
+                            row(u, focused: u.id == focus, hasHint: hinted.contains(u.id),
+                                confirmed: confirmed.contains(u.id))
                                 .id(u.id)
                                 .background(GeometryReader { g in
                                     Color.clear.preference(key: RowFrames.self,
@@ -382,7 +408,7 @@ struct TranscriptView: View {
         store.browse(to: best, from: .transcript)
     }
 
-    private func row(_ u: Utterance, focused: Bool, hasHint: Bool) -> some View {
+    private func row(_ u: Utterance, focused: Bool, hasHint: Bool, confirmed: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(u.time).font(.caption2).monospacedDigit()
                 .foregroundStyle(focused ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.tertiary))
@@ -393,6 +419,11 @@ struct TranscriptView: View {
                 .fixedSize(horizontal: false, vertical: true)   // geen tekstselectie: een klik selecteert de uitspraak
             Spacer(minLength: 0)
             if hasHint { Text("💡").font(.caption) }
+            if confirmed {
+                Image(systemName: "checkmark.circle.fill").font(.caption)
+                    .foregroundStyle(focused ? Color.white : Color.green)
+                    .help("Backed by the knowledge base (left column)")
+            }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
         .background(focused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
