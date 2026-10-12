@@ -12,6 +12,7 @@ Server → overlay, één JSON-bericht per gebeurtenis:
 Overlay → server:
   {"type": "feedback", "id": n, "rating": 1 | -1}
   {"type": "stop"}
+  {"type": "sensitivity", "hints": 0..1, "confirm": 0..1}   (schuifjes; 0,5 = gate.yaml)
 """
 from __future__ import annotations
 

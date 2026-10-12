@@ -30,7 +30,7 @@ struct OverlayView: View {
             } else if size.width >= Self.threeColumnWidth {
                 // links wat het dossier onderbouwt, in het midden het gesprek, rechts de hints en correcties
                 HStack(alignment: .top, spacing: 12) {
-                    ConfirmList(store: store).frame(width: size.width * 0.27).frame(maxHeight: .infinity, alignment: .top)
+                    ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(width: size.width * 0.27).frame(maxHeight: .infinity, alignment: .top)
                     Divider()
                     TranscriptView(store: store).frame(width: size.width * 0.34).frame(maxHeight: .infinity)
                     Divider()
@@ -45,7 +45,7 @@ struct OverlayView: View {
                         TranscriptView(store: store).frame(maxHeight: .infinity)
                         if !store.confirmations.isEmpty {
                             Divider()
-                            ConfirmList(store: store).frame(height: size.height * 0.3)
+                            ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(height: size.height * 0.3)
                         }
                     }
                     .frame(width: size.width * 0.45).frame(maxHeight: .infinity)
@@ -59,7 +59,7 @@ struct OverlayView: View {
                 TranscriptView(store: store).frame(maxHeight: .infinity)
                 if !store.confirmations.isEmpty {
                     Divider()
-                    ConfirmList(store: store).frame(height: 140)
+                    ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(height: 140)
                 }
             }
             if let path = store.summaryPath {
@@ -76,6 +76,9 @@ struct OverlayView: View {
         .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
     }
 
+    /// Schuifjes naar de lopende meeting; geldt vanaf de volgende uitspraak.
+    private func sendSensitivity() { send(settings.sensitivityMessage) }
+
     /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
     static let twoColumnWidth: CGFloat = 560
     /// Vanaf deze breedte krijgt wat het dossier onderbouwt een eigen kolom links.
@@ -87,6 +90,12 @@ struct OverlayView: View {
     @ViewBuilder private func hintColumn(listHeight: CGFloat?) -> some View {
         let bar = store.history.count > 1 || store.isBrowsing
         VStack(alignment: .leading, spacing: 8) {
+            if backend.isRunning || !store.transcript.isEmpty {
+                SensitivitySlider(title: "Hint sensitivity", value: $settings.hintSensitivity,
+                                  help: "More: hints and corrections also when the gatekeeper is less sure and on less "
+                                      + "clearly matching passages. Fewer: only when it clearly matters.",
+                                  changed: sendSensitivity)
+            }
             if store.listHints.isEmpty {
                 idle
             } else {

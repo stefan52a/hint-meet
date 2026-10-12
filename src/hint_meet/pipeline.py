@@ -138,7 +138,8 @@ class Pipeline:
             if time.monotonic() - queued_at > c.get("max_age_s", 8):   # het gesprek is al verder: niet meer doen
                 return
             confirmation = self.confirmer.confirm(window, hits)
-            if confirmation.shown:
+            # ook na een trage Claude-aanroep: wat te laat is, hoort niet meer in de kolom
+            if confirmation.shown and time.monotonic() - queued_at <= c.get("max_age_s", 8):
                 on_confirm(index, confirmation)
         except Exception as e:  # noqa: BLE001 - een bevestiging is een extraatje; de meeting loopt door
             print(f"Bevestiging faalde bij uitspraak {index}: {type(e).__name__}: {e}", file=sys.stderr)
@@ -151,3 +152,32 @@ class Pipeline:
         for pool in (self.confirm_pool, self.pool):
             if pool:
                 pool.shutdown(wait=False, cancel_futures=True)
+
+
+def clamp(x: float, lo: float, hi: float) -> float:
+    return min(max(x, lo), hi)
+
+
+class Sensitivity:
+    """Schuifjes in de app (0 = minder, 1 = meer; 0,5 = de waarden uit gate.yaml) zetten de drempels van de
+    lopende meeting. Hints: kans die de gate moet geven en relevantie van passages voor het advies.
+    Bevestigingen: relevantie die als onderbouwing telt en hoe lang een uitspraak minstens is."""
+
+    def __init__(self, config: dict):
+        self.config = config
+        self.base = {
+            "intervene_min": config["gate"]["intervene_min"],
+            "rerank_min": config.setdefault("rerank", {}).get("min_relevance", 0.5),
+            "confirm_min": config.setdefault("confirm", {}).get("min_relevance", 0.6),
+            "min_words": config["confirm"].get("min_words", 4),
+        }
+
+    def set_hints(self, s: float):
+        s = clamp(float(s), 0.0, 1.0)
+        self.config["gate"]["intervene_min"] = round(clamp(self.base["intervene_min"] + (0.5 - s) * 0.5, 0.2, 0.9), 3)
+        self.config["rerank"]["min_relevance"] = round(clamp(self.base["rerank_min"] + (0.5 - s) * 0.4, 0.1, 0.9), 3)
+
+    def set_confirm(self, s: float):
+        s = clamp(float(s), 0.0, 1.0)
+        self.config["confirm"]["min_relevance"] = round(clamp(self.base["confirm_min"] + (0.5 - s) * 0.4, 0.1, 0.9), 3)
+        self.config["confirm"]["min_words"] = max(2, round(self.base["min_words"] + (0.5 - s) * 4))

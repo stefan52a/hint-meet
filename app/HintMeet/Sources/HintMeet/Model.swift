@@ -51,6 +51,8 @@ final class HintStore: ObservableObject {
     private(set) var session = ""
     /// Zoekresultaten van de meeting-pijplijn gaan naar Find Documents.
     var onSearchResults: (([String: Any]) -> Void)?
+    /// Pijplijn (opnieuw) verbonden: de app stuurt dan zijn instellingen, zoals de gevoeligheid.
+    var onHello: (() -> Void)?
 
     /// Alle definitieve hints van deze meeting, oudste eerst: de geschiedenis om door te bladeren.
     var history: [Hint] { hints.filter { $0.state == .final }.sorted { $0.id < $1.id } }
@@ -147,6 +149,7 @@ final class HintStore: ObservableObject {
             }
             project = msg["project"] as? String ?? ""
             stopped = false
+            onHello?()
         case "utterance":
             guard let id = msg["id"] as? Int else { return }
             let u = Utterance(id: id, time: msg["time"] as? String ?? "",

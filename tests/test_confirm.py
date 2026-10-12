@@ -155,3 +155,35 @@ def test_full_confirmer_skips_new_utterances_and_frees_slots_after():
     p.confirm_pool.shutdown(wait=True)
     assert sorted(got) == [0, 1]
     assert p.confirm_slots.acquire(blocking=False) and p.confirm_slots.acquire(blocking=False)   # weer vrij
+
+
+def test_late_confirmation_after_slow_claude_call_is_dropped():
+    import time
+
+    class SlowConfirmer(FakeConfirmer):
+        def confirm(self, window, hits):
+            time.sleep(0.2)
+            return super().confirm(window, hits)
+    conf = SlowConfirmer(Advice("Klopt", ["rente.md"]))
+    config = {**CCONFIG, "confirm": {**CCONFIG["confirm"], "max_age_s": 0.1}}
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), config, confirmer=conf)
+    assert run(p) == [] and conf.hits is not None   # wel gevraagd, maar te laat voor de kolom
+
+
+def test_sensitivity_midpoint_keeps_yaml_and_moves_thresholds():
+    from hint_meet.pipeline import Sensitivity
+    config = {"gate": {"intervene_min": 0.55}, "rerank": {"min_relevance": 0.5},
+              "confirm": {"min_relevance": 0.6, "min_words": 4}}
+    s = Sensitivity(config)
+    s.set_hints(0.5)
+    s.set_confirm(0.5)
+    assert config["gate"]["intervene_min"] == 0.55 and config["rerank"]["min_relevance"] == 0.5
+    assert config["confirm"] == {"min_relevance": 0.6, "min_words": 4}
+    s.set_hints(1)        # meer hints: lagere drempels
+    s.set_confirm(1)      # meer bevestigingen
+    assert config["gate"]["intervene_min"] == 0.3 and config["rerank"]["min_relevance"] == 0.3
+    assert config["confirm"] == {"min_relevance": 0.4, "min_words": 2}
+    s.set_hints(0)
+    assert config["gate"]["intervene_min"] == 0.8 and config["rerank"]["min_relevance"] == 0.7
+    s.set_hints(7)        # onzin van de app wordt begrensd
+    assert config["gate"]["intervene_min"] == 0.3

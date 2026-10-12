@@ -459,9 +459,10 @@ def live_cmd(a) -> int:
     from .confirm import make_confirmer
     from .gate import make_gate
     from .live import DeviceSource, LiveSession, WavSource
-    from .pipeline import Pipeline
+    from .pipeline import Pipeline, Sensitivity
 
     config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    sensitivity = Sensitivity(config)   # de pijplijn leest dezelfde config, dus wijzigingen gelden meteen
     try:
         roots = kb_dirs(a.project)
     except ValueError as e:
@@ -485,6 +486,15 @@ def live_cmd(a) -> int:
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 stop_requested.set()
+            elif msg.get("type") == "sensitivity":   # schuifjes in de app: geldt vanaf de volgende uitspraak
+                if "hints" in msg:
+                    sensitivity.set_hints(msg["hints"])
+                if "confirm" in msg:
+                    sensitivity.set_confirm(msg["confirm"])
+                print(f"Gevoeligheid: gate ≥ {config['gate']['intervene_min']}, "
+                      f"hint-relevantie ≥ {config['rerank']['min_relevance']}, "
+                      f"bevestiging ≥ {config['confirm']['min_relevance']} en ≥ {config['confirm']['min_words']} woorden",
+                      file=sys.stderr)
             elif msg.get("type") == "search":   # Find Documents tijdens de meeting: in de KB die hier al geladen is
                 kb_now = loaded.get("kb")
                 if kb_now is None:

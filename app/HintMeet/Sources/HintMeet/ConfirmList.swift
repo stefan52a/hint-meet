@@ -5,6 +5,8 @@ import SwiftUI
 /// Volgt live de nieuwste bevestiging, tenzij je zelf omhoog gescrold hebt.
 struct ConfirmList: View {
     @ObservedObject var store: HintStore
+    @ObservedObject var settings: Settings
+    let changed: () -> Void
     /// Onderaan = live: een nieuwe bevestiging scrollt in beeld.
     @State private var atBottom = true
 
@@ -12,6 +14,11 @@ struct ConfirmList: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Backed by the knowledge base", systemImage: "checkmark.seal")
                 .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            SensitivitySlider(title: "Sensitivity", value: $settings.confirmSensitivity,
+                              help: "More: also less clearly matching passages and shorter utterances count as backed. "
+                                  + "Fewer: only clear matches. A ✓ always means nothing in the utterance contradicts "
+                                  + "the documents.",
+                              changed: changed)
             if store.confirmations.isEmpty {
                 Text("What is said and matches the documents appears here, with its source.")
                     .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)

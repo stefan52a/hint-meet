@@ -152,6 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         searchService.meetingActive = { [weak self] in self?.backend.isRunning ?? false }
         searchService.sendToMeeting = { [weak self] msg in self?.connection.send(msg) }
         store.onSearchResults = { [weak self] msg in self?.searchService.receiveMeetingResults(msg) }
+        store.onHello = { [weak self] in   // gevoeligheid van de schuifjes geldt ook voor een nieuwe meeting
+            guard let self else { return }
+            self.connection.send(self.settings.sensitivityMessage)
+        }
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "💡"

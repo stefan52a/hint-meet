@@ -15,6 +15,9 @@ final class Settings: ObservableObject {
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
     /// Taal van het gesprek (een Whisper-code zoals "nl" of "en", of "multi"); hints en verslag volgen die taal.
     @Published var language: String { didSet { d.set(language, forKey: "language") } }
+    /// Gevoeligheid (0 = minder, 1 = meer, 0,5 = gate.yaml): hints en correcties rechts, onderbouwing links.
+    @Published var hintSensitivity: Double { didSet { d.set(hintSensitivity, forKey: "hintSensitivity") } }
+    @Published var confirmSensitivity: Double { didSet { d.set(confirmSensitivity, forKey: "confirmSensitivity") } }
     /// Multilingual eerst, dan alle talen van Whisper alfabetisch (typ in het open menu de eerste letter).
     /// Gelijk aan src/hint_meet/languages.py.
     static let languages: [(code: String, name: String)] = [
@@ -133,6 +136,13 @@ final class Settings: ObservableObject {
         system = d.string(forKey: "system") ?? ""
         summary = d.object(forKey: "summary") as? Bool ?? true
         language = d.string(forKey: "language") ?? "nl"
+        hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
+        confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5
+    }
+
+    /// Voor de lopende meeting (zie "sensitivity" in src/hint_meet/server.py).
+    var sensitivityMessage: [String: Any] {
+        ["type": "sensitivity", "hints": hintSensitivity, "confirm": confirmSensitivity]
     }
 
     /// Gekozen projecten; `project` bewaart ze als "Finance,acme" (zo gaat het ook naar --project).
