@@ -36,6 +36,10 @@ What changes for the user, newest first. Technical details are in `git log`.
 - **Speaker *Unknown* when it isn't known:** without system audio, the microphone picks up everyone in the room, so the transcript now says *Unknown* instead of *Stefan*. A mono recording (*Start with a Recorded Meeting…*) also says *Unknown* (was *Gesprek*). With system audio set up, your microphone is still *Stefan* and the other side *Gesprekspartner*.
 - **Strict on purpose:** a ✓ means everything concrete in that utterance matches the documents. If one amount or date in it is off, or Claude isn't sure, nothing is shown. If Jev can't check the passages in time, the line is skipped instead of shown unchecked, and lines that would arrive late in a fast conversation are dropped.
 
+### Documentation
+
+- README describes the new panel (start steps, three columns, meeting bar, finishing steps), speaker recognition, voice samples, renaming and changing the language during a meeting, with new screenshots from the fictional demo dossier.
+
 ## 2026-10-08
 
 ### Speed and reliability

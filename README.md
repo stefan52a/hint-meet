@@ -7,13 +7,26 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
 **How to use it.**
 1. Turn a folder of documents (PDF, Word, Excel, mail, scans, …) into a knowledge base: *Add Folder…* in the knowledge base menu, *Convert Documents* in the app, or `tools/kb_prep.py`. **The first time can take a long time**: every passage is embedded once (hours for very large folders); HintMeet warns you and shows the estimated time. You can stop and continue later with *Preload KB*; after that, loading takes seconds.
 2. In HintMeet, select one or more projects and click *Preload KB*, **well before the meeting**: the first time, embedding the documents can take hours (days for very large folders). After that the meeting starts right away; the button only appears when something needs loading.
-3. Optionally fill in *Meeting info* (with whom, where), choose the language of the conversation, and start the meeting. Hints appear in a floating panel above your meeting without taking over your keyboard. The transcript runs alongside; ◀ ▶, scrolling or clicking takes you back to earlier hints.
-4. Afterwards the report with action items is in `<KB>/meetings/`; the transcript is in `logs/`. Reports are not part of the knowledge base: hints and Find Documents never search them.
+3. Optionally fill in *With whom, where* (used in the report file name), choose the language of the conversation, and click **Start Meeting**. A floating panel stays above your meeting without taking over your keyboard, with three columns:
+   - **Backed by the KB** (left): what was said and matches your documents (✓), and what the documents say about a topic that came up (📄), each with its source;
+   - **Transcript** (middle): who said what; right-click a line to rename *Speaker 1* to a real name;
+   - **Hints & corrections** (right): answers and corrections from your documents, 1 to 4 bullet points with sources; ◀ ▶, scrolling or clicking takes you back to earlier hints.
+
+   Each column has a Fewer ↔ More sensitivity slider and can be opened in its own window (button in its header). The language can be changed during the meeting; **Stop** ends it.
+4. Afterwards HintMeet shows the steps (transcript saved, report being written, with **Abort**) and then **Open Report with Action Items**. The report is in `<KB>/meetings/`, the transcript in `logs/`. Reports are not part of the knowledge base: hints and Find Documents never search them.
 5. Looking for a document? *Find Documents* (⌘F) searches the knowledge base by content (words, amounts, names, topics) and opens the original file.
 
-![HintMeet during an English conversation: the transcript on the left with the utterance the hint responds to highlighted, the hints on the right with sources](docs/images/hints-english.jpg)
+![The start screen: three steps, knowledge base (Ready), meeting (with whom, language) and Start Meeting](docs/images/start-screen.jpg)
 
-*During a (fictional) English meeting: Anna asks whether 21% VAT is charged; HintMeet answers from the dossier that the sale is a transfer of a going concern, with the e-mail and the agreement as sources.*
+*Before the meeting: choose the knowledge base, describe the meeting, start.*
+
+![HintMeet during a fictional English meeting: on the left what the documents say about the topics raised, in the middle the transcript with the utterance the hint responds to highlighted, on the right the hints with sources](docs/images/meeting.jpg)
+
+*During a (fictional) English meeting about the demo dossier: the other side asks whether the three small shareholders get part of the share premium. Right: HintMeet answers from the shareholders' agreement and the cap table that they don't. Left: what the documents say about the earlier topics (loan, payment date, VAT), each with its source.*
+
+![After the meeting: Open Report with Action Items and New Meeting above the columns; on the left a ✓ for a statement the documents confirm](docs/images/after-the-meeting.jpg)
+
+*After the meeting: open the report with action items, or prepare the next meeting. A ✓ on the left and in the transcript marks a statement the documents confirm.*
 
 ![Convert Documents: kb_prep turning the demo dossier into a knowledge base, with progress per page while OCR reads a scanned PDF](docs/images/convert-documents.png)
 
@@ -61,21 +74,23 @@ hint-meet/
 ├── config/
 │   └── gate.yaml           gatekeeper (jev or claude), thresholds and advice settings
 ├── src/hint_meet/
-│   ├── cli.py              hint-meet live | prepare | index | replay | calibrate | eval-kb
+│   ├── cli.py              hint-meet live | prepare | index | search | voice | replay | calibrate | eval-kb
 │   ├── audio.py            Whisper (MLX), voice activity detection, KB terms as a vocabulary hint
-│   ├── live.py             live session: audio sources, utterances, pipeline per utterance
+│   ├── live.py             live session: audio sources, utterances, pipeline per utterance, renaming
+│   ├── speakers.py         who says what: voice prints, recorded voices, Speaker 1, 2, …
 │   ├── gate.py             Jev decision layer
 │   ├── rerank.py           Jev reranker: relevance and prompt-injection check per passage
 │   ├── kb.py               knowledge base: chunks, embeddings, BM25, hybrid search (cached)
 │   ├── advise.py           advice via Claude
-│   ├── pipeline.py         gate → search → advice per utterance
+│   ├── confirm.py          left column: what the documents back or say about the topic (Claude Haiku)
+│   ├── pipeline.py         search → gate (+ reranker) → advice per utterance; confirmations; sensitivity
 │   ├── server.py           local WebSocket server for the app, feedback log
 │   ├── summary.py          report with action items after the meeting
 │   └── replay.py           calibration on recordings, logs to CSV
 ├── app/
 │   ├── build-app.sh        builds HintMeet.app and installs it in ~/Applications
 │   ├── make-icon.swift     draws the app icon
-│   └── HintMeet/           SwiftUI app (overlay, menus, settings, Convert Documents)
+│   └── HintMeet/           SwiftUI app (panel with columns, menus, settings, voice, Convert Documents)
 ├── tools/
 │   ├── kb_prep.py          KB folder (docx, xlsx, pptx, pdf, …) → Markdown
 │   └── requirements-kb_prep.txt
@@ -255,7 +270,7 @@ PYTHONPATH=src python examples/make_demo_audio.py              # speaks examples
 hint-meet --project demo live --audio examples/demo-meeting.wav --channels Stefan,Anna --language en
 ```
 
-In the app: *Convert Documents* with `examples/demo-dossier` as source folder, then choose project *demo*, language *English*, and *Start with a Recorded Meeting…* with `examples/demo-meeting.wav`.
+In the app: *Convert Documents* with `examples/demo-dossier` as source folder, then choose project *demo*, language *English*, and *Use a recorded meeting instead…* with `examples/demo-meeting.wav`.
 
 ## Usage
 
@@ -269,13 +284,18 @@ hint-meet --project acme replay conversation.txt           # transcript with #! 
 hint-meet --project acme replay conversation.wav           # recording (stereo: you left, the other right)
 hint-meet --project acme calibrate conversation.txt --gate jev   # gate only, threshold table
 hint-meet live --devices                                    # list audio devices
+hint-meet voice --name Stefan                              # record 10 s of your voice (adds a sample; --replace starts over)
 ```
 
 App: build with `app/build-app.sh`; that installs HintMeet in `~/Applications`, with an icon, so you start it via Spotlight, Launchpad or the Dock (drag it there to keep it). After a new build, pick up the new version with **Restart HintMeet** (⌘R). The app remembers where this repo is; if you move the repo, build again. Choose a project and start the meeting; the app starts the pipeline itself (from `.venv` in this folder) and stops it again, and on quitting waits until the report is written. API keys go in Settings (Keychain). Without the app it also works: `hint-meet --project acme live --ui` with just the overlay.
 
-The panel stays above your meeting without taking over your keyboard; during a meeting, click its header to get the HintMeet menu bar. 💡 in the menu bar shows or hides it. The transcript (middle) and the hints and corrections (right) scroll together: the utterance a hint refers to is highlighted, and scrolling or clicking either side selects the matching hint or utterance. The left column, **Backed by the knowledge base**, collects, as one short line with its source, what was said and matches your documents (✓, also in the transcript) and what the documents say about a topic or question that came up (📄); on a narrower panel it moves below the transcript. It runs for every utterance, next to any hint, in the background with Claude Haiku (`confirm` in `config/gate.yaml`, off with `enabled: false`) and never delays a hint. Two sliders, Fewer ↔ More, set how readily each column fills: *Hint sensitivity* on the right moves the gatekeeper's threshold (`gate.intervene_min`) and the relevance a passage needs for a hint (`rerank.min_relevance`). *Sensitivity* on the left moves the relevance needed to count as backing and the minimum utterance length. The middle position uses the values in `config/gate.yaml`. 👍/👎 goes to `logs/feedback.jsonl`. Afterwards hint-meet writes a report with action items in `<KB>/meetings/`, named `<date-time>-<project>-<meeting info>.md` (turn off with `--no-summary`).
+**The panel.** Before a meeting it shows three steps: knowledge base (with *Ready* or *Not loaded* and *Preload KB*), meeting (with whom, language) and *Start Meeting*. During a meeting a top bar shows a blinking **REC** with the time, the project, what HintMeet is doing (*Listening…*), the language, *Find* and **Stop**. *Find Documents*, *Settings* and *Restart HintMeet* are always at the bottom. The panel remembers its position and size, also on a second screen; it stays above your meeting without taking over your keyboard; during a meeting, click its header to get the HintMeet menu bar. 💡 in the menu bar shows or hides it.
 
-**Who says what.** With microphone plus system audio, your microphone is *Stefan* and the other side *Gesprekspartner*. With only a microphone (or a mono recording) HintMeet recognizes voices: *Speaker 1*, *Speaker 2*, …, locally with a small voice model (WeSpeaker via sherpa-onnx, ~80 ms per utterance, alongside speech recognition). Record your own voice once under *Settings → Your voice*, or with `hint-meet voice --name Stefan`, and you appear by name. Thresholds in `config/gate.yaml` under `speakers`.
+**The columns.** Drag the dividers to resize them, or open a column in its own window with the button in its header (close that window to put it back). A column follows new content while its scrollbar is at the bottom. The transcript (middle) and the hints and corrections (right) scroll together: the utterance a hint refers to is highlighted, and scrolling or clicking either side selects the matching hint or utterance. The left column, **Backed by the knowledge base**, collects, as one short line with its source, what was said and matches your documents (✓, also in the transcript) and what the documents say about a topic or question that came up (📄); on a narrower panel it moves below the transcript. It runs for every utterance, next to any hint, in the background with Claude Haiku (`confirm` in `config/gate.yaml`, off with `enabled: false`) and never delays a hint. Two sliders, Fewer ↔ More, set how readily each column fills: *Hint sensitivity* on the right moves the gatekeeper's threshold (`gate.intervene_min`) and the relevance a passage needs for a hint (`rerank.min_relevance`). *Sensitivity* on the left moves the relevance needed to count as backing and the minimum utterance length. The middle position uses the values in `config/gate.yaml`. 👍/👎 goes to `logs/feedback.jsonl`. Afterwards hint-meet writes a report with action items in `<KB>/meetings/`, named `<date-time>-<project>-<meeting info>.md` (turn off with `--no-summary`).
+
+**Who says what.** With microphone plus system audio, your microphone is *Stefan* and the other side *Gesprekspartner*. With only a microphone (or a mono recording) HintMeet recognizes voices: *Speaker 1*, *Speaker 2*, …, locally with a small voice model (WeSpeaker via sherpa-onnx, ~80 ms per utterance, alongside speech recognition); utterances under a second stay *Unknown*. Record your own voice under *Settings → Your voice* (10 seconds), or with `hint-meet voice --name Stefan`, and you appear by name. Add a sample for each microphone or room you use (headset, laptop, meeting room, up to 10): HintMeet compares with the best matching one. A recorded voice needs a closer match than a voice within the meeting, because a wrong name is worse than *Speaker 1*. Right-click a line in the transcript to rename a speaker (*Speaker 1 → Jan*): earlier and later utterances get the name, also in the report, and *Remember this voice for next meetings* recognizes Jan by name next time. Thresholds in `config/gate.yaml` under `speakers`.
+
+**Language.** Pick it before the meeting or change it during the meeting in the top bar; speech recognition, hints, the left column and the report follow from the next utterance.
 
 Live saves the transcript in `logs/live-<date>.txt`, in the same format as the test transcripts: add `#! advies:` lines below it and play it back with `replay` to calibrate thresholds.
 
