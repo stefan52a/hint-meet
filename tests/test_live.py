@@ -344,3 +344,26 @@ def test_speaker_is_recognized_by_voice_on_the_shared_channel():
     session._handle(NS(audio=np.zeros(32000, np.float32), channel="Gesprekspartner", start=3.0), ready_at=0)
     assert [u.speaker for u in session.utterances] == ["Speaker 1", "Unknown", "Gesprekspartner"]
     assert voices.calls == 2   # het kanaal van de ander heeft al een naam: geen herkenning
+
+
+
+def test_renaming_a_speaker_relabels_past_and_future_utterances(tmp_path):
+    from types import SimpleNamespace as NS
+
+    from hint_meet.speakers import SpeakerID, load_voices
+    voice = np.ones(4, np.float32) / 2
+    sid = SpeakerID(lambda audio: voice, {}, threshold=0.5)
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("tekst", 5.0), pipeline=None, speaker_id=sid)
+    session._advise = lambda *a: None
+    seg = NS(audio=np.zeros(32000, np.float32), channel="Unknown", start=0.0)
+    session._handle(seg, ready_at=0)
+    assert session.utterances[0].speaker == "Speaker 1"
+    path = tmp_path / "voices.json"
+    sid.voices_path = path   # niet in je echte voices.json
+    assert session.rename_speaker("Speaker 1", "Jan", remember=True)
+    session._handle(seg, ready_at=0)
+    assert [u.speaker for u in session.utterances] == ["Jan", "Jan"]
+    assert set(load_voices(path)) == {"Jan"}   # volgende meeting: meteen Jan
+    assert session.rename_speaker("Jan", "Jan de Vries")   # nog eens hernoemen volgt de keten
+    session._handle(seg, ready_at=0)
+    assert [u.speaker for u in session.utterances] == ["Jan de Vries"] * 3

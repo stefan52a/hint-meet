@@ -191,8 +191,8 @@ struct OverlayView: View {
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary).lineLimit(1)
             if backend.isRunning && backend.state != .stopping {
-                Text(store.connected ? (store.status.isEmpty ? "Listening…" : store.status) : "Starting pipeline…")
-                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                PulsingText(text: store.connected ? (store.status.isEmpty ? "Listening…" : store.status)
+                                                  : "Starting pipeline…")
             }
             Spacer()
             if backend.isRunning && backend.state != .stopping {   // taal wisselen tijdens de meeting
@@ -365,6 +365,20 @@ struct OverlayView: View {
 
     /// Schuifjes naar de lopende meeting; geldt vanaf de volgende uitspraak.
     private func sendSensitivity() { send(settings.sensitivityMessage) }
+}
+
+/// Status in de kopbalk ("Listening…"): knippert zacht, zodat je ziet dat HintMeet meeluistert. De helderheid volgt de
+/// klok (geen herhalende animatie: die liet de tekst ook heen en weer schuiven).
+struct PulsingText: View {
+    let text: String
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .opacity(0.65 + 0.35 * cos(t * 2 * .pi / 2.4))   // tussen 0,3 en 1, elke 2,4 s
+        }
+    }
 }
 
 /// Gevulde knop in een vaste kleur. .borderedProminent wordt grijs in een venster dat niet actief is, en dit
@@ -573,6 +587,9 @@ struct TranscriptView: View {
                         : hintFocused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
+        .contextMenu {   // rechtsklik: "Speaker 1" een echte naam geven
+            Button("Rename \(u.speaker)…") { store.onRenameRequest?(u.speaker) }
+        }
         .help(hasHint ? "Click to show the hint for this utterance" : "Click to show the hint from this moment")
     }
 }

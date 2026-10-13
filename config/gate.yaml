@@ -55,4 +55,5 @@ confirm:                   # left column in the app: what was said and is backed
 speakers:                  # who says what, by voice, when everyone comes in on one channel (microphone only)
   enabled: true
   threshold: 0.65          # voice similarity (0-1) to count as the same person; higher = more separate speakers
+  enroll_threshold: 0.75   # stricter for a recorded voice: a wrong name is worse than "Speaker 1"
   min_seconds: 1.0         # shorter utterances keep the channel name (too short for a reliable voice print)

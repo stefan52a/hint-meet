@@ -62,6 +62,24 @@ final class HintStore: ObservableObject {
     var onSearchResults: (([String: Any]) -> Void)?
     /// Pijplijn (opnieuw) verbonden: de app stuurt dan zijn instellingen, zoals de gevoeligheid.
     var onHello: (() -> Void)?
+    /// Rechtsklik "Rename Speaker 1…" in het transcript: de app vraagt de nieuwe naam.
+    var onRenameRequest: ((String) -> Void)?
+    /// Hernoemde sprekers ("Speaker 1" → "Jan"), ook voor uitspraken die nog onderweg waren.
+    private(set) var aliases: [String: String] = [:]
+
+    /// Spreker hernoemen in alles wat al in beeld is; de pijplijn doet hetzelfde en meldt "renamed".
+    func renameSpeaker(from old: String, to new: String) {
+        let new = new.trimmingCharacters(in: .whitespaces)
+        guard !old.isEmpty, !new.isEmpty, old != new else { return }
+        for (k, v) in aliases where v == old { aliases[k] = new }
+        aliases[old] = new
+        func relabel(_ u: Utterance) -> Utterance {
+            u.speaker == old ? Utterance(id: u.id, time: u.time, speaker: new, text: u.text) : u
+        }
+        transcript = transcript.map(relabel)
+        utterances = utterances.map(relabel)
+        spoken = spoken.mapValues(relabel)
+    }
 
     /// Alle definitieve hints van deze meeting, oudste eerst: de geschiedenis om door te bladeren.
     var history: [Hint] { hints.filter { $0.state == .final }.sorted { $0.id < $1.id } }
@@ -165,6 +183,7 @@ final class HintStore: ObservableObject {
             let new = msg["session"] as? String ?? ""
             if new != session {
                 hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
+                aliases = [:]   // hernoemde sprekers horen bij die ene meeting
                 confirmations = []; backedID = nil
                 session = new
             }
@@ -174,7 +193,7 @@ final class HintStore: ObservableObject {
         case "utterance":
             guard let id = msg["id"] as? Int else { return }
             let u = Utterance(id: id, time: msg["time"] as? String ?? "",
-                              speaker: msg["speaker"] as? String ?? "", text: msg["text"] as? String ?? "")
+                              speaker: aliases[msg["speaker"] as? String ?? ""] ?? msg["speaker"] as? String ?? "", text: msg["text"] as? String ?? "")
             utterances.removeAll { $0.id == id }
             utterances.append(u)
             spoken[id] = u
@@ -212,6 +231,8 @@ final class HintStore: ObservableObject {
                                               sources: srcs))
             // de bevestigingen komen uit een eigen draad en kunnen elkaar inhalen
             if let last = confirmations.dropLast().last, last.id > id { confirmations.sort { $0.id < $1.id } }
+        case "renamed":
+            if let old = msg["from"] as? String, let new = msg["to"] as? String { renameSpeaker(from: old, to: new) }
         case "search_results":
             onSearchResults?(msg)
         case "status":
@@ -228,7 +249,7 @@ final class HintStore: ObservableObject {
     /// "New Meeting": het gesprek van de vorige meeting uit beeld, terug naar het startscherm.
     func clearMeeting() {
         hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []
-        confirmations = []; backedID = nil; browseID = nil; stopped = false
+        confirmations = []; backedID = nil; browseID = nil; stopped = false; aliases = [:]
     }
 
     func rate(_ id: Int, _ rating: Int) {

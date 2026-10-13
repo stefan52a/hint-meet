@@ -129,6 +129,7 @@ class LiveSession:
         # stemherkenning voor kanalen waarop iedereen binnenkomt (alleen een microfoon, mono-opname)
         self.speaker_id, self.voice_channels = speaker_id, set(voice_channels)
         self.voice_pool = None
+        self.aliases: dict[str, str] = {}   # hernoemd in de app: "Speaker 1" → "Jan" (ook "Unknown" → …)
         if speaker_id is not None:
             from concurrent.futures import ThreadPoolExecutor
             self.voice_pool = ThreadPoolExecutor(1, thread_name_prefix="hint-meet-voice")
@@ -212,6 +213,7 @@ class LiveSession:
                 print(f"Sprekerherkenning: {type(e).__name__}: {e}", file=sys.stderr)
         if not text:
             return
+        speaker = self.aliases.get(speaker, speaker)
         u = Utterance(int(segment.start), speaker, text)
         index = len(self.utterances)
         self.utterances.append(u)
@@ -249,6 +251,24 @@ class LiveSession:
         self.events.append(event)
         if self.on_event:
             self.on_event(event)
+
+    def rename_speaker(self, old: str, new: str, remember: bool = False) -> bool:
+        """Spreker hernoemen: eerdere uitspraken (voor verslag en hints) en alles wat nog komt. Met remember
+        ook de stem onthouden onder de nieuwe naam (alleen voor een stem die op stem herkend is)."""
+        old, new = old.strip(), new.strip()
+        if not old or not new or old == new:
+            return False
+        sources = [k for k, v in self.aliases.items() if v == old] + [old]   # ook een eerdere hernoeming volgen
+        for k in sources:
+            self.aliases[k] = new
+        for u in self.utterances:
+            if u.speaker == old:
+                u.speaker = new
+        if remember and self.speaker_id is not None:
+            for label in sources:
+                if self.speaker_id.remember(label, new):
+                    break
+        return True
 
     def _confirmed(self, index: int, confirmation):
         if not self.stop_flag.is_set():   # na Stop niets nieuws meer in het paneel

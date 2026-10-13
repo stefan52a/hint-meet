@@ -2,7 +2,7 @@ import json
 
 import numpy as np
 
-from hint_meet.speakers import RATE, SpeakerID, enroll, load_voices, save_voice
+from hint_meet.speakers import RATE, SpeakerID, enroll, load_voices, normalize, save_voice
 
 STEFAN, ANNA, JAN = np.eye(3, dtype=np.float32)
 
@@ -53,3 +53,13 @@ def test_enroll_averages_voiced_parts():
     calls = []
     e = enroll(a, lambda part: calls.append(len(part)) or np.array([1.0, 1.0]))
     assert len(calls) == 4 and np.allclose(e, [2 ** -0.5, 2 ** -0.5])   # 3 + 3 + 3 + 1 s
+
+
+def test_recorded_voice_needs_the_stricter_threshold_and_the_best_match_wins():
+    me = np.array([1.0, 0.0], np.float32)
+    marieke = normalize(np.array([0.7, 0.71], np.float32))   # lijkt 0,7 op mij: niet genoeg voor mijn naam
+    voices = iter([marieke, marieke, me])
+    sid = SpeakerID(lambda a: next(voices), {"Stefan": me}, threshold=0.65, enroll_threshold=0.75)
+    assert sid.identify(audio(STEFAN)) == "Speaker 1"
+    assert sid.identify(audio(STEFAN)) == "Speaker 1"
+    assert sid.identify(audio(STEFAN)) == "Stefan"

@@ -528,6 +528,13 @@ def live_cmd(a) -> int:
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 stop_requested.set()
+            elif msg.get("type") == "rename":   # "Speaker 1" → "Jan" in het transcript van de app
+                live = pipeline_ref.get("session")
+                old, new = str(msg.get("from", "")), str(msg.get("to", ""))[:60]
+                if live and live.rename_speaker(old, new, remember=bool(msg.get("remember"))):
+                    hub.send(type="renamed", **{"from": old, "to": new.strip()})
+                    print(f"Spreker hernoemd: {old} → {new.strip()}" + (" (stem onthouden)" if msg.get("remember") else ""),
+                          file=sys.stderr)
             elif msg.get("type") == "language":   # taalmenu in de app: geldt vanaf de volgende uitspraak
                 try:
                     code = language_code(str(msg.get("code", "")))
@@ -680,6 +687,7 @@ def live_cmd(a) -> int:
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
                           on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400),
                           on_confirm=on_confirm if pipeline.confirmer else None, speaker_id=speaker_id)
+    pipeline_ref["session"] = session
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"

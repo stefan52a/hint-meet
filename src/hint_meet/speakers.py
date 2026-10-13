@@ -77,10 +77,14 @@ class SpeakerID:
     """Naam per uitspraak op stem. Draadveilig: de spraakdraad roept identify aan, één tegelijk."""
 
     def __init__(self, embed, voices: dict[str, np.ndarray] | None = None, threshold: float = 0.65,
-                 min_seconds: float = 1.0, unknown_label: str = "Speaker"):
+                 min_seconds: float = 1.0, unknown_label: str = "Speaker", enroll_threshold: float = 0.75):
+        """threshold: zelfde stem binnen deze meeting. enroll_threshold: strenger, voor een opgenomen stem (een
+        verkeerde naam is erger dan "Speaker 1"; een ander kan best 0,7 op jouw stem lijken)."""
         self.embed, self.threshold, self.min_seconds = embed, threshold, min_seconds
+        self.enroll_threshold = enroll_threshold
         self.voices = dict(voices or {})
         self.unknown_label = unknown_label
+        self.voices_path = VOICES   # waar remember() een stem bewaart
         self.clusters: list[list] = []   # [zwaartepunt, aantal, naam] per stem die in deze meeting klonk
         self.lock = threading.Lock()
 
@@ -90,18 +94,31 @@ class SpeakerID:
             return None
         e = self.embed(audio)
         with self.lock:
-            if self.voices:   # opgenomen stemmen eerst: wie zich heeft laten opnemen, heet bij naam
-                name, score = max(((n, float(e @ v)) for n, v in self.voices.items()), key=lambda x: x[1])
-                if score >= self.threshold:
-                    return name
+            name, named = max(((n, float(e @ v)) for n, v in self.voices.items()), key=lambda x: x[1],
+                              default=(None, -1.0))
             best = max(self.clusters, key=lambda c: float(e @ c[0]), default=None)
-            if best is not None and float(e @ best[0]) >= self.threshold:
+            clustered = float(e @ best[0]) if best is not None else -1.0
+            # de beste match wint: lijkt een stem uit deze meeting meer, dan is het die (en niet de opgenomen stem)
+            if name is not None and named >= self.enroll_threshold and named >= clustered:
+                return name
+            if best is not None and clustered >= self.threshold:
                 best[0] = normalize(best[0] * best[1] + e)   # het zwaartepunt schuift mee met de stem
                 best[1] += 1
                 return best[2]
             label = f"{self.unknown_label} {len(self.clusters) + 1}"
             self.clusters.append([e, 1, label])
             return label
+
+
+    def remember(self, label: str, name: str) -> bool:
+        """De stem achter `label` (bv. "Speaker 1") onthouden als `name`, ook voor volgende meetings."""
+        with self.lock:
+            cluster = next((c for c in self.clusters if c[2] == label), None)
+            if cluster is None:
+                return False
+            self.voices[name] = cluster[0]
+        save_voice(name, cluster[0], self.voices_path)
+        return True
 
 
 def make_speaker_id(config: dict) -> SpeakerID | None:
@@ -115,4 +132,5 @@ def make_speaker_id(config: dict) -> SpeakerID | None:
         import sys
         print(f"Sprekerherkenning uit: {e}", file=sys.stderr)
         return None
-    return SpeakerID(embed, load_voices(), threshold=s.get("threshold", 0.65), min_seconds=s.get("min_seconds", 1.0))
+    return SpeakerID(embed, load_voices(), threshold=s.get("threshold", 0.65), min_seconds=s.get("min_seconds", 1.0),
+                     enroll_threshold=s.get("enroll_threshold", 0.75))

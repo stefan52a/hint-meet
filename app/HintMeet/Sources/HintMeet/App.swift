@@ -186,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         searchService.meetingActive = { [weak self] in self?.backend.isRunning ?? false }
         searchService.sendToMeeting = { [weak self] msg in self?.connection.send(msg) }
         store.onSearchResults = { [weak self] msg in self?.searchService.receiveMeetingResults(msg) }
+        store.onRenameRequest = { [weak self] old in self?.showRename(old) }
         store.onHello = { [weak self] in   // gevoeligheid van de schuifjes geldt ook voor een nieuwe meeting
             guard let self else { return }
             self.connection.send(self.settings.sensitivityMessage)
@@ -598,6 +599,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
+    private var renameWindow: NSWindow?
+
+    /// "Speaker 1" → "Jan": in een eigen venster (het paneel neemt tijdens een meeting geen toetsen aan); daarna
+    /// krijgt de app die vóór was de focus terug, zodat je toetsenbord weer bij de meeting is.
+    func showRename(_ old: String) {
+        renameWindow?.close()
+        let before = NSWorkspace.shared.frontmostApplication
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 160),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "Rename Speaker"
+        w.isReleasedWhenClosed = false
+        w.level = panel.level
+        let view = RenameSpeakerView(old: old, canRemember: old.hasPrefix("Speaker ")) { [weak self, weak w] name, remember in
+            guard let self else { return }
+            if let name {
+                self.store.renameSpeaker(from: old, to: name)
+                self.connection.send(["type": "rename", "from": old, "to": name, "remember": remember])
+            }
+            w?.close()
+            self.renameWindow = nil
+            if let before, before != NSRunningApplication.current { before.activate() }
+        }
+        w.contentView = NSHostingView(rootView: view)
+        // midden boven het paneel (en dus op het scherm van de meeting), niet midden op het hoofdscherm
+        let f = panel.frame
+        w.setFrameOrigin(NSPoint(x: f.midX - w.frame.width / 2, y: f.midY - w.frame.height / 2))
+        renameWindow = w
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+
     @objc func showKBPrep() { openKBPrep(source: nil, project: nil) }
 
     func openKBPrep(source: String?, project: String?) {
@@ -668,7 +700,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Publishers.CombineLatest(dock.$undocked, meeting)
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] undocked, inMeeting in self?.syncColumnPanels(undocked, visible: inMeeting) },
+            // de KB-naam in elke venstertitel; receive(on:) wacht tot de didSet van het project klaar is
+            Publishers.CombineLatest(store.$project, settings.$project)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _, _ in self?.updateWindowTitles() },
         ]
+    }
+
+    /// "Naam · KB" (of alleen de naam als er nog geen KB gekozen is), net als de kop van het paneel.
+    private func windowTitle(_ name: String) -> String {
+        let kb = store.project.isEmpty ? settings.projectLabel : store.project
+        return kb.isEmpty ? name : "\(name) · \(kb)"
+    }
+
+    private func updateWindowTitles() {
+        panel.title = windowTitle("HintMeet" + Instance.suffix)
+        for (c, p) in columnPanels { p.title = windowTitle(c.title) }
     }
 
     private func syncColumnPanels(_ undocked: Set<MeetingColumn>, visible: Bool) {
@@ -689,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let host = ClickThroughHostingView(rootView: view)
         host.sizingOptions = []
         let p = OverlayPanel(content: host)
-        p.title = c.title
+        p.title = windowTitle(c.title)
         p.minSize = NSSize(width: 240, height: 200)
         p.level = panel.level
         p.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
