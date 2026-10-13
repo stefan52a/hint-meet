@@ -151,6 +151,13 @@ class Pipeline:
         finally:
             self.confirm_slots.release()
 
+    def set_language(self, language: str | None):
+        """Taal van hints en linkerkolom tijdens de meeting (None = die van het gesprek)."""
+        self.config["advise"]["language"] = language
+        for part in (self.advisor, self.confirmer):
+            if part is not None and hasattr(part, "set_language"):
+                part.set_language(language)
+
     def close(self):
         """Na Stop: bevestigingen en Jev-aanroepen die nog wachten niet meer uitvoeren. Wat al loopt, eindigt
         binnen zijn timeout; LiveSession meldt het dan niet meer aan de app."""
@@ -175,13 +182,17 @@ class Sensitivity:
     """Schuifjes in de app (0 = minder, 1 = meer; 0,5 = de waarden uit gate.yaml) zetten de drempels van de
     lopende meeting. Hints: kans die de gate moet geven en relevantie van passages voor het advies.
     Bevestigingen: relevantie die als onderbouwing telt en hoe lang een uitspraak minstens is.
-    Helemaal naar "meer" vraagt bij bijna elke uitspraak Claude om advies (die zegt dan vaak GEEN)."""
+    Helemaal naar "meer" vraagt bij elke uitspraak met een passage Claude om advies (die zegt dan vaak GEEN):
+    drempels op 0, en in het bovenste kwart ook geen minimale urgentie van de gate meer.
+    Bevestigingen krijgen naar "meer" toe ook meer passages (tot MORE_PASSAGES)."""
 
     # (fewer, more): de uitersten; het midden komt uit gate.yaml
-    HINT_GATE = (0.95, 0.05)
-    HINT_RELEVANCE = (0.9, 0.05)
-    CONFIRM_RELEVANCE = (0.95, 0.1)
+    HINT_GATE = (0.95, 0.0)
+    HINT_RELEVANCE = (0.9, 0.0)
+    CONFIRM_RELEVANCE = (0.95, 0.0)
     CONFIRM_WORDS = (10, 1)
+    MORE_PASSAGES = 5
+    NO_URGENCY_FROM = 0.75   # vanaf hier telt de urgentie van de gate niet meer mee
 
     def __init__(self, config: dict):
         self.config = config
@@ -190,6 +201,8 @@ class Sensitivity:
             "rerank_min": config.setdefault("rerank", {}).get("min_relevance", 0.5),
             "confirm_min": config.setdefault("confirm", {}).get("min_relevance", 0.6),
             "min_words": config["confirm"].get("min_words", 4),
+            "urgency_min": config["gate"].get("urgency_min", 1),
+            "passages": config["confirm"].get("passages", 3),
         }
 
     @staticmethod
@@ -205,6 +218,7 @@ class Sensitivity:
                                                              self.HINT_GATE[1]), 3)
         self.config["rerank"]["min_relevance"] = round(between(s, self.HINT_RELEVANCE[0], self.base["rerank_min"],
                                                                self.HINT_RELEVANCE[1]), 3)
+        self.config["gate"]["urgency_min"] = 0 if s >= self.NO_URGENCY_FROM else self.base["urgency_min"]
 
     def set_confirm(self, s: float):
         s = self._slider(s)
@@ -212,3 +226,6 @@ class Sensitivity:
                                                                 self.CONFIRM_RELEVANCE[1]), 3)
         self.config["confirm"]["min_words"] = round(between(s, self.CONFIRM_WORDS[0], self.base["min_words"],
                                                             self.CONFIRM_WORDS[1]))
+        base = self.base["passages"]   # meer passages naar "meer" toe; naar "minder" niet minder dan gate.yaml
+        self.config["confirm"]["passages"] = base if s <= 0.5 else \
+            round(base + (max(self.MORE_PASSAGES, base) - base) * (s - 0.5) * 2)

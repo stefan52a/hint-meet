@@ -26,7 +26,8 @@ struct PhasedProgressView: View {
                     }
                     if collapsible, let current = task.phases.first(where: { $0.status == .running }) {
                         HStack(spacing: 6) {
-                            Text(current.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(current.label + (current.detail.isEmpty ? "" : " · " + current.detail))
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             Spacer()
                             Button(showPhases ? "Hide details" : "Details") { showPhases.toggle() }
                                 .buttonStyle(.link).font(.caption)
@@ -67,7 +68,9 @@ struct PhasedProgressView: View {
                 } else if let guess = task.estimate(at: tick) {
                     ProgressView(value: guess.fraction).frame(width: 90)
                 }
-                Text(p.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                // niet inkorten: juist het totaal ("1792 of 4123") viel weg; liever een tweede regel
+                Text(p.detail).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
             }
             Spacer(minLength: 0)
         }

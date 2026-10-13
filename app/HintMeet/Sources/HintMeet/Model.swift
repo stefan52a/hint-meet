@@ -50,6 +50,13 @@ final class HintStore: ObservableObject {
     @Published private(set) var transcript: [Utterance] = []
     /// Uitspraken die het dossier onderbouwt, op volgorde van het transcript.
     @Published private(set) var confirmations: [Confirmation] = []
+    /// Linkerkolom: de onderbouwde uitspraak die je gekozen hebt (✓ in het transcript of een kaart links); die
+    /// staat in het midden en zijn uitspraak kleurt groen. nil = live: de nieuwste in het midden.
+    @Published private(set) var backedID: Int?
+    /// Telt op bij elke keuze links of via een ✓: de lijsten scrollen dan naar die uitspraak.
+    @Published private(set) var backedToken = 0
+    /// Gekozen via de ✓ in het transcript: dan scrollt het transcript niet (de regel staat al in beeld).
+    private(set) var backedFromTranscript = false
     private(set) var session = ""
     /// Zoekresultaten van de meeting-pijplijn gaan naar Find Documents.
     var onSearchResults: (([String: Any]) -> Void)?
@@ -124,6 +131,18 @@ final class HintStore: ObservableObject {
         browse(to: hint.id, from: .other)
     }
 
+    /// Kies een onderbouwde uitspraak (✓ in het transcript of een kaart links); nogmaals kiezen = terug naar live.
+    func selectBacked(_ id: Int, fromTranscript: Bool) {
+        guard confirmations.contains(where: { $0.id == id }) else { return }
+        if backedID == id && !fromTranscript { backedID = nil; return }
+        backedID = id
+        backedFromTranscript = fromTranscript
+        backedToken += 1
+    }
+
+    /// Terug naar live in de linkerkolom (zelf naar onderen gescrold, of een andere uitspraak gekozen).
+    func clearBacked() { if backedID != nil { backedID = nil } }
+
     /// Uitspraken waarop een (definitieve) hint reageerde: die krijgen een 💡 in het transcript.
     var hinted: Set<Int> { Set(history.map(\.id)) }
 
@@ -146,7 +165,7 @@ final class HintStore: ObservableObject {
             let new = msg["session"] as? String ?? ""
             if new != session {
                 hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
-                confirmations = []
+                confirmations = []; backedID = nil
                 session = new
             }
             project = msg["project"] as? String ?? ""
@@ -209,7 +228,7 @@ final class HintStore: ObservableObject {
     /// "New Meeting": het gesprek van de vorige meeting uit beeld, terug naar het startscherm.
     func clearMeeting() {
         hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []
-        confirmations = []; browseID = nil; stopped = false
+        confirmations = []; backedID = nil; browseID = nil; stopped = false
     }
 
     func rate(_ id: Int, _ rating: Int) {

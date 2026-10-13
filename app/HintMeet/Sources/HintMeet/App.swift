@@ -10,7 +10,7 @@ final class PanelLayout: ObservableObject {
     static let minWidth: CGFloat = 320
     @Published var width: CGFloat
     @Published var minHeight: CGFloat
-    private let key = "overlaySize"
+    private let key = Instance.key("overlaySize")
 
     init() {
         let saved = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter(\.isFinite)
@@ -59,7 +59,7 @@ final class OverlayPanel: NSPanel {
         super.init(contentRect: NSRect(origin: .zero, size: Self.defaultSize),
                    styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel],
                    backing: .buffered, defer: false)
-        title = "HintMeet"
+        title = "HintMeet" + Instance.suffix
         minSize = NSSize(width: PanelLayout.minWidth, height: 220)
         isFloatingPanel = true
         level = UserDefaults.standard.object(forKey: "keepOnTop") as? Bool ?? true ? .floating : .normal
@@ -123,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let windowMenu = NSMenu(title: "Window")
     var connection: Connection!
     var panel: OverlayPanel!
+    let dock = ColumnDock()
+    /// Losse vensters van kolommen die niet in het paneel staan.
+    private var columnPanels: [MeetingColumn: OverlayPanel] = [:]
+    private var columnWatch: [AnyCancellable] = []
     var statusItem: NSStatusItem!
     var hosting: ClickThroughHostingView<OverlayView>!
     var settingsWindow: NSWindow?
@@ -130,16 +134,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var refit: DispatchWorkItem?
     private var quitWatch: AnyCancellable?
     private var restarting = false
-    private let topLeftKey = "overlayTopLeft"
+    private let topLeftKey = Instance.key("overlayTopLeft")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let port = Int(ProcessInfo.processInfo.environment["HINT_MEET_PORT"] ?? "") ?? 8765
+        let port = Instance.port
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
         preparer = ProgressTask(logName: "prepare")
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,
-                               settings: settings, layout: layout,
+                               settings: settings, layout: layout, dock: dock,
                                send: { [weak self] msg in self?.connection.send(msg) },
                                startMeeting: { [weak self] in self?.startMeeting() },
                                playRecording: { [weak self] in self?.playRecording() },
@@ -158,7 +162,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
            [saved.minX, saved.minY, saved.width, saved.height].allSatisfy(\.isFinite),
            saved.width >= PanelLayout.minWidth, saved.height >= 220 {   // kapotte of te kleine waarde: niet gebruiken
             panel.setFrame(saved, display: false)   // constrainFrameRect houdt hem precies zo
-        } else if !panel.setFrameUsingName(Self.frameName) {   // eenmalig: plek van vóór deze versie overnemen
+        } else if Instance.number > 1,   // een volgende instantie: schuin onder het paneel van de eerste
+                  let first = UserDefaults.standard.string(forKey: "overlayFrame").map(NSRectFromString),
+                  [first.minX, first.minY, first.width, first.height].allSatisfy(\.isFinite), first.width >= PanelLayout.minWidth {
+            let step = CGFloat(Instance.number - 1) * 40
+            panel.setFrame(first.offsetBy(dx: step, dy: -step), display: false)
+        } else if Instance.number > 1 || !panel.setFrameUsingName(Self.frameName) {   // eenmalig: plek van vóór deze versie overnemen
             let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
             panel.setFrameTopLeftPoint(NSPoint(x: f.maxX - OverlayPanel.defaultSize.width - 20, y: f.maxY - 20))
         }
@@ -170,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         panel.orderFrontRegardless()
+        watchColumns()
 
         watchKBStatus()
         // Find Documents tijdens een meeting: zoeken in de KB die de meeting al geladen heeft
@@ -182,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "💡"
+        statusItem.button?.title = "💡" + Instance.suffix
         let menu = NSMenu()
         menu.delegate = self   // menu wordt bij elke klik opnieuw opgebouwd, met de actuele stand
         statusItem.menu = menu
@@ -264,7 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             restart.toolTip = "Quits HintMeet (a running meeting finishes its report first) and starts the latest build"
             parts = [[header], meetingItems(), kbItems(), overlayItems(),
                      [item("Settings…", #selector(showSettings), ","), item("Log", #selector(openLog), "")],
-                     [restart, item("Quit HintMeet", #selector(NSApplication.terminate(_:)), "q")]]
+                     [item("New HintMeet Window", #selector(openAnotherInstance), "n"),
+                      restart, item("Quit HintMeet", #selector(NSApplication.terminate(_:)), "q")]]
         }
         for (i, group) in parts.enumerated() {
             if i > 0 { menu.addItem(.separator()) }
@@ -351,7 +362,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.loadingProjects = self.settings.selectedProjects
                         self.loadingStarted = Date()
                     case .done:
-                        self.kbStatus.markLoaded(self.loadingProjects, startedAt: self.loadingStarted)
+                        // vanaf het einde van het bijwerken: de eigen schrijfacties van kb_prep tellen niet als wijziging
+                        self.kbStatus.markLoaded(self.loadingProjects,
+                                                 startedAt: self.preparer.docsUpdatedAt ?? self.loadingStarted)
                         // Find Documents alvast laden (de KB staat net in de cache), zodat zoeken direct werkt
                         if !self.backend.isRunning { self.searchService.ensureRunning() }
                     case .failed: self.kbStatus.refresh()
@@ -465,6 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             standard("Hide HintMeet", #selector(NSApplication.hide(_:)), "h"),
             standard("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
             standard("Show All", #selector(NSApplication.unhideAllApplications(_:)), ""), .separator(),
+            item("New HintMeet Window", #selector(openAnotherInstance), "n"),
             item("Restart HintMeet", #selector(restartApp), "r"),
             item("Quit HintMeet", #selector(NSApplication.terminate(_:)), "q"),
         ]))
@@ -513,7 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         panel.previousApp = nil   // één keer gebruiken; een volgende klik op het paneel onthoudt opnieuw
         backend.start()
-        statusItem.button?.title = backend.isRunning ? "💡●" : "💡"
+        statusItem.button?.title = backend.isRunning ? "💡●" + Instance.suffix : "💡" + Instance.suffix
         panel.orderFrontRegardless()
         watchBackend()
     }
@@ -539,6 +553,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         NSApp.terminate(nil)   // applicationShouldTerminate wacht eerst op het verslag van een lopende meeting
+    }
+
+    /// Nog een HintMeet naast deze, met een eigen paneel, pijplijn en poort (bv. voor een tweede meeting).
+    @objc func openAnotherInstance() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, error in
+            if error != nil { DispatchQueue.main.async { NSSound.beep() } }
+        }
     }
 
     /// Een eerdere opname (bv. van de Plaud) afspelen alsof het een live meeting is.
@@ -598,11 +621,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch state {
-                case .running: self.statusItem.button?.title = "💡●"
-                case .stopping: self.statusItem.button?.title = "💡…"
-                case .failed: self.statusItem.button?.title = "💡⚠"
+                case .running: self.statusItem.button?.title = "💡●" + Instance.suffix
+                case .stopping: self.statusItem.button?.title = "💡…" + Instance.suffix
+                case .failed: self.statusItem.button?.title = "💡⚠" + Instance.suffix
                 case .idle:
-                    self.statusItem.button?.title = "💡"
+                    self.statusItem.button?.title = "💡" + Instance.suffix
                     if self.searchWasWarm {   // na de meeting Find Documents weer klaarzetten
                         self.searchWasWarm = false
                         self.searchService.ensureRunning()
@@ -615,7 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: paneel
 
     private static let frameName = "HintMeetOverlay"   // autosave van macOS, alleen nog om over te nemen
-    private static let frameKey = "overlayFrame"
+    nonisolated private static let frameKey = Instance.key("overlayFrame")
 
     @objc func resetPanelSize() {
         var frame = panel.frame
@@ -628,7 +651,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleKeepOnTop() {
         let onTop = panel.level != .floating
         panel.level = onTop ? .floating : .normal
+        for p in columnPanels.values { p.level = panel.level }
         UserDefaults.standard.set(onTop, forKey: "keepOnTop")
+    }
+
+    // MARK: losse kolommen
+
+    /// Losse kolomvensters volgen de keuze (los / terug) en zijn er alleen tijdens en na een meeting.
+    private func watchColumns() {
+        let meeting = Publishers.CombineLatest3(backend.$state, store.$transcript, store.$summaryPath)
+            .map { [weak self] state, transcript, report in
+                (self?.backend.isRunning ?? false) || state == .stopping || !transcript.isEmpty || report != nil
+            }
+            .removeDuplicates()
+        columnWatch = [
+            Publishers.CombineLatest(dock.$undocked, meeting)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] undocked, inMeeting in self?.syncColumnPanels(undocked, visible: inMeeting) },
+        ]
+    }
+
+    private func syncColumnPanels(_ undocked: Set<MeetingColumn>, visible: Bool) {
+        for (c, p) in columnPanels where !undocked.contains(c) {   // terug in het paneel
+            columnPanels[c] = nil
+            p.close()
+        }
+        for c in MeetingColumn.allCases where undocked.contains(c) {
+            let p = columnPanels[c] ?? makeColumnPanel(c)
+            columnPanels[c] = p
+            if visible { p.orderFrontRegardless() } else { p.orderOut(nil) }
+        }
+    }
+
+    private func makeColumnPanel(_ c: MeetingColumn) -> OverlayPanel {
+        let view = ColumnWindowView(column: c, store: store, settings: settings, dock: dock,
+                                    send: { [weak self] msg in self?.connection.send(msg) })
+        let host = ClickThroughHostingView(rootView: view)
+        host.sizingOptions = []
+        let p = OverlayPanel(content: host)
+        p.title = c.title
+        p.minSize = NSSize(width: 240, height: 200)
+        p.level = panel.level
+        p.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
+        let key = Instance.key("columnFrame." + c.rawValue)
+        if let saved = UserDefaults.standard.string(forKey: key).map(NSRectFromString),
+           [saved.minX, saved.minY, saved.width, saved.height].allSatisfy(\.isFinite), saved.width >= 240, saved.height >= 200 {
+            p.setFrame(saved, display: false)
+        } else {   // eerste keer: naast het paneel, schuin onder elkaar
+            let n = CGFloat(MeetingColumn.allCases.firstIndex(of: c) ?? 0)
+            p.setFrame(NSRect(x: panel.frame.minX + 40 + n * 30, y: panel.frame.maxY - 600 - n * 30, width: 420, height: 560),
+                       display: false)
+        }
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: p, queue: .main) { note in
+                guard let w = note.object as? NSWindow else { return }
+                UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: key)
+            }
+        }
+        // het venster sluiten = de kolom terug in het paneel
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: p, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.columnPanels[c] === p else { return }
+                self.columnPanels[c] = nil
+                self.dock.dock(c)
+            }
+        }
+        return p
     }
 
     @objc func togglePanel() {

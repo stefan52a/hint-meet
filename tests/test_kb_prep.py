@@ -754,7 +754,7 @@ def test_long_name_is_shortened_but_page_counter_kept(monkeypatch):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     monkeypatch.setattr(kb_prep.shutil, "get_terminal_size", lambda *_: os.terminal_size((50, 20)))
     p = kb_prep.Progress(375)
-    p.update(7, "01-woning-en-installatie/AFSCHRIFT akte Splitsing blok C Florence.pdf")
+    p.update(7, "01-woning-en-installatie/akte-splitsing-blok-c.pdf")
     p.tick(22, 80, "pagina")
     last = tty.text.split("\r\033[K")[-1]
     assert len(last) <= 49 and last.endswith("pagina 23/80") and "…" in last

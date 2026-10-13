@@ -119,13 +119,19 @@ class LiveSession:
     STALE_MS = 8000      # loopt de verwerking verder achter dan dit, dan geen advies meer
 
     def __init__(self, sources, transcriber, pipeline, on_event=None, on_text=None, on_utterance=None,
-                 min_silence_ms: int = 400, on_confirm=None):
+                 min_silence_ms: int = 400, on_confirm=None, speaker_id=None, voice_channels=("Unknown",)):
         """on_utterance(index, utterance): meteen na de spraakherkenning. on_text(partial, index): hint in wording.
         on_event(LiveEvent): na de pijplijn. De laatste twee komen uit de pijplijndraad. on_confirm(index, Advice):
         het dossier onderbouwt de uitspraak, later uit een draad van de bevestiger."""
         self.sources, self.transcriber, self.pipeline = sources, transcriber, pipeline
         self.on_event, self.on_text, self.on_utterance = on_event, on_text, on_utterance
         self.on_confirm = on_confirm
+        # stemherkenning voor kanalen waarop iedereen binnenkomt (alleen een microfoon, mono-opname)
+        self.speaker_id, self.voice_channels = speaker_id, set(voice_channels)
+        self.voice_pool = None
+        if speaker_id is not None:
+            from concurrent.futures import ThreadPoolExecutor
+            self.voice_pool = ThreadPoolExecutor(1, thread_name_prefix="hint-meet-voice")
         self.work: queue.Queue = queue.Queue()   # (index, klaar-tijd, wait_ms, asr_ms, advise) voor de pijplijn
         self.worker: threading.Thread | None = None
         self.min_silence_ms = min_silence_ms
@@ -194,10 +200,19 @@ class LiveSession:
     def _handle(self, segment, ready_at: float, advise: bool = True):
         """Spraakdraad: transcriberen, meteen melden, en doorgeven aan de pijplijn."""
         wait_ms = (time.monotonic() - ready_at) * 1000
+        # wie het zegt: tegelijk met de spraakherkenning, zodat het transcript er niet later door komt
+        voice = (self.voice_pool.submit(self.speaker_id.identify, segment.audio)
+                 if self.voice_pool and segment.channel in self.voice_channels else None)
         text, asr_ms = self.transcriber(segment.audio, segment.channel)
+        speaker = segment.channel
+        if voice is not None:
+            try:
+                speaker = voice.result(timeout=2) or segment.channel   # te kort om te herkennen: kanaalnaam
+            except Exception as e:  # noqa: BLE001 - herkenning faalt of is te traag: de kanaalnaam
+                print(f"Sprekerherkenning: {type(e).__name__}: {e}", file=sys.stderr)
         if not text:
             return
-        u = Utterance(int(segment.start), segment.channel, text)
+        u = Utterance(int(segment.start), speaker, text)
         index = len(self.utterances)
         self.utterances.append(u)
         if self.on_utterance:

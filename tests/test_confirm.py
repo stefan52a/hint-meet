@@ -179,29 +179,29 @@ def test_sensitivity_midpoint_keeps_yaml_and_moves_thresholds():
     import pytest
 
     from hint_meet.pipeline import Sensitivity
-    config = {"gate": {"intervene_min": 0.97}, "rerank": {"min_relevance": 0.5},
-              "confirm": {"min_relevance": 0.6, "min_words": 4}}
+    config = {"gate": {"intervene_min": 0.97, "urgency_min": 1}, "rerank": {"min_relevance": 0.5},
+              "confirm": {"min_relevance": 0.6, "min_words": 4, "passages": 3}}
     s = Sensitivity(config)
     s.set_hints(0.5)
     s.set_confirm(0.5)
-    assert config["gate"]["intervene_min"] == 0.97   # ook een ongewone yaml-waarde blijft precies staan
-    assert config["rerank"]["min_relevance"] == 0.5 and config["confirm"] == {"min_relevance": 0.6, "min_words": 4}
-    s.set_hints(1)        # meer hints: veel lagere drempels
-    s.set_confirm(1)      # meer bevestigingen
-    assert config["gate"]["intervene_min"] == 0.05 and config["rerank"]["min_relevance"] == 0.05
-    assert config["confirm"] == {"min_relevance": 0.1, "min_words": 1}
+    assert config["gate"] == {"intervene_min": 0.97, "urgency_min": 1}   # ook een ongewone yaml-waarde blijft staan
+    assert config["rerank"]["min_relevance"] == 0.5
+    assert config["confirm"] == {"min_relevance": 0.6, "min_words": 4, "passages": 3}
+    s.set_hints(1)        # meer hints: drempels op 0, urgentie telt niet meer
+    s.set_confirm(1)      # meer bevestigingen, met meer passages
+    assert config["gate"] == {"intervene_min": 0.0, "urgency_min": 0} and config["rerank"]["min_relevance"] == 0.0
+    assert config["confirm"] == {"min_relevance": 0.0, "min_words": 1, "passages": 5}
     s.set_hints(0)
     s.set_confirm(0)
     # yaml 0.97 ligt boven het uiterste 0.95: "minder" blijft dan 0.97 in plaats van soepeler te worden
-    assert config["gate"]["intervene_min"] == 0.97 and config["rerank"]["min_relevance"] == 0.9
-    assert config["confirm"] == {"min_relevance": 0.95, "min_words": 10}
-    s.set_hints(0.75)     # halverwege tussen yaml en het uiterste
-    assert config["rerank"]["min_relevance"] == 0.275
+    assert config["gate"] == {"intervene_min": 0.97, "urgency_min": 1} and config["rerank"]["min_relevance"] == 0.9
+    assert config["confirm"] == {"min_relevance": 0.95, "min_words": 10, "passages": 3}
+    s.set_hints(0.75)     # halverwege tussen yaml en het uiterste; vanaf hier zonder minimale urgentie
+    assert config["rerank"]["min_relevance"] == 0.25 and config["gate"]["urgency_min"] == 0
     s.set_hints(7)        # onzin van de app wordt begrensd
-    assert config["gate"]["intervene_min"] == 0.05
+    assert config["gate"]["intervene_min"] == 0.0
     with pytest.raises(ValueError):
         s.set_hints(math.nan)
-
 
 def fixed_reply(text):
     client = FakeClient()
@@ -228,3 +228,18 @@ def test_most_relevant_passages_go_to_the_confirmer_first():
     p = Pipeline(FakeKB(), ScriptedGate([0.1]), FakeAdvisor(Advice("", [])), config, rr, confirmer=conf)
     run(p)
     assert conf.hits == ["derde.md", "ander.md"]
+
+
+
+def test_language_can_change_during_the_meeting():
+    from hint_meet.advise import ClaudeAdvisor
+    config = {**CCONFIG, "advise": {**CCONFIG["advise"], "language": "nl"}}
+    adv = ClaudeAdvisor(config, FakeClient())
+    conf = ClaudeConfirmer(config, FakeClient())
+    p = Pipeline(FakeKB(), ScriptedGate([0.1]), adv, config, confirmer=conf)
+    assert "Dutch" in adv.system and "Dutch" in conf.system
+    p.set_language("en")
+    assert "English" in adv.system and "Dutch" not in adv.system and "English" in conf.system
+    assert config["advise"]["language"] == "en"
+    p.set_language(None)   # meertalig: de taal van het gesprek
+    assert "laatste beurten" in adv.system

@@ -14,6 +14,7 @@ struct OverlayView: View {
     @ObservedObject var kbStatus: KBStatus
     @ObservedObject var settings: Settings
     @ObservedObject var layout: PanelLayout
+    @ObservedObject var dock: ColumnDock
     let send: ([String: Any]) -> Void
     let startMeeting: () -> Void
     let playRecording: () -> Void
@@ -65,6 +66,9 @@ struct OverlayView: View {
             if state == .running && meetingStarted == nil { meetingStarted = Date() }
             if state != .running && state != .stopping { meetingStarted = nil }   // ook na een fout: nieuwe klok
         }
+        .onChange(of: settings.language) { _, code in   // tijdens een meeting: meteen naar de pijplijn
+            if backend.isRunning { send(["type": "language", "code": code]) }
+        }
         .onChange(of: store.summaryPath) { _, path in
             guard path != nil else { pointAtReport = false; return }
             pointAtReport = true
@@ -109,7 +113,7 @@ struct OverlayView: View {
                 PhasedProgressView(task: preparer, tick: tick, collapsible: true)
             }
             step(2, "Meeting") {
-                TextField("With whom, where (optional; used in the report name)", text: $settings.meetingInfo)
+                TextField("With whom, where (optional; used in the report file name)", text: $settings.meetingInfo)
                     .textFieldStyle(.roundedBorder)
                 Picker("Language", selection: $settings.language) {
                     ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
@@ -191,6 +195,14 @@ struct OverlayView: View {
                     .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer()
+            if backend.isRunning && backend.state != .stopping {   // taal wisselen tijdens de meeting
+                Picker("Language", selection: $settings.language) {
+                    ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                .labelsHidden().fixedSize()
+                .help("Language of the conversation: speech recognition, hints and the report follow it from the "
+                      + "next utterance. Multilingual recognizes the language per speaker.")
+            }
             Button { find() } label: { Label("Find", systemImage: "magnifyingglass") }
                 .help("Find a document by its content in the knowledge base (⌘F)")
             if backend.isRunning && backend.state != .stopping {
@@ -236,21 +248,50 @@ struct OverlayView: View {
         .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
+    /// Stappen van het afsluiten, in de volgorde waarin de pijplijn ze meldt (status uit src/hint_meet/cli.py).
+    private static let finishSteps = ["Processing the last utterance", "Saving the transcript",
+                                      "Writing the report with action items"]
+
+    /// Waar het afsluiten is: 0, 1 of 2 (zie finishSteps).
+    private var finishIndex: Int {
+        if store.status.hasPrefix("Writing report") || store.status == "Report ready" { return 2 }
+        if store.status.hasPrefix("Saving transcript") { return 1 }
+        return 0
+    }
+
+    /// Tijdens het afsluiten: een balk over de stappen (stap 2 van 3), en bij het verslag, dat geen vaste duur
+    /// heeft, daaronder een bewegende balk. Abort stopt zonder verslag (het transcript is dan al bewaard).
     private var stopping: some View {
-        HStack(alignment: .center, spacing: 10) {
-            ProgressView().controlSize(.small)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Quitting – waiting for the report").font(.callout.weight(.medium))
-                Text(stoppingStep + (backend.stoppingSince.map { " · " + elapsed(since: $0) } ?? ""))
+        let steps = Self.finishSteps
+        let index = finishIndex
+        let writing = index == 2
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: writing ? "doc.text" : "hourglass").foregroundStyle(Color.accentColor)
+                Text("Step \(index + 1) of \(steps.count): \(steps[index])…").font(.callout.weight(.medium))
+                Text(backend.stoppingSince.map { elapsed(since: $0) } ?? "")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer()
+                Button(role: .destructive) { backend.abort() } label: { Label("Abort", systemImage: "xmark") }
+                    .controlSize(.small)
+                    .help(writing ? "Stop without a report; the transcript is already saved in logs/"
+                                  : "Stop now; the transcript is saved first if the pipeline gets that far")
             }
-            Spacer()
-            Button("Abort Now") { backend.abort() }
-                .controlSize(.small).help("Don't wait for the report; the transcript is already saved or will be lost")
+            ProgressView(value: Double(index), total: Double(steps.count))   // de stappen: bepaald
+            if writing {
+                ProgressView().progressViewStyle(.linear)   // het verslag: duur onbekend, bewegende balk
+            }
+            HStack(spacing: 12) {   // de stappen zelf, met ✓ voor wat klaar is
+                ForEach(Array(steps.enumerated()), id: \.offset) { n, name in
+                    Label(name, systemImage: n < index ? "checkmark.circle.fill" : n == index ? "circle.dotted" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(n < index ? AnyShapeStyle(Color.green) : n == index ? AnyShapeStyle(.primary)
+                                         : AnyShapeStyle(.tertiary))
+                }
+            }
         }
-        .padding(8)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var stoppingStep: String {
@@ -263,138 +304,39 @@ struct OverlayView: View {
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 
-    /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt alles onder elkaar.
+    /// Vanaf deze breedte staan de kolommen naast elkaar; smaller onder elkaar.
     static let twoColumnWidth: CGFloat = 560
-    /// Vanaf deze breedte krijgt wat de KB onderbouwt een eigen kolom links.
-    static let threeColumnWidth: CGFloat = 860
 
-    /// De drie kolommen; smaller schuiven ze in elkaar. Transcript en hints krijgen alle overgebleven hoogte.
+    /// De kolommen die niet in een eigen venster staan, met versleepbare scheidingen ertussen.
     @ViewBuilder private var columns: some View {
-        if size.width >= Self.threeColumnWidth {
-            HStack(alignment: .top, spacing: 12) {
-                backedColumn.frame(width: size.width * 0.27)
-                Divider()
-                transcriptColumn.frame(width: size.width * 0.34)
-                Divider()
-                hintColumn
+        let shown = MeetingColumn.allCases.filter { !dock.undocked.contains($0) }
+        if shown.isEmpty {
+            VStack(spacing: 8) {
+                Text("All columns are in their own windows.").font(.callout).foregroundStyle(.secondary)
+                Button("Put Them Back in the Panel") { dock.dockAll() }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if size.width >= Self.twoColumnWidth {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 10) {
-                    transcriptColumn
-                    Divider()
-                    backedColumn.frame(height: store.confirmations.isEmpty ? nil : size.height * 0.3)
+            let total = shown.map(\.share).reduce(0, +)
+            HSplitView {
+                ForEach(shown) { c in
+                    column(c)
+                        .padding(.horizontal, 8)
+                        .frame(minWidth: 200, idealWidth: size.width * c.share / total, maxWidth: .infinity,
+                               maxHeight: .infinity)
                 }
-                .frame(width: size.width * 0.45)
-                Divider()
-                hintColumn
             }
             .frame(maxHeight: .infinity)
         } else {
-            hintColumn.frame(height: 220)
-            Divider()
-            transcriptColumn
-            Divider()
-            backedColumn.frame(height: store.confirmations.isEmpty ? nil : 140)
+            VSplitView {
+                ForEach(shown) { c in column(c).padding(.vertical, 6).frame(minHeight: 120, maxHeight: .infinity) }
+            }
+            .frame(maxHeight: .infinity)
         }
     }
 
-    /// Dezelfde kop boven elke kolom: icoon, titel, aantal, en eventueel het gevoeligheidsschuifje.
-    private func columnHeader(_ title: String, icon: String, count: Int, slider: Binding<Double>? = nil,
-                              sliderHelp: String = "") -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
-                if count > 0 {
-                    Text("\(count)").font(.caption2.weight(.semibold)).monospacedDigit()
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
-                }
-                Spacer(minLength: 0)
-            }
-            if let slider {
-                SensitivitySlider(title: "", value: slider, help: sliderHelp, changed: sendSensitivity)
-            }
-        }
-    }
-
-    private var backedColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            columnHeader("Backed by the KB", icon: "checkmark.seal", count: store.confirmations.count,
-                         slider: $settings.confirmSensitivity,
-                         sliderHelp: "More: also less clearly matching passages and shorter utterances. Fewer: only "
-                             + "clear matches. A ✓ always means nothing in the utterance contradicts the documents.")
-            ConfirmList(store: store)
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private var transcriptColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            columnHeader("Transcript", icon: "text.bubble", count: store.transcript.count)
-            if store.transcript.isEmpty {
-                placeholder("What is said appears here.")
-            } else {
-                TranscriptView(store: store)
-            }
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    /// Rechterkolom: bladeren en de hints op volgorde, en intrekkingen.
-    private var hintColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            columnHeader("Hints & corrections", icon: "lightbulb", count: store.history.count,
-                         slider: $settings.hintSensitivity,
-                         sliderHelp: "More: hints and corrections also when the gatekeeper is less sure and on less "
-                             + "clearly matching passages. Fewer: only when it clearly matters.")
-            if store.listHints.isEmpty {
-                placeholder("Answers and corrections from your documents appear here when they matter.")
-            } else {
-                if store.history.count > 1 || store.isBrowsing { historyBar }
-                HintsList(store: store, rate: { id, r in
-                    store.rate(id, r)
-                    send(["type": "feedback", "id": id, "rating": r, "session": store.session])
-                })
-                .frame(maxHeight: .infinity)
-            }
-            if let r = store.justRetracted, !store.isBrowsing {
-                // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
-                Text("Retracted (\(r.reason)): \(r.text)")
-                    .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    /// Terugbladeren door de hints van deze meeting; nieuwe hints komen binnen zonder je plek te verliezen.
-    private var historyBar: some View {
-        let history = store.history
-        let index = store.shownIndex ?? max(history.count - 1, 0)
-        return HStack(spacing: 6) {
-            Button { store.back() } label: { Image(systemName: "chevron.left") }
-                .disabled(index == 0 && store.isBrowsing)
-                .help("Previous hint (⌘[)")
-            Text("Hint \(min(index + 1, history.count)) of \(history.count)"
-                 + (store.shown.map { " · " + Self.clock.string(from: $0.updated) } ?? ""))
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-            Button { store.forward() } label: { Image(systemName: "chevron.right") }
-                .disabled(!store.isBrowsing)
-                .help("Next hint (⌘])")
-            Spacer()
-            if store.isBrowsing {
-                let newer = history.count - 1 - index
-                Button(newer > 0 ? "Latest (\(newer) newer)" : "Latest") { store.latest() }
-                    .controlSize(.small)
-            }
-        }
-        .buttonStyle(.borderless)
+    private func column(_ c: MeetingColumn) -> some View {
+        MeetingColumnView(column: c, store: store, settings: settings, dock: dock, send: send)
     }
 
     static let clock: DateFormatter = {
@@ -501,6 +443,8 @@ struct TranscriptView: View {
     @ObservedObject var store: HintStore
     /// Onderaan = live: nieuwe uitspraken scrollen mee en rechts staat de nieuwste hint.
     @State private var atBottom = true
+    /// Scrollbalk helemaal onderaan: nieuwe of groeiende uitspraken scrollen mee (ook als je een hint bekijkt).
+    @State private var pinned = true
     /// Na een scroll door de app zelf (pijltjes, Latest, nieuwe uitspraak) even niet de hint laten
     /// volgen uit de scrollpositie, anders vechten die twee met elkaar.
     @State private var ignoreScrollUntil = Date.distantPast
@@ -518,13 +462,13 @@ struct TranscriptView: View {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(store.transcript) { u in
                             row(u, focused: u.id == focus, hasHint: hinted.contains(u.id),
-                                confirmed: confirmed.contains(u.id))
+                                confirmed: confirmed.contains(u.id), backed: u.id == store.backedID)
                                 .id(u.id)
                                 .background(GeometryReader { g in
                                     Color.clear.preference(key: RowFrames.self,
                                                            value: [u.id: g.frame(in: .named("transcript"))])
                                 })
-                                .onTapGesture { store.focus(onUtterance: u.id) }
+                                .onTapGesture { store.clearBacked(); store.focus(onUtterance: u.id) }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityHint("Shows the hint for this moment in the conversation")
@@ -539,8 +483,8 @@ struct TranscriptView: View {
                 .onPreferenceChange(RowFrames.self) { frames in
                     followScroll(frames, height: viewport.size.height)
                 }
-                .onChange(of: store.transcript.last?.id) { _, last in
-                    if atBottom && !store.isBrowsing, let last { scroll(proxy, to: last, anchor: .bottom) }
+                .onChange(of: store.transcript.last) { _, last in   // nieuwe uitspraak, of de laatste werd langer
+                    if pinned, let last { scroll(proxy, to: last.id, anchor: .bottom) }
                 }
                 .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in de hintlijst
                     guard store.selectionSource == .hints, let id else { return }
@@ -548,6 +492,11 @@ struct TranscriptView: View {
                 }
                 .onChange(of: store.revealToken) { _, _ in   // jouw keuze: naar de uitspraak van die hint, ook de nieuwste
                     if let id = store.shown?.id { scroll(proxy, to: id, anchor: .center, animated: true) }
+                }
+                .onChange(of: store.backedToken) { _, _ in   // kaart links gekozen: naar zijn uitspraak
+                    if !store.backedFromTranscript, let id = store.backedID {
+                        scroll(proxy, to: id, anchor: .center, animated: true)
+                    }
                 }
                 .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
             }
@@ -566,6 +515,11 @@ struct TranscriptView: View {
     /// Wat er in beeld staat bepaalt de hint: helemaal onderaan = live, anders de hint van de uitspraak
     /// met 💡 die het dichtst bij het midden staat. Staat er geen 💡 in beeld, dan blijft de hint staan.
     private func followScroll(_ all: [Int: CGRect], height: CGFloat) {
+        // vóór een wijziging gemeten: stond de scrollbalk onderaan, dan blijft hij daar
+        if let content = all[Int.min] {
+            let now = content.maxY <= height + 8
+            if now != pinned { pinned = now }
+        }
         guard !store.transcript.isEmpty else { return }
         let offset = all[Int.min]?.minY
         var frames = all
@@ -594,8 +548,9 @@ struct TranscriptView: View {
         store.browse(to: best, from: .transcript)
     }
 
-    private func row(_ u: Utterance, focused: Bool, hasHint: Bool, confirmed: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+    private func row(_ u: Utterance, focused hintFocused: Bool, hasHint: Bool, confirmed: Bool, backed: Bool) -> some View {
+        let focused = hintFocused || backed   // gekozen via ✓ of links: groen in plaats van rood
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(u.time).font(.caption2).monospacedDigit()
                 .foregroundStyle(focused ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.tertiary))
             // de uitspraak van de getoonde hint: vet wit op lichtrood, goed leesbaar in licht en donker
@@ -608,11 +563,14 @@ struct TranscriptView: View {
             if confirmed {
                 Image(systemName: "checkmark.circle.fill").font(.caption)
                     .foregroundStyle(focused ? Color.white : Color.green)
-                    .help("Backed by the knowledge base (left column)")
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.selectBacked(u.id, fromTranscript: true) }   // gaat voor de klik op de regel
+                    .help("Backed by the knowledge base: click to show it in the left column")
             }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
-        .background(focused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
+        .background(backed ? Color(red: 0.2, green: 0.62, blue: 0.32).opacity(0.9)
+                        : hintFocused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
         .help(hasHint ? "Click to show the hint for this utterance" : "Click to show the hint from this moment")

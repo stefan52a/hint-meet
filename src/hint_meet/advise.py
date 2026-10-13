@@ -104,9 +104,13 @@ class ClaudeAdvisor:
         thinking = config["advise"].get("thinking")
         self.extra = {"thinking": {"type": thinking}} if thinking else {}
         self.max_points = config["advise"].get("max_points", 4)
-        self.system = ADVISE_SYSTEM.format(max_points=self.max_points,
-                                           language_rule=language_rule(config["advise"].get("language")),
-                                           max_words=config["advise"].get("max_words", 40))
+        self.max_words = config["advise"].get("max_words", 40)
+        self.set_language(config["advise"].get("language"))
+
+    def set_language(self, language: str | None):
+        """Taal van de hints (None = die van het gesprek); ook tijdens de meeting te wijzigen."""
+        self.system = ADVISE_SYSTEM.format(max_points=self.max_points, language_rule=language_rule(language),
+                                           max_words=self.max_words)
 
     def advise(self, window, moment: str, hits, on_text=None) -> Advice:
         prompt = (f"Passages uit het dossier:\n\n{format_passages(hits)}\n\n"

@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> int:
                          "herkend); hints en verslag volgen de gesprekstaal")
     lv.add_argument("--info", "--met", dest="info", default="",
                     help="meeting-info, bv. met wie en waar; komt in de naam en kop van het verslag")
+    vc = sub.add_parser("voice", help="je stem opnemen, zodat de sprekerherkenning jou bij naam herkent")
+    vc.add_argument("--name", default="Stefan", help="naam in het transcript")
+    vc.add_argument("--seconds", type=float, default=10.0, help="zo lang opnemen (spreek gewoon door)")
+    vc.add_argument("--mic", help="invoerapparaat (standaard: systeemstandaard)")
+    vc.add_argument("--forget", action="store_true", help="de opgenomen stem met deze naam wissen")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -75,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         return replay_cmd(a)
     if a.cmd == "calibrate":
         return calibrate_cmd(a)
+    if a.cmd == "voice":
+        return voice_cmd(a)
     if a.cmd == "live":
         return live_cmd(a)
     if a.cmd == "prepare":
@@ -328,7 +335,7 @@ def search_cmd(a) -> int:
             if total >= FIRST_TIME_CHUNKS and left >= FIRST_TIME_SECONDS and not warned:
                 warned.append(True)
                 print("@note " + first_time_note(total, left), flush=True)
-            print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
+            print(f"@progress {done} {total} Embeddings: {done} of {total} new chunks · ~{fmt_left(left)} left", flush=True)
 
     kb = KB(roots, progress=progress, on_phase=step)
     paths = {}
@@ -421,11 +428,11 @@ def prepare_cmd(a) -> int:
         if total >= FIRST_TIME_CHUNKS and left >= FIRST_TIME_SECONDS and not warned:   # eerste keer: veel stukjes in te bedden
             warned.append(True)
             print("@note " + first_time_note(total, left), flush=True)
-        print(f"@progress {done} {total} Embeddings: {done}/{total} new chunks · ~{fmt_left(left)} left", flush=True)
+        print(f"@progress {done} {total} Embeddings: {done} of {total} new chunks · ~{fmt_left(left)} left", flush=True)
 
     def word_progress(done, total, left):
         tail = f" · ~{fmt_left(left)} left" if done else ""
-        print(f"@progress {done} {total} Word index: {done}/{total} new chunks{tail}", flush=True)
+        print(f"@progress {done} {total} Word index: {done} of {total} new chunks{tail}", flush=True)
 
     kb = KB(roots, progress=progress, on_phase=step, word_progress=word_progress)
     step("asr")
@@ -442,6 +449,33 @@ def print_progress(done: int, total: int, left: float) -> None:
         sys.stdout.flush()
     else:
         print(line, flush=True)
+
+
+def voice_cmd(a) -> int:
+    """Je stem opnemen (of wissen) voor de sprekerherkenning. Voor de app: regels "@step …" en "@done …"."""
+    from .speakers import VOICES, Embedder, enroll, save_voice
+    if a.forget:
+        import json
+        data = json.loads(VOICES.read_text(encoding="utf-8")) if VOICES.exists() else {}
+        data.pop(a.name, None)
+        VOICES.parent.mkdir(parents=True, exist_ok=True)
+        VOICES.write_text(json.dumps(data), encoding="utf-8")
+        print(f"@done Voice of {a.name} removed", flush=True)
+        return 0
+    import numpy as np
+    import sounddevice as sd
+    print("@step model Loading voice model…", flush=True)
+    embed = Embedder()
+    print(f"@step record Recording {a.seconds:.0f} s: speak normally…", flush=True)
+    audio = sd.rec(int(a.seconds * 16000), samplerate=16000, channels=1, dtype="float32", device=a.mic or None)
+    sd.wait()
+    audio = audio[:, 0]
+    if float(np.sqrt(np.mean(audio ** 2))) < 0.003:
+        print("@error Hardly any sound recorded; check the microphone and try again", flush=True)
+        return 1
+    save_voice(a.name, enroll(audio, embed))
+    print(f"@done Voice of {a.name} recorded; HintMeet now recognizes {a.name} by voice", flush=True)
+    return 0
 
 
 def mic_label(me: str | None, system: str | None) -> str:
@@ -470,6 +504,7 @@ def live_cmd(a) -> int:
 
     config = yaml.safe_load(open(a.config, encoding="utf-8"))
     sensitivity = Sensitivity(config)   # de pijplijn leest dezelfde config, dus wijzigingen gelden meteen
+    lang = {"code": a.language}   # gesprekstaal; de app kan hem tijdens de meeting wijzigen
     try:
         roots = kb_dirs(a.project)
     except ValueError as e:
@@ -493,6 +528,21 @@ def live_cmd(a) -> int:
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 stop_requested.set()
+            elif msg.get("type") == "language":   # taalmenu in de app: geldt vanaf de volgende uitspraak
+                try:
+                    code = language_code(str(msg.get("code", "")))
+                except argparse.ArgumentTypeError as e:
+                    print(e, file=sys.stderr)
+                    return
+                lang["code"] = code
+                fixed = None if code == "multi" else code
+                if pipeline_ref.get("transcriber"):
+                    pipeline_ref["transcriber"].set_language(fixed)
+                if pipeline_ref.get("pipeline"):
+                    pipeline_ref["pipeline"].set_language(fixed)
+                else:   # nog aan het laden: de pijplijn neemt hem straks over
+                    config["advise"]["language"] = fixed
+                print(f"Taal: {code}", file=sys.stderr)
             elif msg.get("type") == "sensitivity":   # schuifjes in de app: geldt vanaf de volgende uitspraak
                 if "hints" in msg:
                     sensitivity.set_hints(msg["hints"])
@@ -542,12 +592,14 @@ def live_cmd(a) -> int:
         return 0
     loaded["kb"] = kb   # vanaf nu kan Find Documents in deze geladen KB zoeken
     status("Loading speech recognition…")
-    transcriber = Transcriber(kb_terms(kb.chunks), language=None if a.language == "multi" else a.language)
-    config["advise"]["language"] = None if a.language == "multi" else a.language
+    transcriber = Transcriber(kb_terms(kb.chunks), language=None if lang["code"] == "multi" else lang["code"])
+    pipeline_ref["transcriber"] = transcriber
+    config["advise"]["language"] = None if lang["code"] == "multi" else lang["code"]
     # bevestigingen (linkerkolom) alleen met de app erbij: in de terminal zouden ze de hints ondersneeuwen
     pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
                         make_reranker(config), make_confirmer(config) if hub else None)
     pipeline_ref["reranker"] = pipeline.reranker
+    pipeline_ref["pipeline"] = pipeline
     if a.wav:
         try:
             wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
@@ -619,9 +671,15 @@ def live_cmd(a) -> int:
                 print(f"  ✗ ingetrokken ({st.suppressed or 'geen bron'})")
         print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] p={st.gate.intervene:.2f} {u.speaker}: {u.text}")
 
+    from .speakers import make_speaker_id
+    channels = [label for s in sources for label in (s.labels if hasattr(s, "labels") else [s.label])]
+    speaker_id = make_speaker_id(config) if "Unknown" in channels else None   # alleen als iedereen op één kanaal zit
+    if speaker_id:
+        print("Sprekerherkenning aan: " + (", ".join(speaker_id.voices) + " op stem herkend, " if speaker_id.voices
+                                         else "nog geen stem opgenomen (hint-meet voice), ") + "anderen als Speaker 1, 2, …")
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
                           on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400),
-                          on_confirm=on_confirm if pipeline.confirmer else None)
+                          on_confirm=on_confirm if pipeline.confirmer else None, speaker_id=speaker_id)
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")
     out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
@@ -653,11 +711,11 @@ def live_cmd(a) -> int:
         from .summary import summarize, write_note
         status(f"Writing report ({len(session.utterances)} utterances)…")
         try:
-            md = summarize(session.utterances, config, language=None if a.language == "multi" else a.language)
+            md = summarize(session.utterances, config, language=None if lang["code"] == "multi" else lang["code"])
             # een testrun (--wav) hoort niet als echte meeting in de KB
             # bij meerdere projecten komt het verslag bij het eerste
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
-                              project="+".join(r.name for r in roots), info=a.info, language=a.language)
+                              project="+".join(r.name for r in roots), info=a.info, language=lang["code"])
             print(f"\n{md}\n\nVerslag: {note}")
             status("Report ready")
             if hub:

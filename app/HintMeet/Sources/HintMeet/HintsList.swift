@@ -43,8 +43,8 @@ struct HintsList: View {
                 .onChange(of: store.revealToken) { _, _ in   // jouw keuze (klik, ◀ ▶, Latest): die hint in het midden
                     if let id = store.shown?.id { scroll(proxy, to: id, animated: true) }
                 }
-                .onChange(of: items.last?.id) { _, last in   // nieuwe hint terwijl je live meeleest
-                    if !store.isBrowsing, let last { scroll(proxy, to: last, animated: true) }
+                .onChange(of: items.last) { _, last in   // nieuwe hint, of de hint in wording groeit, terwijl je live meeleest
+                    if !store.isBrowsing, let last { scroll(proxy, to: last.id, animated: true) }
                 }
                 .onAppear { if let id = focus { proxy.scrollTo(id, anchor: .center) } }
             }

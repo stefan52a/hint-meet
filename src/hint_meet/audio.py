@@ -144,6 +144,12 @@ class Transcriber:
         # eerste aanroep laadt het model: nu doen, niet midden in een gesprek
         self.mlx_whisper.transcribe(np.zeros(RATE, dtype=np.float32), path_or_hf_repo=model, language=language)
 
+    def set_language(self, language: str | None):
+        """Andere gesprekstaal tijdens de meeting (None = meertalig): geldt vanaf de volgende uitspraak.
+        De onthouden taal per spreker vervalt, zodat meertalig opnieuw herkent."""
+        self.language = language
+        self.spoken.clear()
+
     def _transcribe(self, audio: np.ndarray, language: str | None) -> dict:
         return self.mlx_whisper.transcribe(audio, path_or_hf_repo=self.model, language=language,
                                            initial_prompt=self.prompt, condition_on_previous_text=False)

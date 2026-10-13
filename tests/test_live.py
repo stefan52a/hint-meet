@@ -322,3 +322,25 @@ def test_mic_speaker_is_unknown_without_system_audio():
     assert mic_label(None, None) == "Unknown"            # één microfoon: iedereen in de ruimte
     assert mic_label(None, "BlackHole 2ch") == "Stefan"  # de ander komt via de systeemaudio
     assert mic_label("Anna", None) == "Anna"             # zelf opgegeven: zo laten
+
+
+def test_speaker_is_recognized_by_voice_on_the_shared_channel():
+    from types import SimpleNamespace as NS
+
+    class Voices:
+        def __init__(self):
+            self.calls = 0
+
+        def identify(self, audio):
+            self.calls += 1
+            return None if len(audio) < 16000 else "Speaker 1"
+
+    voices = Voices()
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("tekst", 5.0), pipeline=None,
+                          speaker_id=voices)
+    session._advise = lambda *a: None   # alleen het transcript
+    session._handle(NS(audio=np.zeros(32000, np.float32), channel="Unknown", start=0.0), ready_at=0)
+    session._handle(NS(audio=np.zeros(8000, np.float32), channel="Unknown", start=2.0), ready_at=0)
+    session._handle(NS(audio=np.zeros(32000, np.float32), channel="Gesprekspartner", start=3.0), ready_at=0)
+    assert [u.speaker for u in session.utterances] == ["Speaker 1", "Unknown", "Gesprekspartner"]
+    assert voices.calls == 2   # het kanaal van de ander heeft al een naam: geen herkenning

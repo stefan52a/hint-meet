@@ -54,7 +54,11 @@ class ClaudeConfirmer:
         self.client = client or claude_client(c.get("timeout_s", 8))
         self.model = c.get("model", "claude-haiku-5-5")
         self.effort = c.get("effort", "low")
-        self.system = CONFIRM_SYSTEM.format(language_rule=language_rule(config["advise"].get("language")))
+        self.set_language(config["advise"].get("language"))
+
+    def set_language(self, language: str | None):
+        """Taal van de regels in de linkerkolom (None = die van het gesprek); ook tijdens de meeting."""
+        self.system = CONFIRM_SYSTEM.format(language_rule=language_rule(language))
 
     def confirm(self, window, hits) -> Advice:
         prompt = (f"Passages uit het dossier:\n\n{format_passages(hits)}\n\n"

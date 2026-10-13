@@ -14,7 +14,7 @@ final class Backend: ObservableObject {
     let port: Int
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/HintMeet/backend.log")
+        .appendingPathComponent("Library/Logs/HintMeet/\(Instance.name("backend")).log")
 
     init(settings: Settings, port: Int) {
         self.settings = settings

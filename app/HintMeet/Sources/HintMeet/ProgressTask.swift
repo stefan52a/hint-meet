@@ -17,6 +17,9 @@ final class ProgressTask: ObservableObject {
     @Published private(set) var phases: [Phase] = []
     /// "@note …": een melding tijdens het werk, bv. dat de eerste keer inbedden lang kan duren.
     @Published private(set) var note = ""
+    /// Preload KB: wanneer het bijwerken van de documenten (stappen "docs-…") klaar was. Wat kb_prep daarbij zelf
+    /// schreef, is daarna geen wijziging meer; wat jij daarna in de bronmap verandert wel.
+    private(set) var docsUpdatedAt: Date?
 
     struct Phase: Identifiable, Equatable {
         enum Status: Equatable { case pending, running, done, stopped }
@@ -41,7 +44,7 @@ final class ProgressTask: ObservableObject {
 
     init(logName: String) {
         logURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/HintMeet/\(logName).log")
+            .appendingPathComponent("Library/Logs/HintMeet/\(Instance.name(logName)).log")
     }
 
     var isRunning: Bool { state == .running }
@@ -98,6 +101,7 @@ final class ProgressTask: ObservableObject {
             process = p
             state = .running
             stopRequested = false
+            docsUpdatedAt = nil
             summaries = []
             phases = []
             note = ""
@@ -227,7 +231,9 @@ final class ProgressTask: ObservableObject {
             let parts = line.dropFirst(6).split(separator: " ", maxSplits: 1).map(String.init)
             durations[stepKey] = Date().timeIntervalSince(stepStart)   // de vorige stap is klaar: duur onthouden
             UserDefaults.standard.set(durations, forKey: durationsKey)
-            stepKey = parts.first ?? ""
+            let next = parts.first ?? ""
+            if stepKey.hasPrefix("docs-") && !next.hasPrefix("docs-") { docsUpdatedAt = Date() }
+            stepKey = next
             stepStart = Date()
             step = parts.count > 1 ? parts[1] : ""
             fraction = nil

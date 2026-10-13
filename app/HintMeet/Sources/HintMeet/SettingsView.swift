@@ -6,6 +6,8 @@ struct SettingsView: View {
     @State private var keys: [String: String] = [:]
     @State private var devices: [String] = []
     @State private var saved: Bool? = nil
+    @StateObject private var voice = VoiceEnroll()
+    @State private var voiceName = "Stefan"
 
     var body: some View {
         Form {
@@ -27,6 +29,34 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("Report with action items afterwards", isOn: $settings.summary)
+            }
+            Section("Your voice") {
+                Text("With only a microphone, HintMeet tells speakers apart by voice (Speaker 1, 2, …). Record "
+                     + "your voice once and you appear by name.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                TextField("Name in the transcript", text: $voiceName)
+                HStack {
+                    Button(voice.recorded.contains(voiceName) ? "Record Again (10 s)" : "Record My Voice (10 s)") {
+                        voice.record(settings, name: voiceName.trimmingCharacters(in: .whitespaces))
+                    }
+                    .disabled(voice.isRunning || voiceName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if voice.recorded.contains(voiceName) {
+                        Button("Forget") { voice.forget(settings, name: voiceName) }.disabled(voice.isRunning)
+                    }
+                }
+                switch voice.state {
+                case .idle:
+                    if voice.recorded.contains(voiceName) {
+                        Label("Voice of \(voiceName) recorded", systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    }
+                case .running(let step):
+                    HStack { ProgressView().controlSize(.small); Text(step).font(.caption) }
+                case .done(let msg):
+                    Label(msg, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                case .failed(let why):
+                    Label(why, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                }
             }
             Section("API-keys (Keychain)") {
                 ForEach(Settings.keyNames, id: \.self) { name in

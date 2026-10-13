@@ -26,7 +26,7 @@ struct TaskProgressView: View {
                 }
                 Text(task.step + (guess.map { " · ~" + Self.seconds($0.left) + " left (estimate)" } ?? "")
                      + (task.since.map { " · " + Self.elapsed(from: $0, to: tick) } ?? ""))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         case .done(let msg):
             HStack {
