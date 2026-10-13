@@ -89,6 +89,15 @@ final class OverlayPanel: NSPanel {
         super.sendEvent(event)
     }
     override var canBecomeMain: Bool { false }
+
+    /// Jouw laatste plek en maat precies terug (macOS schuift een venster dat deels buiten beeld valt anders bij het
+    /// tonen terug, en dan klopt de onthouden plek niet meer). Alleen als de titelbalk op geen enkel scherm meer
+    /// staat (bv. extern scherm losgekoppeld) haalt macOS hem terug, zodat je hem altijd kunt verslepen.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        let titleBar = NSRect(x: frameRect.minX, y: frameRect.maxY - 28, width: frameRect.width, height: 28)
+        let reachable = NSScreen.screens.contains { $0.visibleFrame.intersection(titleBar).width >= 80 }
+        return reachable ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
 }
 
 @MainActor
@@ -140,12 +149,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hosting.sizingOptions = []   // het venster bepaalt de maat (jij sleept); de inhoud vult het
         panel = OverlayPanel(content: hosting)
         panel.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
-        // macOS onthoudt plek en maat; de eerste keer rechtsboven op het hoofdscherm
-        if !panel.setFrameUsingName(Self.frameName) {
+        // laatste plek en maat zelf onthouden: de autosave van macOS zet een venster dat over twee schermen valt
+        // bij de start op een ander scherm. De eerste keer rechtsboven op het hoofdscherm.
+        if let saved = UserDefaults.standard.string(forKey: Self.frameKey) {
+            panel.setFrame(NSRectFromString(saved), display: false)   // constrainFrameRect houdt hem precies zo
+        } else if !panel.setFrameUsingName(Self.frameName) {   // eenmalig: plek van vóór deze versie overnemen
             let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
             panel.setFrameTopLeftPoint(NSPoint(x: f.maxX - OverlayPanel.defaultSize.width - 20, y: f.maxY - 20))
         }
-        panel.setFrameAutosaveName(Self.frameName)
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: panel, queue: .main) { note in
+                guard let w = note.object as? NSWindow else { return }
+                UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: Self.frameKey)
+            }
+        }
         panel.orderFrontRegardless()
 
         watchKBStatus()
@@ -591,7 +608,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: paneel
 
-    private static let frameName = "HintMeetOverlay"
+    private static let frameName = "HintMeetOverlay"   // autosave van macOS, alleen nog om over te nemen
+    private static let frameKey = "overlayFrame"
 
     @objc func resetPanelSize() {
         var frame = panel.frame
