@@ -32,7 +32,9 @@ struct OverlayView: View {
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// Meetingstand: tijdens een meeting, en daarna zolang het gesprek nog in beeld is.
-    private var inMeeting: Bool { backend.isRunning || backend.state == .stopping || !store.transcript.isEmpty }
+    private var inMeeting: Bool {
+        backend.isRunning || backend.state == .stopping || !store.transcript.isEmpty || store.summaryPath != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +63,7 @@ struct OverlayView: View {
         .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
         .onChange(of: backend.state) { _, state in
             if state == .running && meetingStarted == nil { meetingStarted = Date() }
-            if state == .idle { meetingStarted = nil }
+            if state != .running && state != .stopping { meetingStarted = nil }   // ook na een fout: nieuwe klok
         }
         .onChange(of: store.summaryPath) { _, path in
             guard path != nil else { pointAtReport = false; return }
@@ -174,6 +176,9 @@ struct OverlayView: View {
             } else if backend.state == .stopping {
                 ProgressView().controlSize(.small)
                 Text("Finishing").font(.callout.weight(.semibold))
+            } else if case .failed = backend.state {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text("Stopped with an error").font(.callout.weight(.semibold))
             } else {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Ended").font(.callout.weight(.semibold))
@@ -201,6 +206,11 @@ struct OverlayView: View {
 
     /// Na afloop: het verslag openen of een nieuwe meeting voorbereiden (terug naar het startscherm).
     private var endedBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+        if case .failed(let why) = backend.state {   // ook na afloop zichtbaar, niet alleen op het startscherm
+            Label(why, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+        }
         HStack(spacing: 10) {
             if let path = store.summaryPath {
                 if pointAtReport {
@@ -219,6 +229,7 @@ struct OverlayView: View {
             Spacer()
             Button { store.clearMeeting() } label: { Label("New Meeting", systemImage: "plus") }
                 .help("Back to the start screen; the report stays in the meetings folder")
+        }
         }
         .controlSize(.regular)
         .padding(10)

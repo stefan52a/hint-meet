@@ -37,6 +37,10 @@ struct PhasedProgressView: View {
                     Label(task.note, systemImage: "hourglass")
                         .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
+                if collapsible && !task.isRunning {   // na afloop: de fases blijven op te vragen
+                    Button(showPhases ? "Hide details" : "Details") { showPhases.toggle() }
+                        .buttonStyle(.link).font(.caption)
+                }
                 if !collapsible || showPhases {
                     ForEach(task.phases) { phase in row(phase) }
                 }
