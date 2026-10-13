@@ -16,7 +16,11 @@ struct OverlayView: View {
     let openSettings: () -> Void
     let addFolder: () -> Void
     let find: () -> Void
+    let restart: () -> Void
     @State private var tick = Date()
+    /// Net een verslag klaar: een knipperende pijl wijst er 5 seconden naar.
+    @State private var pointAtReport = false
+    @State private var blink = false
     @State private var size = CGSize(width: PanelLayout.defaultWidth, height: 560)
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -62,8 +66,21 @@ struct OverlayView: View {
                     .frame(height: store.confirmations.isEmpty ? nil : 140)
             }
             if let path = store.summaryPath {
-                Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
-                    .buttonStyle(.link).font(.caption)
+                HStack(spacing: 6) {
+                    if pointAtReport {
+                        Image(systemName: "arrow.right.circle.fill").foregroundStyle(Color.accentColor)
+                            .opacity(blink ? 1 : 0.15)
+                            .animation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true), value: blink)
+                            .accessibilityHidden(true)
+                    }
+                    Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                        .buttonStyle(.link).font(.caption)
+                        .fontWeight(pointAtReport ? .semibold : .regular)
+                    Spacer()
+                    Button("Restart HintMeet") { restart() }
+                        .controlSize(.small)
+                        .help("Quits HintMeet and starts the latest build (⌘R)")
+                }
             }
         }
         .padding(14)
@@ -72,7 +89,14 @@ struct OverlayView: View {
         .background(GeometryReader { g in   // breedte en hoogte van het venster, voor de indeling
             Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
         })
-        .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
+        .onReceive(timer) { tick = $0 }
+        .onChange(of: store.summaryPath) { _, path in
+            guard path != nil else { pointAtReport = false; return }
+            pointAtReport = true
+            blink = false
+            DispatchQueue.main.async { blink = true }   // na de eerste weergave: dan start het knipperen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { pointAtReport = false; blink = false }
+        }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
     }
 
     /// Schuifjes naar de lopende meeting; geldt vanaf de volgende uitspraak.

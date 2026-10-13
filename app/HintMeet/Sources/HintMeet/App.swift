@@ -134,7 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() },
                                addFolder: { [weak self] in self?.addKBFolder() },
-                               find: { [weak self] in self?.showFind() })
+                               find: { [weak self] in self?.showFind() },
+                               restart: { [weak self] in self?.restartApp() })
         hosting = ClickThroughHostingView(rootView: view)
         hosting.sizingOptions = []   // het venster bepaalt de maat (jij sleept); de inhoud vult het
         panel = OverlayPanel(content: hosting)

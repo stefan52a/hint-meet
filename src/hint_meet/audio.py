@@ -224,11 +224,11 @@ def decode_audio(path: Path) -> np.ndarray:
 
 def channel_labels(channels: int, labels: list[str]) -> list[str]:
     """Spreker per kanaal. Een mono-opname (Plaud, één microfoon aan tafel) heeft alle sprekers
-    door elkaar op één kanaal: dat heet dan 'Gesprek'."""
+    door elkaar op één kanaal: de spreker is dan onbekend ("Unknown")."""
     if channels == len(labels):
         return labels
     if channels == 1:
-        return ["Gesprek"]
+        return ["Unknown"]
     raise ValueError(f"{channels} kanalen, maar {len(labels)} sprekers opgegeven")
 
 

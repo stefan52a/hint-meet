@@ -29,7 +29,7 @@ def test_wav_source_rejects_wrong_channel_count(tmp_path):
 
 def test_mono_recording_becomes_one_conversation_channel(tmp_path):
     write_wav(tmp_path / "mono.wav", channels=1)
-    assert WavSource(tmp_path / "mono.wav", ["Stefan", "Ander"]).labels == ["Gesprek"]
+    assert WavSource(tmp_path / "mono.wav", ["Stefan", "Ander"]).labels == ["Unknown"]
 
 
 def test_mp3_is_decoded_to_16k(tmp_path):
@@ -42,7 +42,7 @@ def test_mp3_is_decoded_to_16k(tmp_path):
     from hint_meet.audio import read_wav
     data = read_wav(tmp_path / "t.mp3")
     assert data.shape[1] == 1 and 15000 < len(data) < 17500 and data.dtype == np.float32
-    assert WavSource(tmp_path / "t.mp3", ["Stefan", "Ander"]).labels == ["Gesprek"]
+    assert WavSource(tmp_path / "t.mp3", ["Stefan", "Ander"]).labels == ["Unknown"]
 
 
 def test_missing_or_unreadable_file_gives_clear_error(tmp_path):
@@ -314,3 +314,11 @@ def test_stop_skips_advice_for_utterances_still_queued():
     session.worker.join()
     assert pipe.calls == 1                                           # de lopende hint maakt af, de rest niet
     assert [e.step is None for e in session.events] == [False, True, True]
+
+
+
+def test_mic_speaker_is_unknown_without_system_audio():
+    from hint_meet.cli import mic_label
+    assert mic_label(None, None) == "Unknown"            # één microfoon: iedereen in de ruimte
+    assert mic_label(None, "BlackHole 2ch") == "Stefan"  # de ander komt via de systeemaudio
+    assert mic_label("Anna", None) == "Anna"             # zelf opgegeven: zo laten

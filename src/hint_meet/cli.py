@@ -36,7 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     lv = sub.add_parser("live", help="realtime meeting volgen (microfoon, systeemaudio, of een WAV in echte tijd)")
     lv.add_argument("--mic", help="invoerapparaat voor jouw stem (standaard: systeemstandaard)")
     lv.add_argument("--system", help="apparaat met de systeemaudio van de meeting, bv. 'BlackHole 2ch'")
-    lv.add_argument("--me", default="Stefan", help="naam bij de microfoon")
+    lv.add_argument("--me", default=None,
+                    help="naam bij de microfoon (standaard Stefan met systeemaudio erbij, anders Unknown)")
     lv.add_argument("--other", default="Gesprekspartner", help="naam bij de systeemaudio")
     lv.add_argument("--wav", "--audio", dest="wav",
                     help="speel een opname (wav, mp3, m4a, …) in echte tijd af in plaats van apparaten")
@@ -443,6 +444,12 @@ def print_progress(done: int, total: int, left: float) -> None:
         print(line, flush=True)
 
 
+def mic_label(me: str | None, system: str | None) -> str:
+    """Spreker bij de microfoon. Alleen een microfoon: die vangt iedereen in de ruimte op, dus de spreker is
+    onbekend. Met systeemaudio erbij komt de ander via dat kanaal en is de microfoon van Stefan."""
+    return me or ("Stefan" if system else "Unknown")
+
+
 def live_cmd(a) -> int:
     import shutil
     import statistics
@@ -549,7 +556,7 @@ def live_cmd(a) -> int:
             return 2
         sources, until = [wav], (lambda: wav.finished)
     else:
-        sources = [DeviceSource(a.mic, a.me)]
+        sources = [DeviceSource(a.mic, mic_label(a.me, a.system))]
         if a.system:
             sources.append(DeviceSource(a.system, a.other))
         until = None
