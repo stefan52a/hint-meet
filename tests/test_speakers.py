@@ -128,3 +128,15 @@ def test_concurrent_saves_lose_nothing(tmp_path):
     with ThreadPoolExecutor(8) as pool:
         list(pool.map(lambda i: save_voice(f"P{i}", np.array([1.0, float(i)]), path), range(24)))
     assert len(load_voices(path)) == 24
+
+
+
+def test_nan_infinite_and_zero_samples_are_skipped_and_file_is_private(tmp_path):
+    import os
+    import stat
+    path = tmp_path / "voices.json"
+    path.write_text('{"Jan": [[NaN, 1.0], [0.0, 0.0], [1e400, 1.0], [0.6, 0.8]], "Anna": [[0.0, 0.0]]}')
+    voices = load_voices(path)
+    assert set(voices) == {"Jan"} and np.allclose(voices["Jan"], [[0.6, 0.8]])
+    save_voice("Stefan", np.array([1.0, 0.0]), tmp_path / "new.json")
+    assert stat.S_IMODE(os.stat(tmp_path / "new.json").st_mode) == 0o600

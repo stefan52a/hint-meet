@@ -459,7 +459,7 @@ def voice_cmd(a) -> int:
     if a.forget:   # ook als het bestand kapot is: dan duidelijk melden in plaats van alles te wissen
         try:
             forget_voice(a.name)
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             print(f"@error {e}", flush=True)
             return 1
         print(f"@done Voice of {a.name} removed", flush=True)
@@ -477,7 +477,7 @@ def voice_cmd(a) -> int:
         return 1
     try:
         n = save_voice(a.name, enroll(audio, embed), replace=a.replace)
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         print(f"@error {e}", flush=True)
         return 1
     print(f"@done Voice of {a.name} recorded ({n} sample{'s' if n != 1 else ''}); HintMeet recognizes {a.name} by "

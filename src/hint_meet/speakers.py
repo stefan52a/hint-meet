@@ -86,7 +86,10 @@ def _locked(path: Path):
 def _write(path: Path, data: dict) -> None:
     """Eerst een tijdelijk bestand, dan in één keer vervangen: nooit een half geschreven stemmen-bestand."""
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # stemafdrukken: alleen voor jou leesbaar
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data))
+    os.chmod(tmp, 0o600)
     os.replace(tmp, path)
 
 
@@ -106,9 +109,14 @@ def load_voices(path: Path = VOICES) -> dict[str, np.ndarray]:
     out = {}
     for name, samples in good.items():
         rows = [s for s in samples if len(s) == dim]
-        if rows:
-            m = np.array(rows, dtype=np.float32)
-            out[name] = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
+        if not rows:
+            continue
+        with np.errstate(over="ignore", invalid="ignore"):
+            m = np.array(rows, dtype=np.float64)
+            norms = np.linalg.norm(m, axis=1)
+            ok = np.isfinite(m).all(axis=1) & np.isfinite(norms) & (norms > 1e-9)   # geen NaN, oneindig of nul
+        if ok.any():
+            out[name] = (m[ok] / norms[ok, None]).astype(np.float32)
     return out
 
 
