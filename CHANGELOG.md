@@ -6,6 +6,8 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **Clearer layout.** Before a meeting, one centered card with three numbered steps: *Knowledge base* (with a *Ready* / *Not loaded* label and loading progress in one line; *Details* shows the phases), *Meeting* (with whom, language) and a large blue **Start Meeting** (or *Use a recorded meeting instead…*). During a meeting, one top bar with a blinking red **REC** and the time, the project, what HintMeet is doing, *Find* and a red **Stop**; below it three columns with the same header: title, count and their sensitivity slider. After the meeting, a banner with **Open Report with Action Items** and **New Meeting** (back to the start screen). *Find Documents*, *Settings* and *Restart HintMeet* sit in a small bar at the bottom.
+- Start, Stop and Open Report keep their colour also when HintMeet isn't the active app (macOS turned them grey before).
 - **New left column: Backed by the knowledge base.** Next to the hints and corrections (right) and the transcript (middle), the panel now shows what was said and matches your documents: one short line per statement (for example *Purchase price € 2,100,000, payable on 1 March 2026*) with a link to the source. The utterance gets a green ✓ in the transcript. Small talk, very short replies and statements that need a correction are left out; corrections stay hints on the right.
 - The column runs in the background (Claude Haiku) and never delays a hint. On a panel narrower than about 860 points it moves below the transcript. The default panel width is now 900 to fit three columns.
 - Settings in `config/gate.yaml` under `confirm` (turn it off with `enabled: false`).

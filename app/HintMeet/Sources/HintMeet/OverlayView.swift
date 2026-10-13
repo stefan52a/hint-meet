@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Het paneel. Twee standen:
+/// - start: één kaart met drie stappen (kennisbank, meeting, starten);
+/// - meeting (ook na afloop, tot "New Meeting"): een kopbalk en drie kolommen met dezelfde kop:
+///   onderbouwd door de KB | transcript | hints en correcties.
+/// Onderaan altijd een smalle balk met Restart.
 struct OverlayView: View {
     @ObservedObject var store: HintStore
     @ObservedObject var backend: Backend
@@ -21,76 +26,43 @@ struct OverlayView: View {
     /// Net een verslag klaar: een knipperende pijl wijst er 5 seconden naar.
     @State private var pointAtReport = false
     @State private var blink = false
+    /// Begin van de lopende meeting, voor de klok in de kopbalk.
+    @State private var meetingStarted: Date?
     @State private var size = CGSize(width: PanelLayout.defaultWidth, height: 560)
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// Meetingstand: tijdens een meeting, en daarna zolang het gesprek nog in beeld is.
+    private var inMeeting: Bool { backend.isRunning || backend.state == .stopping || !store.transcript.isEmpty }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if backend.isRunning || !store.transcript.isEmpty { header }   // buiten een meeting: tandwiel in de KB-regel
-            if backend.state == .stopping { stopping }
-            // transcript en hints krijgen alle hoogte die het venster overlaat (geen vaste marges)
-            if store.transcript.isEmpty && store.listHints.isEmpty {
-                hintColumn(listHeight: nil)
-            } else if size.width >= Self.threeColumnWidth {
-                // links wat het dossier onderbouwt, in het midden het gesprek, rechts de hints en correcties
-                HStack(alignment: .top, spacing: 12) {
-                    ConfirmList(store: store, settings: settings, changed: sendSensitivity).frame(width: size.width * 0.27).frame(maxHeight: .infinity, alignment: .top)
-                    Divider()
-                    TranscriptView(store: store).frame(width: size.width * 0.34).frame(maxHeight: .infinity)
-                    Divider()
-                    hintColumn(listHeight: nil).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        VStack(spacing: 0) {
+            if inMeeting {
+                meetingBar.padding(.horizontal, 14).padding(.vertical, 10)
+                Divider()
+                VStack(alignment: .leading, spacing: 10) {
+                    if backend.state == .stopping { stopping }
+                    if !backend.isRunning && backend.state != .stopping { endedBanner }
+                    columns
                 }
-                .frame(maxHeight: .infinity)
-            } else if size.width >= Self.twoColumnWidth {
-                // links het gesprek (met daaronder wat het dossier onderbouwt), rechts de hints op volgorde;
-                // de uitspraak van de hint in het midden is gemarkeerd
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TranscriptView(store: store).frame(maxHeight: .infinity)
-                        Divider()
-                        // ook leeg zichtbaar (alleen kop en schuifje), zodat je de gevoeligheid omhoog kunt zetten
-                        ConfirmList(store: store, settings: settings, changed: sendSensitivity)
-                            .frame(height: store.confirmations.isEmpty ? nil : size.height * 0.3)
-                    }
-                    .frame(width: size.width * 0.45).frame(maxHeight: .infinity)
-                    Divider()
-                    hintColumn(listHeight: nil).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-                .frame(maxHeight: .infinity)
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                hintColumn(listHeight: 200)
-                Divider()
-                TranscriptView(store: store).frame(maxHeight: .infinity)
-                Divider()
-                ConfirmList(store: store, settings: settings, changed: sendSensitivity)
-                    .frame(height: store.confirmations.isEmpty ? nil : 140)
+                ScrollView { setupCard.padding(.vertical, 28).padding(.horizontal, 16) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            // onderste regel, altijd: het verslag (als dat er is) en Restart
-            HStack(spacing: 6) {
-                if let path = store.summaryPath {
-                    if pointAtReport {
-                        Image(systemName: "arrow.right.circle.fill").foregroundStyle(Color.accentColor)
-                            .opacity(blink ? 1 : 0.15)
-                            .animation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true), value: blink)
-                            .accessibilityHidden(true)
-                    }
-                    Button("Open Report with Action Items") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
-                        .buttonStyle(.link).font(.caption)
-                        .fontWeight(pointAtReport ? .semibold : .regular)
-                }
-                Spacer()
-                Button("Restart HintMeet") { restart() }
-                    .controlSize(.small)
-                    .help("Quits HintMeet and starts the latest build (⌘R); a running meeting finishes its report first")
-            }
+            Divider()
+            footer.padding(.horizontal, 14).padding(.vertical, 6)
         }
-        .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)   // vult het venster
         .background(.regularMaterial)
         .background(GeometryReader { g in   // breedte en hoogte van het venster, voor de indeling
             Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
         })
-        .onReceive(timer) { tick = $0 }   // laat het regeltje over een ingetrokken hint na een paar seconden verdwijnen
+        .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
+        .onChange(of: backend.state) { _, state in
+            if state == .running && meetingStarted == nil { meetingStarted = Date() }
+            if state == .idle { meetingStarted = nil }
+        }
         .onChange(of: store.summaryPath) { _, path in
             guard path != nil else { pointAtReport = false; return }
             pointAtReport = true
@@ -100,36 +72,281 @@ struct OverlayView: View {
         }
     }
 
-    /// Schuifjes naar de lopende meeting; geldt vanaf de volgende uitspraak.
-    private func sendSensitivity() { send(settings.sensitivityMessage) }
+    // MARK: startscherm
 
-    /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt het transcript eronder.
+    private var kbBusy: Bool { preparer.isRunning || kbPrep.isRunning }
+
+    /// Drie stappen in één kaart, gecentreerd: kennisbank kiezen (en laden), meeting beschrijven, starten.
+    private var setupCard: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if case .failed(let why) = backend.state {
+                Label(why, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            step(1, "Knowledge base") {
+                HStack(spacing: 10) {
+                    ProjectMenu(settings: settings, addFolder: addFolder).disabled(kbBusy)
+                    kbBadge
+                    Spacer()
+                    if !settings.project.isEmpty && !kbBusy && kbStatus.needsLoad {
+                        Button("Preload KB") { preparer.startPrepare(settings) }
+                            .help("In advance: update documents from the source folder, index the KB and load speech "
+                                  + "recognition, so the meeting starts quickly")
+                    }
+                }
+                if kbStatus.needsLoad && !settings.project.isEmpty && !kbBusy {
+                    Text("Preload well before a meeting: the first time, embedding the documents can take hours "
+                         + "(days for very large folders). You can stop and continue later.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if kbPrep.state != .idle {   // een map wordt een kennisbank (kan uren duren; Stop en later verder)
+                    Text(kbPrep.isRunning ? kbPrep.title : kbPrep.title.replacingOccurrences(of: "Ingesting", with: "Ingested"))
+                        .font(.caption.weight(.medium))
+                    TaskProgressView(task: kbPrep, tick: tick)
+                }
+                PhasedProgressView(task: preparer, tick: tick, collapsible: true)
+            }
+            step(2, "Meeting") {
+                TextField("With whom, where (optional; used in the report name)", text: $settings.meetingInfo)
+                    .textFieldStyle(.roundedBorder)
+                Picker("Language", selection: $settings.language) {
+                    ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                .fixedSize()
+                .help("Language of the conversation, for speech recognition; hints and the report follow it. "
+                      + "Multilingual recognizes the language per utterance (less reliable for very short ones).")
+            }
+            step(3, "Start") {
+                Button { startMeeting() } label: {
+                    Label("Start Meeting", systemImage: "record.circle").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(FilledButtonStyle(color: .accentColor, large: true))
+                .disabled(settings.project.isEmpty || kbBusy)
+                .help(settings.project.isEmpty ? "Choose a knowledge base first" : "Listen along with \(settings.projectLabel)")
+                Button("Use a recorded meeting instead…") { playRecording() }
+                    .buttonStyle(.link).font(.caption)
+                    .disabled(settings.project.isEmpty || kbBusy)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 600, alignment: .leading)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.08)))
+        .frame(maxWidth: .infinity)   // gecentreerd in het venster
+    }
+
+    /// Eén genummerde stap van het startscherm.
+    private func step<Content: View>(_ n: Int, _ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)").font(.callout.weight(.bold)).foregroundStyle(.white)
+                .frame(width: 24, height: 24).background(Circle().fill(Color.accentColor))
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.headline)
+                content()
+            }
+        }
+    }
+
+    /// Stand van de gekozen kennisbank in één woord.
+    @ViewBuilder private var kbBadge: some View {
+        if settings.project.isEmpty {
+            EmptyView()
+        } else if kbBusy {
+            Label("Loading…", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.secondary)
+                .font(.caption)
+        } else if kbStatus.needsLoad {
+            Label("Not loaded", systemImage: "circle.dashed").foregroundStyle(.orange).font(.caption)
+        } else {
+            Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+        }
+    }
+
+    // MARK: meeting
+
+    /// Kopbalk: opname en tijd, met wie, wat de pijplijn doet, zoeken en stoppen. Hier versleep je het paneel.
+    private var meetingBar: some View {
+        HStack(spacing: 10) {
+            if backend.isRunning && backend.state != .stopping {
+                Circle().fill(Color.red).frame(width: 9, height: 9)
+                    .opacity(Int(tick.timeIntervalSince1970) % 2 == 0 ? 1 : 0.35)
+                Text("REC " + (meetingStarted.map { TaskProgressView.elapsed(from: $0, to: tick) } ?? ""))
+                    .font(.callout.weight(.semibold)).monospacedDigit()
+            } else if backend.state == .stopping {
+                ProgressView().controlSize(.small)
+                Text("Finishing").font(.callout.weight(.semibold))
+            } else {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text("Ended").font(.callout.weight(.semibold))
+            }
+            Text([store.project.isEmpty ? settings.projectLabel : store.project, settings.meetingInfo]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            if backend.isRunning && backend.state != .stopping {
+                Text(store.connected ? (store.status.isEmpty ? "Listening…" : store.status) : "Starting pipeline…")
+                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            Spacer()
+            Button { find() } label: { Label("Find", systemImage: "magnifyingglass") }
+                .help("Find a document by its content in the knowledge base (⌘F)")
+            if backend.isRunning && backend.state != .stopping {
+                Button { stopMeeting() } label: { Label("Stop", systemImage: "stop.fill") }
+                    .buttonStyle(FilledButtonStyle(color: .red))
+                    .help("Stop listening and write the report")
+            }
+        }
+        .controlSize(.small)
+        .background(WindowDragArea())   // het paneel verslepen kan hier, aan de kopbalk
+        .help("Drag to move the panel; click to show the HintMeet menu bar (top left)")
+    }
+
+    /// Na afloop: het verslag openen of een nieuwe meeting voorbereiden (terug naar het startscherm).
+    private var endedBanner: some View {
+        HStack(spacing: 10) {
+            if let path = store.summaryPath {
+                if pointAtReport {
+                    Image(systemName: "arrow.right.circle.fill").foregroundStyle(Color.accentColor)
+                        .opacity(blink ? 1 : 0.15)
+                        .animation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true), value: blink)
+                        .accessibilityHidden(true)
+                }
+                Button { NSWorkspace.shared.open(URL(fileURLWithPath: path)) } label: {
+                    Label("Open Report with Action Items", systemImage: "doc.text")
+                }
+                .buttonStyle(FilledButtonStyle(color: .accentColor))
+            } else {
+                Text("Meeting ended. No report was written.").font(.callout).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button { store.clearMeeting() } label: { Label("New Meeting", systemImage: "plus") }
+                .help("Back to the start screen; the report stays in the meetings folder")
+        }
+        .controlSize(.regular)
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
+    private var stopping: some View {
+        HStack(alignment: .center, spacing: 10) {
+            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Quitting – waiting for the report").font(.callout.weight(.medium))
+                Text(stoppingStep + (backend.stoppingSince.map { " · " + elapsed(since: $0) } ?? ""))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Spacer()
+            Button("Abort Now") { backend.abort() }
+                .controlSize(.small).help("Don't wait for the report; the transcript is already saved or will be lost")
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var stoppingStep: String {
+        // tot de pijplijn iets nieuws meldt, staat er nog "Luistert…"
+        store.status.isEmpty || store.status == "Listening…" ? "Processing the last utterance…" : store.status
+    }
+
+    private func elapsed(since start: Date) -> String {
+        let s = max(0, Int(tick.timeIntervalSince(start)))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// Vanaf deze breedte staan transcript en hint naast elkaar; smaller komt alles onder elkaar.
     static let twoColumnWidth: CGFloat = 560
-    /// Vanaf deze breedte krijgt wat het dossier onderbouwt een eigen kolom links.
+    /// Vanaf deze breedte krijgt wat de KB onderbouwt een eigen kolom links.
     static let threeColumnWidth: CGFloat = 860
 
-
-    /// Rechterkolom: bladeren en de hints op volgorde (of de knoppen om te beginnen), en intrekkingen.
-    /// listHeight nil: de hintlijst vult de beschikbare hoogte; anders een vaste hoogte (smal venster).
-    @ViewBuilder private func hintColumn(listHeight: CGFloat?) -> some View {
-        let bar = store.history.count > 1 || store.isBrowsing
-        VStack(alignment: .leading, spacing: 8) {
-            if backend.isRunning || !store.transcript.isEmpty {
-                SensitivitySlider(title: "Hint sensitivity", value: $settings.hintSensitivity,
-                                  help: "More: hints and corrections also when the gatekeeper is less sure and on less "
-                                      + "clearly matching passages. Fewer: only when it clearly matters.",
-                                  changed: sendSensitivity)
+    /// De drie kolommen; smaller schuiven ze in elkaar. Transcript en hints krijgen alle overgebleven hoogte.
+    @ViewBuilder private var columns: some View {
+        if size.width >= Self.threeColumnWidth {
+            HStack(alignment: .top, spacing: 12) {
+                backedColumn.frame(width: size.width * 0.27)
+                Divider()
+                transcriptColumn.frame(width: size.width * 0.34)
+                Divider()
+                hintColumn
             }
-            if store.listHints.isEmpty {
-                idle
+            .frame(maxHeight: .infinity)
+        } else if size.width >= Self.twoColumnWidth {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    transcriptColumn
+                    Divider()
+                    backedColumn.frame(height: store.confirmations.isEmpty ? nil : size.height * 0.3)
+                }
+                .frame(width: size.width * 0.45)
+                Divider()
+                hintColumn
+            }
+            .frame(maxHeight: .infinity)
+        } else {
+            hintColumn.frame(height: 220)
+            Divider()
+            transcriptColumn
+            Divider()
+            backedColumn.frame(height: store.confirmations.isEmpty ? nil : 140)
+        }
+    }
+
+    /// Dezelfde kop boven elke kolom: icoon, titel, aantal, en eventueel het gevoeligheidsschuifje.
+    private func columnHeader(_ title: String, icon: String, count: Int, slider: Binding<Double>? = nil,
+                              sliderHelp: String = "") -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                if count > 0 {
+                    Text("\(count)").font(.caption2.weight(.semibold)).monospacedDigit()
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
+                Spacer(minLength: 0)
+            }
+            if let slider {
+                SensitivitySlider(title: "", value: slider, help: sliderHelp, changed: sendSensitivity)
+            }
+        }
+    }
+
+    private var backedColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            columnHeader("Backed by the KB", icon: "checkmark.seal", count: store.confirmations.count,
+                         slider: $settings.confirmSensitivity,
+                         sliderHelp: "More: also less clearly matching passages and shorter utterances. Fewer: only "
+                             + "clear matches. A ✓ always means nothing in the utterance contradicts the documents.")
+            ConfirmList(store: store)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var transcriptColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            columnHeader("Transcript", icon: "text.bubble", count: store.transcript.count)
+            if store.transcript.isEmpty {
+                placeholder("What is said appears here.")
             } else {
-                if bar { historyBar }
+                TranscriptView(store: store)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Rechterkolom: bladeren en de hints op volgorde, en intrekkingen.
+    private var hintColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            columnHeader("Hints & corrections", icon: "lightbulb", count: store.history.count,
+                         slider: $settings.hintSensitivity,
+                         sliderHelp: "More: hints and corrections also when the gatekeeper is less sure and on less "
+                             + "clearly matching passages. Fewer: only when it clearly matters.")
+            if store.listHints.isEmpty {
+                placeholder("Answers and corrections from your documents appear here when they matter.")
+            } else {
+                if store.history.count > 1 || store.isBrowsing { historyBar }
                 HintsList(store: store, rate: { id, r in
                     store.rate(id, r)
                     send(["type": "feedback", "id": id, "rating": r, "session": store.session])
                 })
-                .frame(height: listHeight)
-                .frame(maxHeight: listHeight == nil ? .infinity : nil)
+                .frame(maxHeight: .infinity)
             }
             if let r = store.justRetracted, !store.isBrowsing {
                 // bewust klein en grijs: wat niet meer klopt hoort niet de aandacht te trekken
@@ -137,6 +354,12 @@ struct OverlayView: View {
                     .font(.caption).strikethrough().foregroundStyle(.tertiary).lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func placeholder(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// Terugbladeren door de hints van deze meeting; nieuwe hints komen binnen zonder je plek te verliezen.
@@ -169,124 +392,43 @@ struct OverlayView: View {
         return f
     }()
 
-    /// Geen hint in beeld: wat de pijplijn doet, of knoppen om te beginnen.
-    @ViewBuilder private var idle: some View {
-        switch backend.state {
-        case .running:
-            Text(store.connected ? (store.status.isEmpty ? "Listening…" : store.status) : "Starting pipeline…")
-                .font(.callout).foregroundStyle(.secondary)
-        case .stopping:
-            EmptyView()   // staat bovenaan in `stopping`, ook als er nog een hint in beeld is
-        case .idle, .failed:
-            VStack(alignment: .leading, spacing: 8) {
-                if case .failed(let why) = backend.state {
-                    Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                }
-                HStack {
-                    Text("Knowledge base")
-                    ProjectMenu(settings: settings, addFolder: addFolder).disabled(preparer.isRunning || kbPrep.isRunning)
-                    if !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
-                        if kbStatus.needsLoad {   // alleen als er iets te laden valt (nieuw of gewijzigd)
-                            Button("Preload KB") { preparer.startPrepare(settings) }
-                            .help("In advance: update documents from the source folder, index the KB and load speech "
-                                  + "recognition, so the meeting starts quickly")
-                        }
-                        Button { find() } label: { Label("Find Documents", systemImage: "magnifyingglass") }
-                            .help("Find a document by its content (⌘F)")
-                    }
-                    Spacer()
-                    Button { openSettings() } label: { Image(systemName: "gearshape") }
-                        .buttonStyle(.borderless).help("Settings")
-                }
-                .controlSize(.small)
-                if kbStatus.needsLoad && !settings.project.isEmpty && !preparer.isRunning && !kbPrep.isRunning {
-                    Label("Preload the knowledge base well before a meeting: the first time, embedding the documents "
-                          + "can take a long time (hours, even days for very large folders). You can stop and continue later.",
-                          systemImage: "clock")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                if kbPrep.state != .idle {   // een map wordt een kennisbank (kan uren duren; Stop en later verder)
-                    Text(kbPrep.isRunning ? kbPrep.title : kbPrep.title.replacingOccurrences(of: "Ingesting", with: "Ingested"))
-                        .font(.caption.weight(.medium))
-                    TaskProgressView(task: kbPrep, tick: tick)
-                }
-                preparation
-                HStack {
-                    TextField("Meeting info (e.g. with whom, where) – used in the report name", text: $settings.meetingInfo)
-                    Picker("Language", selection: $settings.language) {
-                        ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
-                    }
-                    .labelsHidden().fixedSize()
-                    .help("Language of the conversation, for speech recognition; hints and the report follow it. "
-                          + "Multilingual recognizes the language per utterance (less reliable for very short ones).")
-                }
-                    .textFieldStyle(.roundedBorder).controlSize(.small)
-                if !settings.project.isEmpty {
-                    HStack {
-                        Button("Start Meeting · \(settings.projectLabel)") { startMeeting() }
-                            .buttonStyle(.borderedProminent)
-                        Button("Start with a Recorded Meeting…") { playRecording() }
-                    }
-                    .controlSize(.small)
-                    .disabled(preparer.isRunning || kbPrep.isRunning)
-                }
-            }
-        }
-    }
+    // MARK: onderbalk
 
-    /// Voortgang of uitkomst van "KB laden": echte voortgang als de stap die meldt, anders een schatting
-    /// uit de vorige keer, en alleen de allereerste keer een wieltje.
-    private var preparation: some View { PhasedProgressView(task: preparer, tick: tick) }
-
-    /// Tijdens het afsluiten: wat de pijplijn nog doet en hoe lang al; de stappen hebben geen vaste duur.
-    private var stopping: some View {
-        HStack(alignment: .center, spacing: 10) {
-            ProgressView().controlSize(.small)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Quitting – waiting for the report").font(.callout.weight(.medium))
-                Text(stoppingStep + (backend.stoppingSince.map { " · " + elapsed(since: $0) } ?? ""))
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            Spacer()
-            Button("Abort Now") { backend.abort() }
-                .controlSize(.small).help("Don't wait for the report; the transcript is already saved or will be lost")
-        }
-        .padding(8)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var stoppingStep: String {
-        // tot de pijplijn iets nieuws meldt, staat er nog "Luistert…"
-        store.status.isEmpty || store.status == "Listening…" ? "Processing the last utterance…" : store.status
-    }
-
-    private func seconds(_ s: Double) -> String {
-        s < 90 ? "\(Int(s.rounded())) s" : "\(Int((s / 60).rounded())) min"
-    }
-
-    private func elapsed(since start: Date) -> String {
-        let s = max(0, Int(tick.timeIntervalSince(start)))
-        return String(format: "%d:%02d", s / 60, s % 60)
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            if !store.project.isEmpty { Text(store.project).font(.caption).foregroundStyle(.secondary) }
-            if backend.isRunning && !settings.meetingInfo.isEmpty {
-                Text("· \(settings.meetingInfo)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            if backend.state == .running {
+    /// Altijd: zoeken en instellingen (buiten een meeting) en Restart.
+    private var footer: some View {
+        HStack(spacing: 14) {
+            if !inMeeting {
                 Button { find() } label: { Label("Find Documents", systemImage: "magnifyingglass") }
-                    .buttonStyle(.borderless).font(.caption)
-                    .help("Find a document by its content in the meeting's knowledge base (⌘F)")
-                Button("Stop") { stopMeeting() }.buttonStyle(.borderless).font(.caption)
+                    .disabled(settings.project.isEmpty)
+                    .help("Find a document by its content (⌘F)")
             }
-            Button { openSettings() } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless).help("Settings")
+            Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
+            Spacer()
+            Button { restart() } label: { Label("Restart HintMeet", systemImage: "arrow.clockwise") }
+                .help("Quits HintMeet and starts the latest build (⌘R); a running meeting finishes its report first")
         }
-        .background(WindowDragArea())   // het paneel verslepen kan hier, aan de kopbalk
-        .help("Drag to move the panel; click to show the HintMeet menu bar (top left)")
+        .buttonStyle(.borderless).font(.caption).controlSize(.small)
+    }
+
+    /// Schuifjes naar de lopende meeting; geldt vanaf de volgende uitspraak.
+    private func sendSensitivity() { send(settings.sensitivityMessage) }
+}
+
+/// Gevulde knop in een vaste kleur. .borderedProminent wordt grijs in een venster dat niet actief is, en dit
+/// paneel wordt bewust nooit actief (het neemt je toetsenbord niet over): dan vallen Start en Stop weg.
+struct FilledButtonStyle: ButtonStyle {
+    let color: Color
+    var large = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(large ? .body.weight(.semibold) : .callout.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, large ? 16 : 10).padding(.vertical, large ? 8 : 3)
+            .background(RoundedRectangle(cornerRadius: large ? 8 : 6)
+                .fill(color.opacity(!isEnabled ? 0.35 : configuration.isPressed ? 0.75 : 1)))
+            .contentShape(Rectangle())
     }
 }
 

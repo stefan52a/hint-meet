@@ -5,6 +5,9 @@ import SwiftUI
 struct PhasedProgressView: View {
     @ObservedObject var task: ProgressTask
     let tick: Date
+    /// Fases alleen tonen na "Details" (startscherm); anders altijd.
+    var collapsible = false
+    @State private var showPhases = false
 
     var body: some View {
         if task.phases.isEmpty {
@@ -21,12 +24,22 @@ struct PhasedProgressView: View {
                         Button("Stop") { task.stop() }.controlSize(.small)
                             .help("Stop; finished work is kept and Preload KB continues where it left off")
                     }
+                    if collapsible, let current = task.phases.first(where: { $0.status == .running }) {
+                        HStack(spacing: 6) {
+                            Text(current.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Spacer()
+                            Button(showPhases ? "Hide details" : "Details") { showPhases.toggle() }
+                                .buttonStyle(.link).font(.caption)
+                        }
+                    }
                 }
                 if task.isRunning && !task.note.isEmpty {
                     Label(task.note, systemImage: "hourglass")
                         .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(task.phases) { phase in row(phase) }
+                if !collapsible || showPhases {
+                    ForEach(task.phases) { phase in row(phase) }
+                }
                 if !task.isRunning { TaskProgressView(task: task, tick: tick) }   // uitkomst en logboek
             }
         }

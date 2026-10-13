@@ -206,6 +206,12 @@ final class HintStore: ObservableObject {
         }
     }
 
+    /// "New Meeting": het gesprek van de vorige meeting uit beeld, terug naar het startscherm.
+    func clearMeeting() {
+        hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []
+        confirmations = []; browseID = nil; stopped = false
+    }
+
     func rate(_ id: Int, _ rating: Int) {
         if let i = hints.firstIndex(where: { $0.id == id }) { hints[i].rating = rating }
     }

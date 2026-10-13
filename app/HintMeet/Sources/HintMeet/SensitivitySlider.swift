@@ -9,7 +9,7 @@ struct SensitivitySlider: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(title).font(.caption).foregroundStyle(.secondary).fixedSize()
+            if !title.isEmpty { Text(title).font(.caption).foregroundStyle(.secondary).fixedSize() }
             Text("Fewer").font(.caption2).foregroundStyle(.tertiary)
             // pas na loslaten versturen: tijdens het slepen niet elke tussenstand naar de pijplijn
             Slider(value: $value, in: 0...1) { editing in if !editing { changed() } }
