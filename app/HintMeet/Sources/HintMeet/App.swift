@@ -95,7 +95,10 @@ final class OverlayPanel: NSPanel {
     /// staat (bv. extern scherm losgekoppeld) haalt macOS hem terug, zodat je hem altijd kunt verslepen.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         let titleBar = NSRect(x: frameRect.minX, y: frameRect.maxY - 28, width: frameRect.width, height: 28)
-        let reachable = NSScreen.screens.contains { $0.visibleFrame.intersection(titleBar).width >= 80 }
+        let reachable = NSScreen.screens.contains {   // genoeg titelbalk in beeld om hem te pakken
+            let part = $0.visibleFrame.intersection(titleBar)
+            return part.width >= 80 && part.height >= 20
+        }
         return reachable ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 }
@@ -151,12 +154,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.acceptsKeyboard = { [weak self] in !(self?.backend.isRunning ?? true) }
         // laatste plek en maat zelf onthouden: de autosave van macOS zet een venster dat over twee schermen valt
         // bij de start op een ander scherm. De eerste keer rechtsboven op het hoofdscherm.
-        if let saved = UserDefaults.standard.string(forKey: Self.frameKey) {
-            panel.setFrame(NSRectFromString(saved), display: false)   // constrainFrameRect houdt hem precies zo
+        if let saved = UserDefaults.standard.string(forKey: Self.frameKey).map(NSRectFromString),
+           [saved.minX, saved.minY, saved.width, saved.height].allSatisfy(\.isFinite),
+           saved.width >= PanelLayout.minWidth, saved.height >= 220 {   // kapotte of te kleine waarde: niet gebruiken
+            panel.setFrame(saved, display: false)   // constrainFrameRect houdt hem precies zo
         } else if !panel.setFrameUsingName(Self.frameName) {   // eenmalig: plek van vóór deze versie overnemen
             let f = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
             panel.setFrameTopLeftPoint(NSPoint(x: f.maxX - OverlayPanel.defaultSize.width - 20, y: f.maxY - 20))
         }
+        UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)   // meteen: ook de overgenomen plek
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             NotificationCenter.default.addObserver(forName: name, object: panel, queue: .main) { note in
                 guard let w = note.object as? NSWindow else { return }
