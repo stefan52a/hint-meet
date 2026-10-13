@@ -12,7 +12,7 @@ HintMeet is a meeting copilot for the Mac. It listens along during a conversatio
    - **Transcript** (middle): who said what; right-click a line to rename *Speaker 1* to a real name;
    - **Hints & corrections** (right): answers and corrections from your documents, 1 to 4 bullet points with sources; ◀ ▶, scrolling or clicking takes you back to earlier hints.
 
-   Each column has a Fewer ↔ More sensitivity slider and can be opened in its own window (button in its header). The language can be changed during the meeting; **Stop** ends it.
+   The left and right columns each have a Fewer ↔ More sensitivity slider; every column can be opened in its own window (button in its header). The language can be changed during the meeting; **Stop** ends it.
 4. Afterwards HintMeet shows the steps (transcript saved, report being written, with **Abort**) and then **Open Report with Action Items**. The report is in `<KB>/meetings/`, the transcript in `logs/`. Reports are not part of the knowledge base: hints and Find Documents never search them.
 5. Looking for a document? *Find Documents* (⌘F) searches the knowledge base by content (words, amounts, names, topics) and opens the original file.
 
