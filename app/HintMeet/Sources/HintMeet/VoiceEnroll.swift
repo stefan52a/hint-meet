@@ -6,7 +6,8 @@ import Foundation
 final class VoiceEnroll: ObservableObject {
     enum State: Equatable { case idle, running(String), done(String), failed(String) }
     @Published private(set) var state: State = .idle
-    @Published private(set) var recorded: [String] = []
+    /// Naam → aantal opgenomen afdrukken (headset, laptop, vergaderruimte, …).
+    @Published private(set) var recorded: [String: Int] = [:]
     private var process: Process?
 
     static let voicesURL = FileManager.default.homeDirectoryForCurrentUser
@@ -17,8 +18,12 @@ final class VoiceEnroll: ObservableObject {
     /// Namen waarvan een stem is opgenomen (uit voices.json, zoals src/hint_meet/speakers.py die schrijft).
     func reload() {
         guard let data = try? Data(contentsOf: Self.voicesURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { recorded = []; return }
-        recorded = json.keys.sorted()
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { recorded = [:]; return }
+        // per naam één afdruk (oud formaat: een lijst getallen) of een lijst afdrukken
+        recorded = json.mapValues { value in
+            guard let list = value as? [Any] else { return 0 }
+            return list.first is [Any] ? list.count : 1
+        }.filter { $0.value > 0 }
     }
 
     var isRunning: Bool { if case .running = state { return true } else { return false } }

@@ -32,22 +32,24 @@ struct SettingsView: View {
             }
             Section("Your voice") {
                 Text("With only a microphone, HintMeet tells speakers apart by voice (Speaker 1, 2, …). Record "
-                     + "your voice once and you appear by name.")
+                     + "your voice and you appear by name. Add a sample for each microphone or room you use "
+                     + "(headset, laptop, meeting room): HintMeet compares with the best matching one.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 TextField("Name in the transcript", text: $voiceName)
                 HStack {
-                    Button(voice.recorded.contains(voiceName) ? "Record Again (10 s)" : "Record My Voice (10 s)") {
+                    Button(voice.recorded[voiceName] != nil ? "Add Sample (10 s)" : "Record My Voice (10 s)") {
                         voice.record(settings, name: voiceName.trimmingCharacters(in: .whitespaces))
                     }
                     .disabled(voice.isRunning || voiceName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    if voice.recorded.contains(voiceName) {
+                    if voice.recorded[voiceName] != nil {
                         Button("Forget") { voice.forget(settings, name: voiceName) }.disabled(voice.isRunning)
+                            .help("Remove all samples of \(voiceName)")
                     }
                 }
                 switch voice.state {
                 case .idle:
-                    if voice.recorded.contains(voiceName) {
-                        Label("Voice of \(voiceName) recorded", systemImage: "checkmark.circle.fill")
+                    if let n = voice.recorded[voiceName] {
+                        Label("Voice of \(voiceName): \(n) sample\(n == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
                             .font(.caption).foregroundStyle(.green)
                     }
                 case .running(let step):

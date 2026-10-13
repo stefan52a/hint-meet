@@ -252,23 +252,32 @@ class LiveSession:
         if self.on_event:
             self.on_event(event)
 
-    def rename_speaker(self, old: str, new: str, remember: bool = False) -> bool:
+    MAX_NAME = 60
+
+    def rename_speaker(self, old: str, new: str, remember: bool = False) -> tuple[bool, bool]:
         """Spreker hernoemen: eerdere uitspraken (voor verslag en hints) en alles wat nog komt. Met remember
-        ook de stem onthouden onder de nieuwe naam (alleen voor een stem die op stem herkend is)."""
-        old, new = old.strip(), new.strip()
-        if not old or not new or old == new:
-            return False
+        ook de stem onthouden onder de nieuwe naam (alleen voor een stem die op stem herkend is).
+        Geeft (hernoemd, stem onthouden). "Unknown" is geen persoon (alle te korte reacties): niet hernoemen."""
+        old, new = old.strip(), new.strip()[:self.MAX_NAME].strip()
+        if not old or not new or old == new or old == "Unknown":
+            return False, False
         sources = [k for k, v in self.aliases.items() if v == old] + [old]   # ook een eerdere hernoeming volgen
         for k in sources:
             self.aliases[k] = new
         for u in self.utterances:
             if u.speaker == old:
                 u.speaker = new
+        remembered = False
         if remember and self.speaker_id is not None:
             for label in sources:
-                if self.speaker_id.remember(label, new):
+                try:
+                    if self.speaker_id.remember(label, new):
+                        remembered = True
+                        break
+                except OSError as e:   # bewaren mislukt: wel hernoemd, niet onthouden
+                    print(f"Stem niet bewaard: {e}", file=sys.stderr)
                     break
-        return True
+        return True, remembered
 
     def _confirmed(self, index: int, confirmation):
         if not self.stop_flag.is_set():   # na Stop niets nieuws meer in het paneel

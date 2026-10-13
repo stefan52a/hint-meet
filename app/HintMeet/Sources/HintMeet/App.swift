@@ -606,6 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func showRename(_ old: String) {
         renameWindow?.close()
         let before = NSWorkspace.shared.frontmostApplication
+        let session = store.session   // een venster dat open blijft tot de volgende meeting, hernoemt daar niets
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 160),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
         w.title = "Rename Speaker"
@@ -613,9 +614,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         w.level = panel.level
         let view = RenameSpeakerView(old: old, canRemember: old.hasPrefix("Speaker ")) { [weak self, weak w] name, remember in
             guard let self else { return }
-            if let name {
+            if let name, self.store.session == session {
                 self.store.renameSpeaker(from: old, to: name)
-                self.connection.send(["type": "rename", "from": old, "to": name, "remember": remember])
+                self.connection.send(["type": "rename", "from": old, "to": name, "remember": remember,
+                                      "session": session])
             }
             w?.close()
             self.renameWindow = nil

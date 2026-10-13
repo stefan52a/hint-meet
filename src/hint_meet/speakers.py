@@ -51,16 +51,42 @@ class Embedder:
             return normalize(np.array(self.extractor.compute(stream), dtype=np.float32))
 
 
-def load_voices(path: Path = VOICES) -> dict[str, np.ndarray]:
+MAX_SAMPLES = 10   # afdrukken per naam (headset, laptop, vergaderruimte, …); de oudste valt eraf
+
+
+def _samples(value) -> list[list[float]]:
+    """Eén afdruk ([0.1, …], oud formaat) of een lijst afdrukken ([[0.1, …], …])."""
+    return [value] if value and not isinstance(value[0], list) else list(value)
+
+
+def _read(path: Path) -> dict[str, list[list[float]]]:
     if not path.exists():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {name: normalize(np.array(v, dtype=np.float32)) for name, v in data.items()}
+    return {name: _samples(v) for name, v in json.loads(path.read_text(encoding="utf-8")).items()}
 
 
-def save_voice(name: str, embedding: np.ndarray, path: Path = VOICES) -> None:
-    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    data[name] = [round(float(x), 6) for x in normalize(embedding)]
+def load_voices(path: Path = VOICES) -> dict[str, np.ndarray]:
+    """Naam → afdrukken (aantal × dim), elk genormaliseerd."""
+    out = {}
+    for name, samples in _read(path).items():
+        m = np.array(samples, dtype=np.float32)
+        out[name] = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
+    return out
+
+
+def save_voice(name: str, embedding: np.ndarray, path: Path = VOICES, replace: bool = False) -> int:
+    """Een afdruk toevoegen aan `name` (of met replace alle eerdere vervangen). Geeft het aantal afdrukken terug."""
+    data = _read(path)
+    samples = ([] if replace else data.get(name, [])) + [[round(float(x), 6) for x in normalize(embedding)]]
+    data[name] = samples[-MAX_SAMPLES:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return len(data[name])
+
+
+def forget_voice(name: str, path: Path = VOICES) -> None:
+    data = _read(path)
+    data.pop(name, None)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -82,7 +108,8 @@ class SpeakerID:
         verkeerde naam is erger dan "Speaker 1"; een ander kan best 0,7 op jouw stem lijken)."""
         self.embed, self.threshold, self.min_seconds = embed, threshold, min_seconds
         self.enroll_threshold = enroll_threshold
-        self.voices = dict(voices or {})
+        # naam → afdrukken (aantal × dim); één losse afdruk mag ook
+        self.voices = {n: (v if v.ndim == 2 else v[None, :]) for n, v in (voices or {}).items()}
         self.unknown_label = unknown_label
         self.voices_path = VOICES   # waar remember() een stem bewaart
         self.clusters: list[list] = []   # [zwaartepunt, aantal, naam] per stem die in deze meeting klonk
@@ -94,7 +121,8 @@ class SpeakerID:
             return None
         e = self.embed(audio)
         with self.lock:
-            name, named = max(((n, float(e @ v)) for n, v in self.voices.items()), key=lambda x: x[1],
+            # per naam de best passende afdruk: jouw headset-opname voor een uitspraak via je headset
+            name, named = max(((n, float(np.max(v @ e))) for n, v in self.voices.items()), key=lambda x: x[1],
                               default=(None, -1.0))
             best = max(self.clusters, key=lambda c: float(e @ c[0]), default=None)
             clustered = float(e @ best[0]) if best is not None else -1.0
@@ -116,8 +144,11 @@ class SpeakerID:
             cluster = next((c for c in self.clusters if c[2] == label), None)
             if cluster is None:
                 return False
-            self.voices[name] = cluster[0]
-        save_voice(name, cluster[0], self.voices_path)
+            voice = cluster[0].copy()
+        save_voice(name, voice, self.voices_path)   # eerst bewaren: lukt dat niet, dan ook niet in het geheugen
+        with self.lock:
+            known = self.voices.get(name)
+            self.voices[name] = voice[None, :] if known is None else np.vstack([known, voice])[-MAX_SAMPLES:]
         return True
 
 

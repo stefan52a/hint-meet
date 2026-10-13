@@ -360,10 +360,30 @@ def test_renaming_a_speaker_relabels_past_and_future_utterances(tmp_path):
     assert session.utterances[0].speaker == "Speaker 1"
     path = tmp_path / "voices.json"
     sid.voices_path = path   # niet in je echte voices.json
-    assert session.rename_speaker("Speaker 1", "Jan", remember=True)
+    assert session.rename_speaker("Speaker 1", "Jan", remember=True) == (True, True)
     session._handle(seg, ready_at=0)
     assert [u.speaker for u in session.utterances] == ["Jan", "Jan"]
     assert set(load_voices(path)) == {"Jan"}   # volgende meeting: meteen Jan
-    assert session.rename_speaker("Jan", "Jan de Vries")   # nog eens hernoemen volgt de keten
+    assert session.rename_speaker("Jan", "Jan de Vries") == (True, False)   # nog eens hernoemen volgt de keten
     session._handle(seg, ready_at=0)
     assert [u.speaker for u in session.utterances] == ["Jan de Vries"] * 3
+
+
+
+def test_rename_refuses_unknown_trims_long_names_and_reports_failed_remember():
+    from types import SimpleNamespace as NS
+
+    class FailingVoices:
+        def identify(self, audio):
+            return "Speaker 1"
+
+        def remember(self, label, name):
+            raise OSError("schijf vol")
+
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("tekst", 5.0), pipeline=None,
+                          speaker_id=FailingVoices())
+    session._advise = lambda *a: None
+    session._handle(NS(audio=np.zeros(32000, np.float32), channel="Unknown", start=0.0), ready_at=0)
+    assert session.rename_speaker("Unknown", "Jan") == (False, False)   # geen persoon: alle korte reacties
+    assert session.rename_speaker("Speaker 1", "J" * 80, remember=True) == (True, False)   # bewaren mislukt
+    assert session.utterances[0].speaker == "J" * LiveSession.MAX_NAME

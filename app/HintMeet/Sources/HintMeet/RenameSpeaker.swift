@@ -10,6 +10,7 @@ struct RenameSpeakerView: View {
     @State private var name = ""
     @State private var remember = false
     @FocusState private var focused: Bool
+    static let maxName = 60   // gelijk aan LiveSession.MAX_NAME in src/hint_meet/live.py
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -17,6 +18,7 @@ struct RenameSpeakerView: View {
             TextField("Name, e.g. Jan", text: $name)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit { finish() }
+                .onChange(of: name) { _, n in if n.count > Self.maxName { name = String(n.prefix(Self.maxName)) } }
             if canRemember {
                 Toggle("Remember this voice for next meetings", isOn: $remember)
                     .help("HintMeet then recognizes this person by name from the start of the next meeting")

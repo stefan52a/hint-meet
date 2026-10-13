@@ -56,7 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     vc.add_argument("--name", default="Stefan", help="naam in het transcript")
     vc.add_argument("--seconds", type=float, default=10.0, help="zo lang opnemen (spreek gewoon door)")
     vc.add_argument("--mic", help="invoerapparaat (standaard: systeemstandaard)")
-    vc.add_argument("--forget", action="store_true", help="de opgenomen stem met deze naam wissen")
+    vc.add_argument("--forget", action="store_true", help="alle opgenomen stemmen met deze naam wissen")
+    vc.add_argument("--replace", action="store_true",
+                    help="eerdere opnames van deze naam vervangen (standaard: deze opname erbij, tot 10)")
     rp = sub.add_parser("replay", help="transcript (.txt) of opname (.wav) door de pijplijn, met score en CSV-log")
     rp.add_argument("transcript", help=".txt-transcript of .wav-opname")
     rp.add_argument("--script", help="bij een .wav: het transcript met #!-markeringen (standaard <wav>.txt)")
@@ -453,13 +455,9 @@ def print_progress(done: int, total: int, left: float) -> None:
 
 def voice_cmd(a) -> int:
     """Je stem opnemen (of wissen) voor de sprekerherkenning. Voor de app: regels "@step …" en "@done …"."""
-    from .speakers import VOICES, Embedder, enroll, save_voice
+    from .speakers import Embedder, enroll, forget_voice, save_voice
     if a.forget:
-        import json
-        data = json.loads(VOICES.read_text(encoding="utf-8")) if VOICES.exists() else {}
-        data.pop(a.name, None)
-        VOICES.parent.mkdir(parents=True, exist_ok=True)
-        VOICES.write_text(json.dumps(data), encoding="utf-8")
+        forget_voice(a.name)
         print(f"@done Voice of {a.name} removed", flush=True)
         return 0
     import numpy as np
@@ -473,8 +471,9 @@ def voice_cmd(a) -> int:
     if float(np.sqrt(np.mean(audio ** 2))) < 0.003:
         print("@error Hardly any sound recorded; check the microphone and try again", flush=True)
         return 1
-    save_voice(a.name, enroll(audio, embed))
-    print(f"@done Voice of {a.name} recorded; HintMeet now recognizes {a.name} by voice", flush=True)
+    n = save_voice(a.name, enroll(audio, embed), replace=a.replace)
+    print(f"@done Voice of {a.name} recorded ({n} sample{'s' if n != 1 else ''}); HintMeet recognizes {a.name} by "
+          "voice. Add samples with other microphones or rooms for better recognition", flush=True)
     return 0
 
 
@@ -528,13 +527,15 @@ def live_cmd(a) -> int:
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
                 stop_requested.set()
-            elif msg.get("type") == "rename":   # "Speaker 1" → "Jan" in het transcript van de app
+            elif msg.get("type") == "rename" and msg.get("session") in (None, hub.session):   # niet uit een oude meeting
                 live = pipeline_ref.get("session")
-                old, new = str(msg.get("from", "")), str(msg.get("to", ""))[:60]
-                if live and live.rename_speaker(old, new, remember=bool(msg.get("remember"))):
-                    hub.send(type="renamed", **{"from": old, "to": new.strip()})
-                    print(f"Spreker hernoemd: {old} → {new.strip()}" + (" (stem onthouden)" if msg.get("remember") else ""),
-                          file=sys.stderr)
+                old, new = str(msg.get("from", "")), str(msg.get("to", ""))
+                renamed, remembered = live.rename_speaker(old, new, bool(msg.get("remember"))) if live else (False, False)
+                if renamed:
+                    new = new.strip()[:live.MAX_NAME].strip()
+                    hub.send(type="renamed", remembered=remembered, **{"from": old, "to": new})
+                    print(f"Spreker hernoemd: {old} → {new}" + (" (stem onthouden)" if remembered else
+                          " (stem niet onthouden)" if msg.get("remember") else ""), file=sys.stderr)
             elif msg.get("type") == "language":   # taalmenu in de app: geldt vanaf de volgende uitspraak
                 try:
                     code = language_code(str(msg.get("code", "")))

@@ -587,8 +587,10 @@ struct TranscriptView: View {
                         : hintFocused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
-        .contextMenu {   // rechtsklik: "Speaker 1" een echte naam geven
-            Button("Rename \(u.speaker)…") { store.onRenameRequest?(u.speaker) }
+        .contextMenu {   // rechtsklik: "Speaker 1" een echte naam geven ("Unknown" is geen persoon: alle korte reacties)
+            if u.speaker != "Unknown" {
+                Button("Rename \(u.speaker)…") { store.onRenameRequest?(u.speaker) }
+            }
         }
         .help(hasHint ? "Click to show the hint for this utterance" : "Click to show the hint from this moment")
     }
