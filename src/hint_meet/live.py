@@ -259,7 +259,7 @@ class LiveSession:
         ook de stem onthouden onder de nieuwe naam (alleen voor een stem die op stem herkend is).
         Geeft (hernoemd, stem onthouden). "Unknown" is geen persoon (alle te korte reacties): niet hernoemen."""
         old, new = old.strip(), new.strip()[:self.MAX_NAME].strip()
-        if not old or not new or old == new or old == "Unknown":
+        if not old or not new or old == new or "Unknown" in (old, new):   # Unknown is geen persoon, ook niet als doel
             return False, False
         sources = [k for k, v in self.aliases.items() if v == old] + [old]   # ook een eerdere hernoeming volgen
         for k in sources:

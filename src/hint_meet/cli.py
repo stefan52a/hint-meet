@@ -456,8 +456,12 @@ def print_progress(done: int, total: int, left: float) -> None:
 def voice_cmd(a) -> int:
     """Je stem opnemen (of wissen) voor de sprekerherkenning. Voor de app: regels "@step …" en "@done …"."""
     from .speakers import Embedder, enroll, forget_voice, save_voice
-    if a.forget:
-        forget_voice(a.name)
+    if a.forget:   # ook als het bestand kapot is: dan duidelijk melden in plaats van alles te wissen
+        try:
+            forget_voice(a.name)
+        except ValueError as e:
+            print(f"@error {e}", flush=True)
+            return 1
         print(f"@done Voice of {a.name} removed", flush=True)
         return 0
     import numpy as np
@@ -471,7 +475,11 @@ def voice_cmd(a) -> int:
     if float(np.sqrt(np.mean(audio ** 2))) < 0.003:
         print("@error Hardly any sound recorded; check the microphone and try again", flush=True)
         return 1
-    n = save_voice(a.name, enroll(audio, embed), replace=a.replace)
+    try:
+        n = save_voice(a.name, enroll(audio, embed), replace=a.replace)
+    except ValueError as e:
+        print(f"@error {e}", flush=True)
+        return 1
     print(f"@done Voice of {a.name} recorded ({n} sample{'s' if n != 1 else ''}); HintMeet recognizes {a.name} by "
           "voice. Add samples with other microphones or rooms for better recognition", flush=True)
     return 0

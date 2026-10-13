@@ -11,9 +11,14 @@ Te korte uitspraken ("ja", "precies") geven een onbetrouwbare afdruk: die houden
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import sys
 import threading
 import urllib.request
+from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -59,36 +64,69 @@ def _samples(value) -> list[list[float]]:
     return [value] if value and not isinstance(value[0], list) else list(value)
 
 
-def _read(path: Path) -> dict[str, list[list[float]]]:
+def _read(path: Path) -> dict[str, list]:
+    """De ruwe inhoud. Een kapot bestand geeft een fout (en wordt dus niet overschreven met alleen de nieuwe stem)."""
     if not path.exists():
         return {}
-    return {name: _samples(v) for name, v in json.loads(path.read_text(encoding="utf-8")).items()}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: geen stemmen-bestand")
+    return {name: _samples(v) if isinstance(v, list) else [] for name, v in data.items()}
+
+
+@contextmanager
+def _locked(path: Path):
+    """Eén schrijver tegelijk, ook tussen processen (opnemen in de app terwijl een meeting een stem onthoudt)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _write(path: Path, data: dict) -> None:
+    """Eerst een tijdelijk bestand, dan in één keer vervangen: nooit een half geschreven stemmen-bestand."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_voices(path: Path = VOICES) -> dict[str, np.ndarray]:
-    """Naam → afdrukken (aantal × dim), elk genormaliseerd."""
+    """Naam → afdrukken (aantal × dim), elk genormaliseerd. Lege, kapotte of afwijkende afdrukken vallen weg."""
+    try:
+        raw = _read(path)
+    except (ValueError, OSError) as e:   # dan zonder opgenomen stemmen verder, niet de meeting stoppen
+        print(f"Stemmen niet geladen: {e}", file=sys.stderr)
+        return {}
+    good = {name: [s for s in samples if isinstance(s, list) and s and all(isinstance(x, (int, float)) for x in s)]
+            for name, samples in raw.items()}
+    dims = Counter(len(s) for samples in good.values() for s in samples)
+    if not dims:
+        return {}
+    dim = dims.most_common(1)[0][0]   # het model maakt afdrukken van één vaste lengte
     out = {}
-    for name, samples in _read(path).items():
-        m = np.array(samples, dtype=np.float32)
-        out[name] = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
+    for name, samples in good.items():
+        rows = [s for s in samples if len(s) == dim]
+        if rows:
+            m = np.array(rows, dtype=np.float32)
+            out[name] = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
     return out
 
 
 def save_voice(name: str, embedding: np.ndarray, path: Path = VOICES, replace: bool = False) -> int:
     """Een afdruk toevoegen aan `name` (of met replace alle eerdere vervangen). Geeft het aantal afdrukken terug."""
-    data = _read(path)
-    samples = ([] if replace else data.get(name, [])) + [[round(float(x), 6) for x in normalize(embedding)]]
-    data[name] = samples[-MAX_SAMPLES:]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding="utf-8")
-    return len(data[name])
+    with _locked(path):
+        data = _read(path)
+        samples = ([] if replace else data.get(name, [])) + [[round(float(x), 6) for x in normalize(embedding)]]
+        data[name] = samples[-MAX_SAMPLES:]
+        _write(path, data)
+        return len(data[name])
 
 
 def forget_voice(name: str, path: Path = VOICES) -> None:
-    data = _read(path)
-    data.pop(name, None)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding="utf-8")
+    with _locked(path):
+        data = _read(path)
+        data.pop(name, None)
+        _write(path, data)
 
 
 def enroll(audio: np.ndarray, embed) -> np.ndarray:

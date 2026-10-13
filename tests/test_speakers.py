@@ -102,3 +102,29 @@ def test_a_better_matching_meeting_voice_beats_the_recorded_voice():
     # Jan lijkt 0,8 op mijn opgenomen stem, maar bijna 1,0 op zijn eigen stem uit de meeting: die wint
     assert sid.identify(audio(STEFAN)) == "Speaker 1"
     assert sid.identify(audio(STEFAN)) == "Speaker 1"
+
+
+
+def test_empty_broken_or_odd_entries_are_skipped(tmp_path):
+    path = tmp_path / "voices.json"
+    path.write_text(json.dumps({"Jan": [], "Anna": [[0.6, 0.8], [1.0], "x"], "Piet": "kapot", "Stefan": [0.6, 0.8]}))
+    voices = load_voices(path)
+    assert set(voices) == {"Anna", "Stefan"} and voices["Anna"].shape == (1, 2)
+
+
+def test_unreadable_file_loads_as_no_voices_but_is_never_overwritten(tmp_path):
+    import pytest
+    path = tmp_path / "voices.json"
+    path.write_text("{ half geschreven")
+    assert load_voices(path) == {}
+    with pytest.raises(ValueError):
+        save_voice("Stefan", np.array([1.0, 0.0]), path)
+    assert path.read_text() == "{ half geschreven"   # niet stilletjes vervangen door alleen de nieuwe stem
+
+
+def test_concurrent_saves_lose_nothing(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    path = tmp_path / "voices.json"
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda i: save_voice(f"P{i}", np.array([1.0, float(i)]), path), range(24)))
+    assert len(load_voices(path)) == 24

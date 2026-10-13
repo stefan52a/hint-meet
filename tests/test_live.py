@@ -385,5 +385,6 @@ def test_rename_refuses_unknown_trims_long_names_and_reports_failed_remember():
     session._advise = lambda *a: None
     session._handle(NS(audio=np.zeros(32000, np.float32), channel="Unknown", start=0.0), ready_at=0)
     assert session.rename_speaker("Unknown", "Jan") == (False, False)   # geen persoon: alle korte reacties
+    assert session.rename_speaker("Speaker 1", "Unknown") == (False, False)   # ook niet als nieuwe naam
     assert session.rename_speaker("Speaker 1", "J" * 80, remember=True) == (True, False)   # bewaren mislukt
     assert session.utterances[0].speaker == "J" * LiveSession.MAX_NAME
