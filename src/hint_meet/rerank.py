@@ -17,6 +17,8 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+from . import apierrors
+
 BATCH = 8   # zoveel passages per Jev-aanroep (twee vragen per passage); grotere sets parallel
 # Passages gaan heel naar Jev, zodat de injectiecheck precies de tekst ziet die de adviseur krijgt. Dat kan
 # omdat kb.py ze al kort houdt (CHUNK_CHARS), wat Jev ook nodig heeft: het is zwak op grote states.
@@ -85,6 +87,7 @@ class JevReranker:
             return [s for part in parts for s in part]
         except Exception as e:  # noqa: BLE001 - reranker is een verbetering, geen voorwaarde
             print(f"Reranker (Jev) niet beschikbaar: {e}", file=sys.stderr)
+            apierrors.report(e)
             return None
 
 
@@ -97,6 +100,7 @@ def make_reranker(config: dict):
         return JevReranker(config)
     except Exception as e:  # noqa: BLE001 - bv. geen TYPESAFE_API_KEY
         print(f"Reranker (Jev) uit: {e}", file=sys.stderr)
+        apierrors.report(e)
         return None
 
 

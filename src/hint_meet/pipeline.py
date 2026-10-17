@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 
+from . import apierrors
 from .advise import Advice
 from .gate import GateResult
 
@@ -148,6 +149,7 @@ class Pipeline:
                 on_confirm(index, confirmation)
         except Exception as e:  # noqa: BLE001 - een bevestiging is een extraatje; de meeting loopt door
             print(f"Bevestiging faalde bij uitspraak {index}: {type(e).__name__}: {e}", file=sys.stderr)
+            apierrors.report(e)
         finally:
             self.confirm_slots.release()
 

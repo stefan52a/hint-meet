@@ -43,6 +43,7 @@ struct OverlayView: View {
                 meetingBar.padding(.horizontal, 14).padding(.vertical, 10)
                 Divider()
                 VStack(alignment: .leading, spacing: 10) {
+                    if !store.apiErrors.isEmpty { apiErrorBanner }
                     if backend.state == .stopping { stopping }
                     if !backend.isRunning && backend.state != .stopping { endedBanner }
                     columns
@@ -89,6 +90,7 @@ struct OverlayView: View {
                 Label(why, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
+            if !store.apiErrors.isEmpty { apiErrorBanner }   // bv. de meeting kon niet starten zonder Jev-key
             step(1, "Knowledge base") {
                 HStack(spacing: 10) {
                     ProjectMenu(settings: settings, addFolder: addFolder).disabled(kbBusy)
@@ -214,6 +216,23 @@ struct OverlayView: View {
         .controlSize(.small)
         .background(WindowDragArea())   // het paneel verslepen kan hier, aan de kopbalk
         .help("Drag to move the panel; click to show the HintMeet menu bar (top left)")
+    }
+
+    /// Een API-key werkt niet: wat de API zegt, zodat je weet waarom er geen hints, bevestigingen of verslag komen.
+    private var apiErrorBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(store.apiErrors, id: \.self) { text in
+                    Text(text).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            Button("Settings…") { openSettings() }.controlSize(.small)
+                .help("Change the API keys (stored in the Keychain)")
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// Na afloop: het verslag openen of een nieuwe meeting voorbereiden (terug naar het startscherm).

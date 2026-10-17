@@ -9,6 +9,7 @@ Server → overlay, één JSON-bericht per gebeurtenis:
   {"type": "confirm", "id": n, "kind": "confirms" | "about", "text": .., "sources": [{"ref": .., "path": ..}]}
       (linkerkolom: het dossier onderbouwt uitspraak n, of zegt iets over het onderwerp)
   {"type": "summary", "markdown": .., "path": ..}
+  {"type": "api_error", "text": ..}   (een API-key werkt niet: fout, ontbreekt, geen tegoed, limiet; zie apierrors.py)
   {"type": "stopped"}
 Overlay → server:
   {"type": "feedback", "id": n, "rating": 1 | -1}

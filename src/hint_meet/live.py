@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import apierrors
+
 import numpy as np
 
 from .audio import FRAME, RATE, Segmenter, SileroVAD, channel_labels, read_wav
@@ -246,6 +248,7 @@ class LiveSession:
                 step = self.pipeline.step(self.utterances[:index + 1], index, on_text=on_text, **extra)
             except Exception as e:  # noqa: BLE001 - een trage of falende API mag de meeting niet stoppen
                 error = f"{type(e).__name__}: {e}"
+                apierrors.report(e)
                 print(f"Pijplijn faalde bij uitspraak {index}: {error}", file=sys.stderr)
         event = LiveEvent(self.utterances[index], step, wait_ms, asr_ms, stale, index, pipe_wait_ms, error)
         self.events.append(event)

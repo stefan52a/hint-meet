@@ -8,6 +8,7 @@ import sys
 
 from dotenv import find_dotenv, load_dotenv
 
+from . import apierrors
 from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
 from .rerank import make_reranker
 
@@ -580,6 +581,7 @@ def live_cmd(a) -> int:
         hub = Hub(port=a.port, on_message=on_message)
         hub.start()
         hub.send(type="hello", project=" + ".join(r.name for r in roots), version=1)
+        apierrors.listener = lambda text: hub.send(type="api_error", text=text)   # een sleutel werkt niet: in de app
         print(f"Overlay-server op ws://127.0.0.1:{a.port}", flush=True)
 
     def status(text: str):
@@ -612,8 +614,17 @@ def live_cmd(a) -> int:
     pipeline_ref["transcriber"] = transcriber
     config["advise"]["language"] = None if lang["code"] == "multi" else lang["code"]
     # bevestigingen (linkerkolom) alleen met de app erbij: in de terminal zouden ze de hints ondersneeuwen
-    pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
-                        make_reranker(config), make_confirmer(config) if hub else None)
+    try:
+        pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
+                            make_reranker(config), make_confirmer(config) if hub else None)
+    except Exception as e:  # noqa: BLE001 - alleen een sleutelprobleem netjes melden, de rest gewoon laten vallen
+        if not apierrors.report(e):
+            raise
+        if hub:
+            hub.send(type="stopped")
+            time.sleep(0.3)
+            hub.stop()
+        return 2
     pipeline_ref["reranker"] = pipeline.reranker
     pipeline_ref["pipeline"] = pipeline
     if a.wav:
@@ -739,6 +750,7 @@ def live_cmd(a) -> int:
                 hub.send(type="summary", markdown=md, path=str(note))
         except Exception as e:  # noqa: BLE001 - het verslag mag het transcript niet kosten
             print(f"Verslag mislukt: {e}", file=sys.stderr)
+            apierrors.report(e)
     if hub:
         hub.send(type="stopped")
         time.sleep(0.3)
