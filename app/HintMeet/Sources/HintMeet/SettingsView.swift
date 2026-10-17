@@ -67,6 +67,7 @@ struct SettingsView: View {
                 HStack {
                     Button("Save") {
                         saved = keys.map { settings.setKey($0.key, $0.value) }.allSatisfy { $0 }
+                        NotificationCenter.default.post(name: KeyCheck.keysChanged, object: nil)   // meteen testen
                     }
                     if saved == true { Text("Saved").font(.caption).foregroundStyle(.secondary) }
                     if saved == false { Text("Saving failed (Keychain)").font(.caption).foregroundStyle(.red) }

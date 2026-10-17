@@ -24,6 +24,7 @@ struct OverlayView: View {
     let find: () -> Void
     let restart: () -> Void
     @State private var tick = Date()
+    @StateObject private var keyCheck = KeyCheck()
     /// Net een verslag klaar: een knipperende pijl wijst er 5 seconden naar.
     @State private var pointAtReport = false
     @State private var blink = false
@@ -43,7 +44,7 @@ struct OverlayView: View {
                 meetingBar.padding(.horizontal, 14).padding(.vertical, 10)
                 Divider()
                 VStack(alignment: .leading, spacing: 10) {
-                    if !store.apiErrors.isEmpty { apiErrorBanner }
+                    if !store.apiErrors.isEmpty { apiErrorBanner(store.apiErrors) }
                     if backend.state == .stopping { stopping }
                     if !backend.isRunning && backend.state != .stopping { endedBanner }
                     columns
@@ -62,6 +63,8 @@ struct OverlayView: View {
         .background(GeometryReader { g in   // breedte en hoogte van het venster, voor de indeling
             Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
         })
+        .task { keyCheck.run(settings) }   // bij het openen: werken de API-keys?
+        .onReceive(NotificationCenter.default.publisher(for: KeyCheck.keysChanged)) { _ in keyCheck.run(settings) }
         .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
         .onChange(of: backend.state) { _, state in
             if state == .running && meetingStarted == nil { meetingStarted = Date() }
@@ -90,7 +93,9 @@ struct OverlayView: View {
                 Label(why, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            if !store.apiErrors.isEmpty { apiErrorBanner }   // bv. de meeting kon niet starten zonder Jev-key
+            // vooraf getest (keyCheck), of de meeting kon niet starten (bv. zonder Jev-key)
+            let keyProblems = keyCheck.problems + store.apiErrors.filter { !keyCheck.problems.contains($0) }
+            if !keyProblems.isEmpty { apiErrorBanner(keyProblems, checkAgain: true) }
             step(1, "Knowledge base") {
                 HStack(spacing: 10) {
                     ProjectMenu(settings: settings, addFolder: addFolder).disabled(kbBusy)
@@ -219,15 +224,22 @@ struct OverlayView: View {
     }
 
     /// Een API-key werkt niet: wat de API zegt, zodat je weet waarom er geen hints, bevestigingen of verslag komen.
-    private var apiErrorBanner: some View {
+    /// checkAgain: op het startscherm opnieuw testen (bv. na het ophogen van de limiet in de Anthropic Console).
+    private func apiErrorBanner(_ problems: [String], checkAgain: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(store.apiErrors, id: \.self) { text in
+                ForEach(problems, id: \.self) { text in
                     Text(text).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer()
+            if checkAgain {
+                if keyCheck.checking { ProgressView().controlSize(.small) }
+                Button("Check Again") { store.apiErrors = []; keyCheck.run(settings) }.controlSize(.small)
+                    .disabled(keyCheck.checking)
+                    .help("Test the API keys again")
+            }
             Button("Settings…") { openSettings() }.controlSize(.small)
                 .help("Change the API keys (stored in the Keychain)")
         }

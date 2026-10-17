@@ -4,11 +4,16 @@ waarom, in plaats van dat er stil geen hints of bevestigingen meer komen.
 De pijplijn vangt API-fouten af zodat de meeting doorloopt; op die plekken roept hij report(e) aan. Is het een
 sleutelprobleem, dan gaat het één keer per melding naar de luisteraar (de app, via de Hub); een tijdelijke fout
 (time-out, overbelast) niet, die lost zichzelf op.
+
+check_keys() test de sleutels vooraf, bij het openen van de app en bij de start van een meeting, met gratis
+aanroepen: Claude count_tokens (die ziet ook een bereikte limiet of geen tegoed), Jev de modellenlijst (die ziet
+een foute of ontbrekende sleutel, geen tegoed niet: dat blijkt pas bij een echte aanroep).
 """
 from __future__ import annotations
 
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 KEYS = {"anthropic": ("Claude", "ANTHROPIC_API_KEY"), "typesafe_sdk": ("Jev", "TYPESAFE_API_KEY")}
 # Anthropic meldt geen tegoed of een bereikte limiet als 400 (invalid_request_error), alleen aan de tekst te zien
@@ -61,3 +66,33 @@ def report(e: BaseException) -> bool:
             except Exception:  # noqa: BLE001 - de melding mag de pijplijn niet stoppen
                 pass
     return True
+
+
+def _check_claude(config: dict, timeout_s: float):
+    import anthropic
+    model = config.get("advise", {}).get("model", "claude-haiku-4-5")
+    anthropic.Anthropic(timeout=timeout_s, max_retries=0).messages.count_tokens(
+        model=model, messages=[{"role": "user", "content": "hi"}])
+
+
+def _check_jev(config: dict, timeout_s: float):
+    from typesafe_sdk import TypeSafeClient
+    TypeSafeClient(timeout=timeout_s).models.list()
+
+
+def check_keys(config: dict, timeout_s: float = 8) -> list[str]:
+    """Test elke sleutel die deze config nodig heeft (Claude altijd, Jev als gate.provider jev is), tegelijk.
+    Geeft de sleutelproblemen en meldt ze via report(); een netwerkfout of time-out telt niet als probleem."""
+    checks = [_check_claude] + ([_check_jev] if config.get("gate", {}).get("provider") == "jev" else [])
+
+    def run(check):
+        try:
+            check(config, timeout_s)
+        except Exception as e:  # noqa: BLE001 - alleen een sleutelprobleem telt
+            if report(e):
+                return key_problem(e)
+            print(f"API-check {check.__name__[7:]}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+    with ThreadPoolExecutor(len(checks)) as pool:
+        return [p for p in pool.map(run, checks) if p]

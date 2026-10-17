@@ -7,6 +7,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 ### App
 
 - **You see it when an API key doesn't work:** if the Claude or Jev key is wrong, missing, out of credit or over its spending limit, an orange banner at the top of the panel shows what the API says (for example *Claude API key (ANTHROPIC_API_KEY) doesn't work: You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.*), with a button to Settings. Before, the meeting went on without hints, left column or report, and the reason was only in the log. Each message is shown once, until the next meeting. Short outages such as time-outs don't show a banner.
+- **API keys are tested in advance:** when HintMeet opens, after *Save* in *Settings → API-keys* and at the start of every meeting (while the knowledge base loads), so a wrong key or a reached spending limit shows on the start screen before anyone speaks. **Check Again** in the banner tests once more, for example after raising the limit in the Anthropic Console. The test is free (no tokens used). Jev running out of credit only shows up once the meeting makes its first real call.
 
 ## 2026-10-13
 

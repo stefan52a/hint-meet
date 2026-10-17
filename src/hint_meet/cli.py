@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="hint-meet")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
+    sub.add_parser("check-keys", help="test de API-keys (gratis aanroepen); JSON met de problemen op stdout")
     sub.add_parser("index", help="KB vooraf indexeren (embeddings), met voortgang; daarna start live direct")
     pp = sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning "
                                         "laden; voortgang als @plan/@step/@progress-regels voor de app")
@@ -101,6 +102,13 @@ def main(argv: list[str] | None = None) -> int:
         t = time.perf_counter()
         kb = KB(roots, progress=print_progress)
         print(f"\r\033[K{len(kb.chunks)} stukjes klaar in {time.perf_counter() - t:.0f} s")
+        return 0
+    if a.cmd == "check-keys":
+        import json
+
+        import yaml
+        problems = apierrors.check_keys(yaml.safe_load(open(a.config, encoding="utf-8")))
+        print(json.dumps({"problems": problems}, ensure_ascii=False))
         return 0
     if a.cmd == "kb":
         try:
@@ -599,6 +607,8 @@ def live_cmd(a) -> int:
         if stop_requested.is_set():
             raise Stopped   # wat al klaar is, staat in de cache; volgende start gaat verder
 
+    # de sleutels testen terwijl de KB laadt: een probleem staat dan al in beeld voordat er iemand praat
+    threading.Thread(target=apierrors.check_keys, args=(config,), daemon=True).start()
     status("Loading KB…")
     try:
         kb = KB(roots, progress=kb_progress)
