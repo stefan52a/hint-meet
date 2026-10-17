@@ -67,7 +67,8 @@ final class Backend: ObservableObject {
         guard let data = try? Data(contentsOf: Self.meetingURL),
               let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let pid = (info["pid"] as? Int).map({ pid_t($0) }),
-              let start = info["pidStart"] as? Double, Self.isAlive(pid, startedAt: start),
+              case let start = info["pidStart"] as? Double,   // ontbreekt bij een meeting van een oudere versie
+              Self.isAlive(pid, startedAt: start),
               Self.isPipeline(pid, port: port)   // en het is echt onze pijplijn
         else {
             try? FileManager.default.removeItem(at: Self.meetingURL)
@@ -227,10 +228,13 @@ final class Backend: ObservableObject {
     /// "Nu afbreken" tijdens het stoppen: niet langer op het verslag wachten.
     func abort() {
         guard isRunning else { return }
+        // hard stoppen alleen dit proces: is er na 3 s al een nieuwe meeting gestart, dan blijft die met rust
+        let target = process.map { p in { p.isRunning ? p.processIdentifier : nil } }
+            ?? adoptedPID.map { pid in { [start = adoptedStart] in Self.isAlive(pid, startedAt: start) ? pid : nil } }
         signal(SIGTERM)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if self.isRunning { self.signal(SIGKILL) }
+            if let pid = target?() { kill(pid, SIGKILL) }
         }
     }
 
