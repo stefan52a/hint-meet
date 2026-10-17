@@ -9,19 +9,84 @@ final class Backend: ObservableObject {
     @Published var state: State = .idle
     @Published var lastLines: [String] = []
     @Published private(set) var stoppingSince: Date?
+    /// Begin van de lopende meeting, ook van een overgenomen meeting (voor de klok in de kopbalk).
+    @Published private(set) var startedAt: Date?
     private var process: Process?
+    /// Een meeting die doorliep nadat de app geforceerd gestopt was: geen kindproces meer, alleen zijn pid.
+    private var adoptedPID: pid_t?
+    private var adoptedWatch: Timer?
     private let settings: Settings
     let port: Int
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/HintMeet/\(Instance.name("backend")).log")
 
+    /// Welke meeting deze instantie draait (pid, start): na een geforceerde stop neemt de herstarte app hem over.
+    static let meetingURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/hint-meet/instances/\(Instance.number).meeting")
+
     init(settings: Settings, port: Int) {
         self.settings = settings
         self.port = port
+        adoptRunningMeeting()
     }
 
-    var isRunning: Bool { process?.isRunning ?? false }
+    var isRunning: Bool {
+        if let process { return process.isRunning }
+        if let adoptedPID { return kill(adoptedPID, 0) == 0 }
+        return false
+    }
+
+    /// De app liep vast en is geforceerd gestopt, maar de pijplijn liep door (zie src/hint_meet/survive.py): die
+    /// weer overnemen. De overlay verbindt vanzelf en krijgt de hele meeting terug; Stop werkt met een signaal.
+    private func adoptRunningMeeting() {
+        guard let data = try? Data(contentsOf: Self.meetingURL),
+              let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pid = (info["pid"] as? Int).map({ pid_t($0) }), kill(pid, 0) == 0,
+              Self.isPipeline(pid, port: port)   // een pid kan inmiddels van een ander proces zijn
+        else {
+            try? FileManager.default.removeItem(at: Self.meetingURL)
+            return
+        }
+        adoptedPID = pid
+        startedAt = (info["started"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date()
+        state = .running
+        // .common: ook tijdens het afsluiten (terminateLater draait de runloop in een andere modus) zien dat hij klaar is
+        let watch = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let pid = self.adoptedPID, kill(pid, 0) != 0 else { return }
+                self.adoptedWatch?.invalidate()
+                self.adoptedPID = nil
+                self.startedAt = nil
+                self.stoppingSince = nil
+                self.state = .idle   // de afloop (verslag, stopped) kwam via de WebSocket
+                try? FileManager.default.removeItem(at: Self.meetingURL)
+            }
+        }
+        RunLoop.main.add(watch, forMode: .common)
+        adoptedWatch = watch
+    }
+
+    /// Is pid onze pijplijn (hint_meet.cli live op deze poort)?
+    private static func isPipeline(_ pid: pid_t, port: Int) -> Bool {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-p", String(pid), "-o", "command="]
+        let out = Pipe()
+        ps.standardOutput = out
+        ps.standardError = FileHandle.nullDevice
+        guard (try? ps.run()) != nil else { return false }
+        ps.waitUntilExit()
+        let command = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return command.contains("hint_meet.cli") && command.contains(" live ") && command.contains("--port \(port)")
+    }
+
+    private func rememberMeeting(_ pid: pid_t) {
+        let info: [String: Any] = ["pid": Int(pid), "port": port, "started": Date().timeIntervalSince1970]
+        if let data = try? JSONSerialization.data(withJSONObject: info) {
+            try? data.write(to: Self.meetingURL, options: .atomic)
+        }
+    }
 
     /// Python uit de repo-.venv met de omgeving die de pijplijn nodig heeft (ook voor "KB voorbereiden").
     static func pythonProcess(_ settings: Settings, _ args: [String]) -> Process {
@@ -72,6 +137,8 @@ final class Backend: ObservableObject {
         if !info.isEmpty { args += ["--info", info] }
 
         let p = Backend.pythonProcess(settings, args)
+        // valt de app weg, dan schrijft de pijplijn zelf verder in het logboek (src/hint_meet/survive.py)
+        p.environment?["HINT_MEET_LOG"] = Backend.logURL.path
 
         try? FileManager.default.createDirectory(at: Backend.logURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
@@ -98,6 +165,8 @@ final class Backend: ObservableObject {
             let restText = String(decoding: rest, as: UTF8.self)
             Task { @MainActor in
                 guard let self, self.process === proc else { return }   // een oude run mag een nieuwe niet wissen
+                try? FileManager.default.removeItem(at: Self.meetingURL)
+                self.startedAt = nil
                 if !restText.isEmpty { self.remember(restText) }
                 let clean = proc.terminationReason == .exit && proc.terminationStatus == 0
                 self.state = clean ? .idle
@@ -110,6 +179,8 @@ final class Backend: ObservableObject {
             try p.run()
             process = p
             state = .running
+            startedAt = Date()
+            rememberMeeting(p.processIdentifier)
             lastLines = []
         } catch {
             state = .failed("Could not start the pipeline: \(error.localizedDescription)")
@@ -119,31 +190,31 @@ final class Backend: ObservableObject {
     /// Netjes stoppen met SIGINT aan ons eigen kindproces: de pijplijn verwerkt de laatste uitspraak
     /// en maakt het verslag. Geen tijdslimiet: het verslag gaat voor; hangt het, dan is er abort().
     func stop() {
-        guard let p = process, p.isRunning, state != .stopping else { return }
+        guard isRunning, state != .stopping else { return }
         state = .stopping
         stoppingSince = Date()
-        p.interrupt()
+        if let process { process.interrupt() } else if let adoptedPID { kill(adoptedPID, SIGINT) }
     }
 
     /// "Nu afbreken" tijdens het stoppen: niet langer op het verslag wachten.
     func abort() {
-        guard let p = process, p.isRunning else { return }
-        p.terminate()
+        guard isRunning, let pid = process?.processIdentifier ?? adoptedPID else { return }
+        kill(pid, SIGTERM)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+            if self.isRunning { kill(pid, SIGKILL) }
         }
     }
 
     /// Vangnet bij het echt afsluiten (bv. uitschakelen van de Mac): normaal heeft applicationShouldTerminate
     /// al op het verslag gewacht en draait er niets meer. Anders hooguit 10 s, dan beëindigen, desnoods hard.
     func stopNow() {
-        guard let p = process, p.isRunning else { return }
-        p.interrupt()
+        guard isRunning, let pid = process?.processIdentifier ?? adoptedPID else { return }
+        kill(pid, SIGINT)
         let deadline = Date().addingTimeInterval(10)
-        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
-        if p.isRunning { p.terminate(); Thread.sleep(forTimeInterval: 2) }
-        if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+        while isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        if isRunning { kill(pid, SIGTERM); Thread.sleep(forTimeInterval: 2) }
+        if isRunning { kill(pid, SIGKILL) }
     }
 
     private func remember(_ text: String) {

@@ -192,3 +192,18 @@ def test_document_results_give_ref_snippet_and_path(tmp_path):
     assert not reranked
     assert res[0]["ref"] == "vat.md" and res[0]["path"] == "/bron/vat.eml" and "going concern" in res[0]["snippet"]
     assert res[1]["path"] == str(tmp_path / "loan.md")
+
+
+def test_backlog_keeps_the_whole_meeting_with_the_latest_version_of_each_hint():
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.send(type="hello", project="acme")
+    for i in range(300):   # meer dan de oude grens van 200: een herstarte app krijgt alles terug
+        hub.send(type="utterance", id=i, text=f"u{i}")
+        hub.send(type="status", text=f"s{i}")
+    for partial in ("Ren", "Rente", "Rente 3%."):
+        hub.send(type="hint", id=5, state="streaming", text=partial)
+    hub.send(type="hint", id=5, state="final", text="Rente 3%.")
+    msgs = [json.loads(b) for b in hub.backlog]
+    assert [m["id"] for m in msgs if m["type"] == "utterance"] == list(range(300))
+    assert [m["text"] for m in msgs if m["type"] == "status"] == ["s299"]
+    assert [(m["state"], m["text"]) for m in msgs if m["type"] == "hint"] == [("final", "Rente 3%.")]

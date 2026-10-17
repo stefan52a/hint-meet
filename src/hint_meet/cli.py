@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")
     sub.add_parser("check-keys", help="test de API-keys (gratis aanroepen); JSON met de problemen op stdout")
+    rep = sub.add_parser("report", help="verslag alsnog schrijven uit een live-transcript (meeting zonder verslag); "
+                                        "JSON met het pad op stdout")
+    rep.add_argument("transcript", help="logs/live-….txt")
     sub.add_parser("index", help="KB vooraf indexeren (embeddings), met voortgang; daarna start live direct")
     pp = sub.add_parser("prepare", help="alles vooraf: documenten bijwerken (kb_prep), indexeren, spraakherkenning "
                                         "laden; voortgang als @plan/@step/@progress-regels voor de app")
@@ -109,6 +112,19 @@ def main(argv: list[str] | None = None) -> int:
         import yaml
         problems, unchecked = apierrors.check_keys(yaml.safe_load(open(a.config, encoding="utf-8")))
         print(json.dumps({"problems": problems, "unchecked": unchecked}, ensure_ascii=False))
+        return 0
+    if a.cmd == "report":
+        import json
+
+        import yaml
+
+        from .summary import write_report
+        try:
+            note = write_report(Path(a.transcript), yaml.safe_load(open(a.config, encoding="utf-8")))
+        except Exception as e:  # noqa: BLE001 - de app toont de reden
+            print(json.dumps({"error": apierrors.key_problem(e) or f"{type(e).__name__}: {e}"}, ensure_ascii=False))
+            return 1
+        print(json.dumps({"path": str(note)}, ensure_ascii=False))
         return 0
     if a.cmd == "kb":
         try:
@@ -533,7 +549,9 @@ def live_cmd(a) -> int:
     pipeline_ref = {}   # "reranker" van de pijplijn, ook voor zoekvragen uit de app
     stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
     if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
+        from . import survive
         from .server import FeedbackLog, Hub, source_paths
+        survive.install(os.environ.get("HINT_MEET_LOG"))   # app geforceerd gestopt: de meeting loopt door
         for r in roots:   # bij meerdere projecten begint elke referentie met de projectnaam
             prefix = f"{r.name}/" if len(roots) > 1 else ""
             sources_by_ref.update({prefix + k: v for k, v in source_paths(r).items()})
@@ -654,6 +672,7 @@ def live_cmd(a) -> int:
           + "\nStoppen met Ctrl-C.\n")
 
     shown_hints: list[str] = []
+    meta_ref = {}   # "save": meta van de meeting bijwerken (zodra het transcriptpad vastligt)
 
     streamed: set[int] = set()   # uitspraken waarvan een hint in wording naar de app ging
 
@@ -693,6 +712,7 @@ def live_cmd(a) -> int:
                              reason=REASON_EN.get(st.suppressed or "geen bron", st.suppressed))
         if st is not None and st.shown:
             shown_hints.append(st.advice.text)
+            meta_ref.get("save", lambda: None)()   # de hints horen in een later geschreven verslag
         if st is None:
             print(f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {'(achterstand) ' if ev.stale else ''}{u.speaker}: {u.text}")
             return
@@ -714,13 +734,28 @@ def live_cmd(a) -> int:
     if speaker_id:
         print("Sprekerherkenning aan: " + (", ".join(speaker_id.voices) + " op stem herkend, " if speaker_id.voices
                                          else "nog geen stem opgenomen (hint-meet voice), ") + "anderen als Speaker 1, 2, …")
+    out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"   # bijgewerkt na elke uitspraak
+    # alles wat nodig is om het verslag later alsnog te schrijven, mocht de meeting zonder eindigen
+    from .summary import save_meta
+    meta = {"project": "+".join(r.name for r in roots), "info": a.info, "language": lang["code"],
+            "started": started, "report_dir": str(Path("logs") if a.wav else roots[0]),
+            "summary": not a.no_summary, "hints": shown_hints, "report": None}
+
+    def save_progress():
+        try:
+            save_meta(out, {**meta, "language": lang["code"]})   # de taal kan tijdens de meeting wisselen
+        except OSError as e:
+            print(f"Meta niet bijgewerkt: {e}", file=sys.stderr)
+
+    meta_ref["save"] = save_progress
+    save_progress()
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
                           on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400),
-                          on_confirm=on_confirm if pipeline.confirmer else None, speaker_id=speaker_id)
+                          on_confirm=on_confirm if pipeline.confirmer else None, speaker_id=speaker_id,
+                          transcript_path=out)
     pipeline_ref["session"] = session
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")
-    out = Path("logs") / f"live-{time.strftime('%Y%m%d-%H%M%S')}.txt"
     try:
         if session.run(until=until):
             print("\nGestopt.")
@@ -755,6 +790,8 @@ def live_cmd(a) -> int:
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
                               project="+".join(r.name for r in roots), info=a.info, language=lang["code"])
             print(f"\n{md}\n\nVerslag: {note}")
+            meta["report"] = str(note)
+            save_progress()
             status("Report ready")
             if hub:
                 hub.send(type="summary", markdown=md, path=str(note))

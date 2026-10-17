@@ -31,6 +31,10 @@ import time
 from pathlib import Path
 
 PROTOCOL_VERSION = 1
+# Een overlay die (opnieuw) verbindt, krijgt de hele meeting terug, ook na een geforceerd gestopte app. Hints,
+# uitspraken en de status vervangen hun vorige versie, dus dit raakt pas vol bij een heel lange meeting.
+MAX_BACKLOG = 20000
+REPLACES = {"hint", "utterance", "confirm"}   # per id alleen de laatste versie bewaren
 # Gedeelde sleutel tussen backend en HintMeet.app: loopback alleen is geen beveiliging, want elke
 # app op deze Mac kan anders meeluisteren of de opname stoppen.
 TOKEN_FILE = Path("~/Library/Application Support/hint-meet/ws-token").expanduser()
@@ -61,8 +65,13 @@ class Hub:
         self.lock = threading.Lock()
         self.server = None
         self.hello: str | None = None
-        self.backlog: list[str] = []
+        self._backlog: dict = {}   # sleutel → bericht, op volgorde van binnenkomst
+        self._count = 0
         self.outbox: queue.Queue[str | None] = queue.Queue()
+
+    @property
+    def backlog(self) -> list[str]:
+        return list(self._backlog.values())
 
     def start(self):
         from websockets.sync.server import serve
@@ -121,11 +130,17 @@ class Hub:
         data = json.dumps(msg, ensure_ascii=False)
         with self.lock:
             if msg.get("type") == "hello":
-                self.hello, self.backlog = data, []
+                self.hello, self._backlog = data, {}
             elif msg.get("type") == "search_results":
                 pass   # antwoord op een zoekvraag: niet opnieuw afspelen bij een nieuwe verbinding
             else:
-                self.backlog = (self.backlog + [data])[-200:]
+                kind = msg.get("type")
+                self._count += 1
+                key = (kind, msg.get("id")) if kind in REPLACES else (kind,) if kind == "status" else self._count
+                self._backlog.pop(key, None)   # een hint in wording: alleen zijn laatste stand
+                self._backlog[key] = data
+                if len(self._backlog) > MAX_BACKLOG:
+                    del self._backlog[next(iter(self._backlog))]
         self.outbox.put(data)
 
     def stop(self):

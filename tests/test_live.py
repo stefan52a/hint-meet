@@ -130,6 +130,23 @@ def test_transcript_is_saved_in_replayable_format(tmp_path):
     assert len(u) == 1 and u[0].seconds == 65 and u[0].text == "Wat is de rente?"
 
 
+
+def test_transcript_is_saved_after_every_utterance_and_rename(tmp_path):
+    from hint_meet.transcript import load
+    path = tmp_path / "logs" / "live.txt"
+    texts = iter(["Wat is de rente?", "Drie procent."])
+    session = LiveSession([], transcriber=lambda audio, speaker=None: (next(texts), 5.0), pipeline=FakePipeline(),
+                          transcript_path=path)
+    session._handle(FakeSegment(65), ready_at=time.monotonic())
+    assert [u.text for u in load(path)] == ["Wat is de rente?"]   # al bewaard terwijl de meeting loopt
+    session._handle(FakeSegment(70), ready_at=time.monotonic())
+    assert [u.text for u in load(path)] == ["Wat is de rente?", "Drie procent."]
+    session.utterances[0].speaker = "Speaker 1"
+    session.rename_speaker("Speaker 1", "Jan")
+    assert load(path)[0].speaker == "Jan"   # hernoemen werkt ook terug in het bewaarde transcript
+    assert not list(path.parent.glob("*.tmp"))   # geen halve bestanden achtergelaten
+
+
 def test_float_wav_falls_back_to_ffmpeg(tmp_path):
     import shutil
     import subprocess

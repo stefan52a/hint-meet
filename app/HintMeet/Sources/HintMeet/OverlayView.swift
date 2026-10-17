@@ -25,6 +25,7 @@ struct OverlayView: View {
     let restart: () -> Void
     @State private var tick = Date()
     @StateObject private var keyCheck = KeyCheck()
+    @StateObject private var pendingReports = PendingReports()
     /// Net een verslag klaar: een knipperende pijl wijst er 5 seconden naar.
     @State private var pointAtReport = false
     @State private var blink = false
@@ -63,7 +64,14 @@ struct OverlayView: View {
         .background(GeometryReader { g in   // breedte en hoogte van het venster, voor de indeling
             Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
         })
-        .task { keyCheck.run(settings) }   // bij het openen: werken de API-keys?
+        .onChange(of: inMeeting) { _, meeting in   // terug op het startscherm: eindigde er een zonder verslag?
+            if !meeting { pendingReports.scan(settings) }
+        }
+        .task {
+            pendingReports.scan(settings)
+            keyCheck.run(settings)   // bij het openen: werken de API-keys?
+            if backend.isRunning { meetingStarted = backend.startedAt }   // overgenomen meeting: de klok loopt door
+        }
         .onReceive(NotificationCenter.default.publisher(for: KeyCheck.keysChanged)) { _ in
             // nieuwe sleutels: de meldingen van een vorige meeting gelden niet meer (die over Jev-tegoed ziet de
             // gratis controle niet, dus alleen hier wissen, niet na elke controle)
@@ -72,7 +80,7 @@ struct OverlayView: View {
         }
         .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
         .onChange(of: backend.state) { _, state in
-            if state == .running && meetingStarted == nil { meetingStarted = Date() }
+            if state == .running && meetingStarted == nil { meetingStarted = backend.startedAt ?? Date() }
             if state != .running && state != .stopping { meetingStarted = nil }   // ook na een fout: nieuwe klok
         }
         .onChange(of: settings.language) { _, code in   // tijdens een meeting: meteen naar de pijplijn
@@ -101,6 +109,7 @@ struct OverlayView: View {
             // vooraf getest (keyCheck), of de meeting kon niet starten (bv. zonder Jev-key)
             let keyProblems = keyCheck.problems + store.apiErrors.filter { !keyCheck.problems.contains($0) }
             if !keyProblems.isEmpty { apiErrorBanner(keyProblems, checkAgain: true) }
+            ForEach(pendingReports.items) { pendingReportRow($0) }   // meetings die zonder verslag eindigden
             step(1, "Knowledge base") {
                 HStack(spacing: 10) {
                     ProjectMenu(settings: settings, addFolder: addFolder).disabled(kbBusy)
@@ -250,6 +259,57 @@ struct OverlayView: View {
         }
         .padding(10)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private static let meetingDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE d MMM HH:mm"
+        return f
+    }()
+
+    /// Een meeting die zonder verslag eindigde (crash, geforceerd gestopt, Claude niet bereikbaar): alsnog schrijven,
+    /// uit het bewaarde transcript, met de hints die toen getoond zijn.
+    private func pendingReportRow(_ item: PendingReports.Item) -> some View {
+        let state = pendingReports.writing[item.id]
+        let what = ["Meeting of " + Self.meetingDate.string(from: item.started), item.project, item.info]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.badge.clock").foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(what).font(.callout.weight(.medium)).lineLimit(1)
+                    Text("\(item.utterances) utterances · ended without a report").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                switch state {
+                case .busy:
+                    ProgressView().controlSize(.small)
+                    Text("Writing report…").font(.caption).foregroundStyle(.secondary)
+                case .done(let path):
+                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: path)) } label: {
+                        Label("Open Report", systemImage: "doc.text")
+                    }
+                    .buttonStyle(FilledButtonStyle(color: .accentColor))
+                default:
+                    Button { pendingReports.write(item, settings) } label: {
+                        Label(state == nil ? "Write Report" : "Try Again", systemImage: "square.and.pencil")
+                    }
+                    .help("Write the report with action items from the saved transcript, as after a normal meeting")
+                }
+                if state != .busy {
+                    Button { pendingReports.dismiss(item) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .help("Don't offer a report for this meeting again; the transcript stays in logs/")
+                }
+            }
+            if case .failed(let why) = state {
+                Text(why).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .controlSize(.small)
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// Na afloop: het verslag openen of een nieuwe meeting voorbereiden (terug naar het startscherm).

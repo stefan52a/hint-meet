@@ -2,9 +2,15 @@
 
 De notitie komt in <kb>/meetings/, naast de documenten van het project, maar hoort niet bij de kennis: kb.py
 slaat die map over (een verslag herhaalt het gesprek en zou de echte documenten wegdrukken). kb_prep laat
-die map met rust (alleen eigen schaduwbestanden worden opgeruimd)."""
+die map met rust (alleen eigen schaduwbestanden worden opgeruimd).
+
+Naast elk live-transcript staat <transcript>.meta.json: project, meeting-info, taal, begin, de getoonde hints en
+of er een verslag is. Eindigde een meeting zonder verslag (crash, geforceerd gestopt, Claude niet bereikbaar), dan
+schrijft write_report() het alsnog, net als na een gewone meeting (Write Report in de app, of `hint-meet report`)."""
 from __future__ import annotations
 
+import json
+import os
 import re
 import time
 from pathlib import Path
@@ -111,3 +117,44 @@ def write_note(kb_root: Path, utterances, hints, summary_md: str, started: float
     with handle:
         handle.write("\n".join(lines) + "\n")
     return path
+
+
+def meta_path(transcript: Path) -> Path:
+    """logs/live-20261017-215747.txt → logs/live-20261017-215747.meta.json"""
+    return transcript.with_name(transcript.stem + ".meta.json")
+
+
+def save_meta(transcript: Path, meta: dict):
+    """In één keer vervangen: een crash midden in het schrijven laat de vorige stand staan."""
+    path = meta_path(transcript)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_meta(transcript: Path) -> dict:
+    try:
+        return json.loads(meta_path(transcript).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+MIN_UTTERANCES = 3   # korter: geen verslag (ook niet na een gewone meeting)
+
+
+def write_report(transcript: Path, config, client=None) -> Path:
+    """Het verslag van een meeting die zonder eindigde, uit het bewaarde transcript en zijn meta: zelfde map,
+    naam, hints en taal als na een gewone meeting. Werkt de meta bij, zodat de app hem niet meer aanbiedt."""
+    from .transcript import load
+    utterances = load(transcript)
+    if len(utterances) < MIN_UTTERANCES:
+        raise ValueError(f"too short for a report ({len(utterances)} utterances)")
+    meta = load_meta(transcript)
+    language = meta.get("language", "multi")
+    md = summarize(utterances, config, client, language=None if language == "multi" else language)
+    note = write_note(Path(meta.get("report_dir", "logs")), utterances, meta.get("hints", []), md,
+                      meta.get("started", transcript.stat().st_mtime), project=meta.get("project", ""),
+                      info=meta.get("info", ""), language=language)
+    if meta:
+        save_meta(transcript, {**meta, "report": str(note)})
+    return note

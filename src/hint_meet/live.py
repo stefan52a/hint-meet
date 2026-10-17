@@ -8,9 +8,11 @@ Opzet met drie draden:
 Wachttijden (vóór de spraakherkenning en vóór de pijplijn) worden gemeten en horen bij de echte vertraging.
 
 Het gesprek wordt ook als transcript bewaard (zelfde formaat als de testtranscripten), zodat
-het later opnieuw af te spelen is met `hint-meet replay`."""
+het later opnieuw af te spelen is met `hint-meet replay`. Dat gebeurt na elke uitspraak, niet pas aan het eind:
+crasht de pijplijn of de Mac, dan blijft wat er gezegd is bewaard."""
 from __future__ import annotations
 
+import os
 import queue
 import sys
 import threading
@@ -121,10 +123,12 @@ class LiveSession:
     STALE_MS = 8000      # loopt de verwerking verder achter dan dit, dan geen advies meer
 
     def __init__(self, sources, transcriber, pipeline, on_event=None, on_text=None, on_utterance=None,
-                 min_silence_ms: int = 400, on_confirm=None, speaker_id=None, voice_channels=("Unknown",)):
+                 min_silence_ms: int = 400, on_confirm=None, speaker_id=None, voice_channels=("Unknown",),
+                 transcript_path: Path | None = None):
         """on_utterance(index, utterance): meteen na de spraakherkenning. on_text(partial, index): hint in wording.
         on_event(LiveEvent): na de pijplijn. De laatste twee komen uit de pijplijndraad. on_confirm(index, Advice):
-        het dossier onderbouwt de uitspraak, later uit een draad van de bevestiger."""
+        het dossier onderbouwt de uitspraak, later uit een draad van de bevestiger. transcript_path: daar staat het
+        transcript, bijgewerkt na elke uitspraak en elke hernoemde spreker."""
         self.sources, self.transcriber, self.pipeline = sources, transcriber, pipeline
         self.on_event, self.on_text, self.on_utterance = on_event, on_text, on_utterance
         self.on_confirm = on_confirm
@@ -144,6 +148,9 @@ class LiveSession:
         self.events: list[LiveEvent] = []
         self.t0 = None
         self.stop_flag = threading.Event()
+        self.transcript_path = transcript_path
+        self.started = time.strftime('%Y-%m-%d %H:%M')
+        self.save_lock = threading.Lock()   # spraakdraad (uitspraak) en server (hernoemen) schrijven allebei
 
     def _segmenter(self, label: str) -> Segmenter:
         if label not in self.segmenters:
@@ -219,6 +226,7 @@ class LiveSession:
         u = Utterance(int(segment.start), speaker, text)
         index = len(self.utterances)
         self.utterances.append(u)
+        self._save_progress()
         if self.on_utterance:
             self.on_utterance(index, u)
         item = (index, time.monotonic(), wait_ms, asr_ms, advise)
@@ -270,6 +278,7 @@ class LiveSession:
         for u in self.utterances:
             if u.speaker == old:
                 u.speaker = new
+        self._save_progress()
         remembered = False
         if remember and self.speaker_id is not None:
             for label in sources:
@@ -286,8 +295,20 @@ class LiveSession:
         if not self.stop_flag.is_set():   # na Stop niets nieuws meer in het paneel
             self.on_confirm(index, confirmation)
 
+    def _save_progress(self):
+        if self.transcript_path is None:
+            return
+        try:
+            self.save_transcript(self.transcript_path)
+        except OSError as e:   # schijf vol of map weg: de meeting loopt door, het eind probeert het nog eens
+            print(f"Transcript niet bijgewerkt: {e}", file=sys.stderr)
+
     def save_transcript(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lines = [f"# Live-transcript hint-meet, {time.strftime('%Y-%m-%d %H:%M')}"]
-        lines += [f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {u.speaker}: {u.text}" for u in self.utterances]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        """Het hele transcript, in één keer vervangen: na een crash midden in het schrijven blijft de vorige stand."""
+        lines = [f"# Live-transcript hint-meet, {self.started}"]
+        lines += [f"[{u.seconds // 60:02d}:{u.seconds % 60:02d}] {u.speaker}: {u.text}" for u in list(self.utterances)]
+        with self.save_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
