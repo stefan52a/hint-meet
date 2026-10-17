@@ -107,8 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         import json
 
         import yaml
-        problems = apierrors.check_keys(yaml.safe_load(open(a.config, encoding="utf-8")))
-        print(json.dumps({"problems": problems}, ensure_ascii=False))
+        problems, unchecked = apierrors.check_keys(yaml.safe_load(open(a.config, encoding="utf-8")))
+        print(json.dumps({"problems": problems, "unchecked": unchecked}, ensure_ascii=False))
         return 0
     if a.cmd == "kb":
         try:

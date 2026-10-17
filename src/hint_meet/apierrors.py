@@ -80,19 +80,25 @@ def _check_jev(config: dict, timeout_s: float):
     TypeSafeClient(timeout=timeout_s).models.list()
 
 
-def check_keys(config: dict, timeout_s: float = 8) -> list[str]:
+def check_keys(config: dict, timeout_s: float = 8) -> tuple[list[str], list[str]]:
     """Test elke sleutel die deze config nodig heeft (Claude altijd, Jev als gate.provider jev is), tegelijk.
-    Geeft de sleutelproblemen en meldt ze via report(); een netwerkfout of time-out telt niet als probleem."""
-    checks = [_check_claude] + ([_check_jev] if config.get("gate", {}).get("provider") == "jev" else [])
+    Geeft (sleutelproblemen, diensten zonder uitsluitsel) en meldt de problemen via report(). Een netwerkfout of
+    time-out is geen probleem maar geen uitsluitsel: dan weet je over die sleutel niets."""
+    checks = [("Claude", _check_claude)]
+    if config.get("gate", {}).get("provider") == "jev":
+        checks.append(("Jev", _check_jev))
 
-    def run(check):
+    def run(named):
+        service, check = named
         try:
             check(config, timeout_s)
         except Exception as e:  # noqa: BLE001 - alleen een sleutelprobleem telt
             if report(e):
-                return key_problem(e)
-            print(f"API-check {check.__name__[7:]}: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
+                return key_problem(e), None
+            print(f"API-check {service}: {type(e).__name__}: {e}", file=sys.stderr)
+            return None, service
+        return None, None
 
     with ThreadPoolExecutor(len(checks)) as pool:
-        return [p for p in pool.map(run, checks) if p]
+        results = list(pool.map(run, checks))
+    return [p for p, _ in results if p], [s for _, s in results if s]

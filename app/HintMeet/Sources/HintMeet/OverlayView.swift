@@ -65,6 +65,9 @@ struct OverlayView: View {
         })
         .task { keyCheck.run(settings) }   // bij het openen: werken de API-keys?
         .onReceive(NotificationCenter.default.publisher(for: KeyCheck.keysChanged)) { _ in keyCheck.run(settings) }
+        .onChange(of: keyCheck.answered) { _, _ in   // een nieuwe controle vervangt de meldingen van een vorige meeting
+            if !backend.isRunning { store.apiErrors = [] }
+        }
         .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
         .onChange(of: backend.state) { _, state in
             if state == .running && meetingStarted == nil { meetingStarted = Date() }
@@ -236,7 +239,7 @@ struct OverlayView: View {
             Spacer()
             if checkAgain {
                 if keyCheck.checking { ProgressView().controlSize(.small) }
-                Button("Check Again") { store.apiErrors = []; keyCheck.run(settings) }.controlSize(.small)
+                Button("Check Again") { keyCheck.run(settings) }.controlSize(.small)
                     .disabled(keyCheck.checking)
                     .help("Test the API keys again")
             }

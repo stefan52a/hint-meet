@@ -57,9 +57,9 @@ def test_check_keys_tests_jev_only_when_the_gate_uses_it(monkeypatch):
     called = []
     monkeypatch.setattr(apierrors, "_check_claude", lambda config, t: called.append("claude"))
     monkeypatch.setattr(apierrors, "_check_jev", lambda config, t: called.append("jev"))
-    assert apierrors.check_keys({"gate": {"provider": "claude"}}) == [] and called == ["claude"]
+    assert apierrors.check_keys({"gate": {"provider": "claude"}}) == ([], []) and called == ["claude"]
     called.clear()
-    assert apierrors.check_keys({"gate": {"provider": "jev"}}) == [] and sorted(called) == ["claude", "jev"]
+    assert apierrors.check_keys({"gate": {"provider": "jev"}}) == ([], []) and sorted(called) == ["claude", "jev"]
 
 
 def test_check_keys_returns_and_reports_key_problems_but_not_network_errors(monkeypatch):
@@ -74,7 +74,8 @@ def test_check_keys_returns_and_reports_key_problems_but_not_network_errors(monk
 
     monkeypatch.setattr(apierrors, "_check_claude", limited)
     monkeypatch.setattr(apierrors, "_check_jev", offline)
-    problems = apierrors.check_keys({"gate": {"provider": "jev"}})
+    problems, unchecked = apierrors.check_keys({"gate": {"provider": "jev"}})
+    assert unchecked == ["Jev"]   # geen netwerk: geen probleem, maar ook geen uitsluitsel
     assert problems == ["Claude API key (ANTHROPIC_API_KEY) doesn't work: "
                         "You have reached your specified API usage limits."]
     assert got == problems

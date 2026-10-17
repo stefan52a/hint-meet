@@ -9,6 +9,9 @@ final class KeyCheck: ObservableObject {
 
     @Published private(set) var problems: [String] = []
     @Published private(set) var checking = false
+    /// Telt op bij elke controle die over alle sleutels uitsluitsel gaf: dan is die de stand, ook tegenover oudere
+    /// meldingen (van een vorige meeting).
+    @Published private(set) var answered = 0
     private var checkID = 0
 
     func run(_ settings: Settings) {
@@ -24,10 +27,13 @@ final class KeyCheck: ObservableObject {
             let data = out.fileHandleForReading.readDataToEndOfFile()
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             let found = json?["problems"] as? [String]
+            let complete = (json?["unchecked"] as? [String])?.isEmpty ?? false
             Task { @MainActor in
                 guard let self, self.checkID == id else { return }   // een nieuwere controle gaat voor
                 self.checking = false
-                if let found { self.problems = found }   // geen antwoord (bv. geen netwerk): de vorige stand houden
+                guard let found else { return }   // geen antwoord (bv. geen netwerk): de vorige stand houden
+                self.problems = found
+                if complete { self.answered += 1 }   // een dienst onbereikbaar: oudere meldingen laten staan
             }
         }
         do { try p.run() } catch { checking = false }
