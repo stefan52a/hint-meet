@@ -47,3 +47,11 @@ def test_report_without_meta_goes_to_logs_and_short_meetings_get_none(tmp_path, 
     transcript.write_text(TRANSCRIPT.splitlines()[0] + "\n[00:00] Anna: Hoi.\n", encoding="utf-8")
     with pytest.raises(ValueError):
         write_report(transcript, CONFIG, client=FakeClaude())
+
+
+def test_meta_can_be_saved_from_several_threads_at_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    transcript = tmp_path / "live-1.txt"
+    with ThreadPoolExecutor(8) as pool:   # hints uit de pijplijndraad terwijl het einde het verslag vastlegt
+        list(pool.map(lambda i: save_meta(transcript, {"hints": [str(i)]}), range(200)))
+    assert len(load_meta(transcript)["hints"]) == 1 and not list(tmp_path.glob("*.tmp"))

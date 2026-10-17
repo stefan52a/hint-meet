@@ -741,11 +741,14 @@ def live_cmd(a) -> int:
             "started": started, "report_dir": str(Path("logs") if a.wav else roots[0]),
             "summary": not a.no_summary, "hints": shown_hints, "report": None}
 
+    meta_lock = threading.Lock()   # pijplijndraad (hints) en het einde (verslag): de laatste stand wint altijd
+
     def save_progress():
-        try:
-            save_meta(out, {**meta, "language": lang["code"]})   # de taal kan tijdens de meeting wisselen
-        except OSError as e:
-            print(f"Meta niet bijgewerkt: {e}", file=sys.stderr)
+        with meta_lock:
+            try:
+                save_meta(out, {**meta, "language": lang["code"]})   # de taal kan tijdens de meeting wisselen
+            except OSError as e:
+                print(f"Meta niet bijgewerkt: {e}", file=sys.stderr)
 
     meta_ref["save"] = save_progress
     save_progress()

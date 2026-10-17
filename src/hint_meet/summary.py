@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -125,9 +126,10 @@ def meta_path(transcript: Path) -> Path:
 
 
 def save_meta(transcript: Path, meta: dict):
-    """In één keer vervangen: een crash midden in het schrijven laat de vorige stand staan."""
+    """In één keer vervangen: een crash midden in het schrijven laat de vorige stand staan. Eigen tijdelijk bestand
+    per schrijver (proces en draad), zodat twee tegelijk elkaars bestand niet wegzetten."""
     path = meta_path(transcript)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     os.replace(tmp, path)
 

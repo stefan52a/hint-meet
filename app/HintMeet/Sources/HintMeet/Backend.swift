@@ -14,6 +14,8 @@ final class Backend: ObservableObject {
     private var process: Process?
     /// Een meeting die doorliep nadat de app geforceerd gestopt was: geen kindproces meer, alleen zijn pid.
     private var adoptedPID: pid_t?
+    /// Starttijd van dat proces: een pid kan na afloop aan een ander proces gegeven worden; dan klopt deze niet meer.
+    private var adoptedStart: Double?
     private var adoptedWatch: Timer?
     private let settings: Settings
     let port: Int
@@ -33,8 +35,30 @@ final class Backend: ObservableObject {
 
     var isRunning: Bool {
         if let process { return process.isRunning }
-        if let adoptedPID { return kill(adoptedPID, 0) == 0 }
+        if let adoptedPID { return Self.isAlive(adoptedPID, startedAt: adoptedStart) }
         return false
+    }
+
+    /// Leeft pid nog, en is het nog hetzelfde proces (zelfde starttijd)?
+    private static func isAlive(_ pid: pid_t, startedAt: Double?) -> Bool {
+        guard kill(pid, 0) == 0, let start = processStart(pid) else { return false }
+        return startedAt.map { abs($0 - start) < 0.001 } ?? true
+    }
+
+    /// Starttijd van een proces volgens de kernel (seconden sinds 1970), of nil als het niet bestaat.
+    private static func processStart(_ pid: pid_t) -> Double? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        let t = info.kp_proc.p_starttime
+        return Double(t.tv_sec) + Double(t.tv_usec) / 1_000_000
+    }
+
+    /// Een signaal alleen aan het proces dat we draaien of overnamen, nooit aan een ander met een hergebruikte pid.
+    private func signal(_ sig: Int32) {
+        if let process, process.isRunning { kill(process.processIdentifier, sig) }
+        else if let adoptedPID, Self.isAlive(adoptedPID, startedAt: adoptedStart) { kill(adoptedPID, sig) }
     }
 
     /// De app liep vast en is geforceerd gestopt, maar de pijplijn liep door (zie src/hint_meet/survive.py): die
@@ -42,21 +66,24 @@ final class Backend: ObservableObject {
     private func adoptRunningMeeting() {
         guard let data = try? Data(contentsOf: Self.meetingURL),
               let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pid = (info["pid"] as? Int).map({ pid_t($0) }), kill(pid, 0) == 0,
-              Self.isPipeline(pid, port: port)   // een pid kan inmiddels van een ander proces zijn
+              let pid = (info["pid"] as? Int).map({ pid_t($0) }),
+              let start = info["pidStart"] as? Double, Self.isAlive(pid, startedAt: start),
+              Self.isPipeline(pid, port: port)   // en het is echt onze pijplijn
         else {
             try? FileManager.default.removeItem(at: Self.meetingURL)
             return
         }
         adoptedPID = pid
+        adoptedStart = start
         startedAt = (info["started"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date()
         state = .running
         // .common: ook tijdens het afsluiten (terminateLater draait de runloop in een andere modus) zien dat hij klaar is
         let watch = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let pid = self.adoptedPID, kill(pid, 0) != 0 else { return }
+                guard let self, let pid = self.adoptedPID, !Self.isAlive(pid, startedAt: self.adoptedStart) else { return }
                 self.adoptedWatch?.invalidate()
                 self.adoptedPID = nil
+                self.adoptedStart = nil
                 self.startedAt = nil
                 self.stoppingSince = nil
                 self.state = .idle   // de afloop (verslag, stopped) kwam via de WebSocket
@@ -82,7 +109,8 @@ final class Backend: ObservableObject {
     }
 
     private func rememberMeeting(_ pid: pid_t) {
-        let info: [String: Any] = ["pid": Int(pid), "port": port, "started": Date().timeIntervalSince1970]
+        var info: [String: Any] = ["pid": Int(pid), "port": port, "started": Date().timeIntervalSince1970]
+        if let start = Self.processStart(pid) { info["pidStart"] = start }
         if let data = try? JSONSerialization.data(withJSONObject: info) {
             try? data.write(to: Self.meetingURL, options: .atomic)
         }
@@ -193,28 +221,28 @@ final class Backend: ObservableObject {
         guard isRunning, state != .stopping else { return }
         state = .stopping
         stoppingSince = Date()
-        if let process { process.interrupt() } else if let adoptedPID { kill(adoptedPID, SIGINT) }
+        signal(SIGINT)
     }
 
     /// "Nu afbreken" tijdens het stoppen: niet langer op het verslag wachten.
     func abort() {
-        guard isRunning, let pid = process?.processIdentifier ?? adoptedPID else { return }
-        kill(pid, SIGTERM)
+        guard isRunning else { return }
+        signal(SIGTERM)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if self.isRunning { kill(pid, SIGKILL) }
+            if self.isRunning { self.signal(SIGKILL) }
         }
     }
 
     /// Vangnet bij het echt afsluiten (bv. uitschakelen van de Mac): normaal heeft applicationShouldTerminate
     /// al op het verslag gewacht en draait er niets meer. Anders hooguit 10 s, dan beëindigen, desnoods hard.
     func stopNow() {
-        guard isRunning, let pid = process?.processIdentifier ?? adoptedPID else { return }
-        kill(pid, SIGINT)
+        guard isRunning else { return }
+        signal(SIGINT)
         let deadline = Date().addingTimeInterval(10)
         while isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
-        if isRunning { kill(pid, SIGTERM); Thread.sleep(forTimeInterval: 2) }
-        if isRunning { kill(pid, SIGKILL) }
+        if isRunning { signal(SIGTERM); Thread.sleep(forTimeInterval: 2) }
+        if isRunning { signal(SIGKILL) }
     }
 
     private func remember(_ text: String) {
