@@ -6,6 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **Full screen with the green button:** like other apps, the green button now puts HintMeet in full screen (its own Space, menu bar hidden). The green button again or Esc brings it back as a floating panel, at your own size and position. It also works with one click while HintMeet isn't the active app.
 - **The knowledge base name is in every window title:** the panel (*HintMeet · Koinonia-Villages-Circles*) and the separate column windows (*Transcript · Koinonia-Villages-Circles*), so you can tell which window belongs to which knowledge base, also with two HintMeets open.
 - **Run more than one HintMeet at a time** (for example two meetings): **New HintMeet Window** (⌘N) in the HintMeet menu and the 💡 menu starts another HintMeet with its own panel, meeting, project and log. The second one is called *HintMeet 2* (💡 2 in the menu bar), opens slightly offset from the first and remembers its own window positions.
 - **The left column works like the hints:** live, the newest backed statement sits in the middle of the column. Scroll up or click one, and that one moves to the middle with the later ones below it. Scrolling back to the bottom goes live again.

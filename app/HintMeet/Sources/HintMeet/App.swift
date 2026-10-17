@@ -69,6 +69,10 @@ final class OverlayPanel: NSPanel {
         isReleasedWhenClosed = false   // sluiten verbergt; Show Overlay, het Dock-icoon of 💡 haalt hem terug
         hasShadow = true
         contentView = content
+        NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: self,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restoreFloating() }
+        }
     }
     override var canBecomeKey: Bool { acceptsKeyboard() }
 
@@ -80,6 +84,14 @@ final class OverlayPanel: NSPanel {
     /// het transcript laten de focus (en je toetsenbord) bij de meeting-app.
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown && !NSApp.isActive {
+            // de knoppen in de titelbalk reageren niet op een klik zolang HintMeet niet actief is (een paneel dat geen
+            // focus pakt): dan zelf uitvoeren, zodat maximaliseren, minimaliseren en sluiten in één klik werken
+            if let action = titleButtonAction(at: event.locationInWindow) {
+                previousApp = NSWorkspace.shared.frontmostApplication
+                NSApp.activate(ignoringOtherApps: true)
+                action()
+                return
+            }
             let onHeader = event.locationInWindow.y >= frame.height - Self.headerHeight
             if acceptsKeyboard() || onHeader {
                 previousApp = NSWorkspace.shared.frontmostApplication
@@ -89,6 +101,44 @@ final class OverlayPanel: NSPanel {
         super.sendEvent(event)
     }
     override var canBecomeMain: Bool { false }
+
+    /// Hoe het paneel zweeft (boven alles, ook naast een app in volledig scherm), om na volledig scherm terug te zetten.
+    private var floatingSetup: (NSWindow.CollectionBehavior, NSWindow.Level)?
+
+    /// Groene knop: volledig scherm, zoals bij andere apps (eigen Space, menubalk verborgen). Een zwevend paneel kan
+    /// dat niet, dus alleen zolang het volledig scherm duurt is het een gewoon venster; daarna weer zwevend.
+    override func zoom(_ sender: Any?) { toggleFullScreen(sender) }
+
+    override func toggleFullScreen(_ sender: Any?) {
+        if !styleMask.contains(.fullScreen) && floatingSetup == nil {
+            floatingSetup = (collectionBehavior, level)
+            collectionBehavior = [.fullScreenPrimary, .managed]
+            level = .normal
+        }
+        super.toggleFullScreen(sender)
+    }
+
+    /// Na volledig scherm (groene knop of Esc): weer zwevend, op de oude plek en maat (die zet macOS zelf terug).
+    func restoreFloating() {
+        guard let (behavior, oldLevel) = floatingSetup else { return }
+        floatingSetup = nil
+        collectionBehavior = behavior
+        level = oldLevel
+    }
+
+    /// Wat de rode, gele of groene knop doet als de klik op `point` (venstercoördinaten) daar valt.
+    private func titleButtonAction(at point: NSPoint) -> (() -> Void)? {
+        let buttons: [(NSWindow.ButtonType, () -> Void)] = [
+            (.zoomButton, { [weak self] in self?.zoom(nil) }),
+            (.miniaturizeButton, { [weak self] in self?.miniaturize(nil) }),
+            (.closeButton, { [weak self] in self?.performClose(nil) }),
+        ]
+        for (type, action) in buttons {
+            guard let b = standardWindowButton(type), let parent = b.superview, b.isEnabled else { continue }
+            if parent.convert(b.frame, to: nil).insetBy(dx: -2, dy: -2).contains(point) { return action }
+        }
+        return nil
+    }
 
     /// Jouw laatste plek en maat precies terug (macOS schuift een venster dat deels buiten beeld valt anders bij het
     /// tonen terug, en dan klopt de onthouden plek niet meer). Alleen als de titelbalk op geen enkel scherm meer
@@ -174,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)   // meteen: ook de overgenomen plek
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             NotificationCenter.default.addObserver(forName: name, object: panel, queue: .main) { note in
-                guard let w = note.object as? NSWindow else { return }
+                guard let w = note.object as? NSWindow, !w.styleMask.contains(.fullScreen) else { return }
                 UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: Self.frameKey)
             }
         }
@@ -753,7 +803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             NotificationCenter.default.addObserver(forName: name, object: p, queue: .main) { note in
-                guard let w = note.object as? NSWindow else { return }
+                guard let w = note.object as? NSWindow, !w.styleMask.contains(.fullScreen) else { return }
                 UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: key)
             }
         }
