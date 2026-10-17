@@ -64,9 +64,11 @@ struct OverlayView: View {
             Color.clear.onAppear { size = g.size }.onChange(of: g.size) { _, s in size = s }
         })
         .task { keyCheck.run(settings) }   // bij het openen: werken de API-keys?
-        .onReceive(NotificationCenter.default.publisher(for: KeyCheck.keysChanged)) { _ in keyCheck.run(settings) }
-        .onChange(of: keyCheck.answered) { _, _ in   // een nieuwe controle vervangt de meldingen van een vorige meeting
+        .onReceive(NotificationCenter.default.publisher(for: KeyCheck.keysChanged)) { _ in
+            // nieuwe sleutels: de meldingen van een vorige meeting gelden niet meer (die over Jev-tegoed ziet de
+            // gratis controle niet, dus alleen hier wissen, niet na elke controle)
             if !backend.isRunning { store.apiErrors = [] }
+            keyCheck.run(settings)
         }
         .onReceive(timer) { tick = $0 }   // klok, voortgang, en het regeltje over een ingetrokken hint
         .onChange(of: backend.state) { _, state in
