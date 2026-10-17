@@ -75,7 +75,7 @@ final class Backend: ObservableObject {
             return
         }
         adoptedPID = pid
-        adoptedStart = start
+        adoptedStart = start ?? Self.processStart(pid)   // oud meetingbestand: vanaf nu wel vastleggen
         startedAt = (info["started"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date()
         state = .running
         // .common: ook tijdens het afsluiten (terminateLater draait de runloop in een andere modus) zien dat hij klaar is
