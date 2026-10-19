@@ -415,17 +415,29 @@ def test_typed_text_is_handled_as_if_it_were_said(tmp_path):
     session = LiveSession([], transcriber=lambda audio, speaker=None: ("Wat is de rente?", 5.0), pipeline=pipe,
                           on_utterance=lambda i, u: seen.append((i, u.speaker, u.text)), transcript_path=path)
     session._handle(FakeSegment(5), ready_at=time.monotonic())
+    assert session.say("Te vroeg", "Stefan") is None   # de meeting luistert nog niet
+    session.t0 = time.monotonic() - 65
     session.aliases["Stefan"] = "Stefan B"
     assert session.say("  Drie   procent,\nvast. ", "Stefan") == 1
     assert seen[1] == (1, "Stefan B", "Drie procent, vast.")
     assert pipe.calls == 2 and not session.events[1].stale   # ook gezocht en beoordeeld, zoals een uitspraak
     assert [u.text for u in load(path)][-1] == "Drie procent, vast."
+    assert session.utterances[1].seconds == 65
 
 
 def test_typed_text_is_ignored_when_empty_or_after_stop():
     pipe = FakePipeline()
     session = LiveSession([], transcriber=None, pipeline=pipe)
+    session.t0 = time.monotonic()
     assert session.say("   ", "Stefan") is None
     session.stop()
     assert session.say("Nog iets", "Stefan") is None
+    assert session.utterances == [] and pipe.calls == 0
+
+
+def test_typed_text_after_the_pipeline_finished_is_refused():
+    pipe = FakePipeline()
+    session = LiveSession([], transcriber=None, pipeline=pipe)
+    session.run(until=lambda: True)
+    assert session.say("Te laat", "Stefan") is None
     assert session.utterances == [] and pipe.calls == 0

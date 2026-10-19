@@ -197,10 +197,11 @@ class LiveSession:
                 for segment in seg.flush():
                     self._handle(segment, ready_at=time.monotonic(), advise=False)
         finally:
+            with self.add_lock:   # vóór het eindteken: niets getypts meer dat achter het eindteken belandt
+                self.finished = True
             self.work.put(None)   # pijplijn maakt af wat er nog ligt (begrensd door de timeouts) en stopt
             self.worker.join()
             self.worker = None
-            self.finished = True
         return interrupted
 
     def stop(self):
@@ -229,26 +230,29 @@ class LiveSession:
 
     def say(self, text: str, speaker: str) -> int | None:
         """Getypt in de app, alsof het gezegd is: transcript, hints en bevestigingen zoals bij een uitspraak.
-        Geeft de index, of None als er niets te zeggen is of de meeting al stopt."""
+        Geeft de index, of None als er niets te zeggen is of de meeting (nog) niet luistert."""
         text = " ".join(text.split())[:self.MAX_TYPED]
-        if not text or self.stop_flag.is_set() or self.finished:
+        if not text or self.t0 is None or self.stop_flag.is_set():
             return None
-        seconds = int(time.monotonic() - self.t0) if self.t0 is not None else 0
-        return self._add(Utterance(seconds, self.aliases.get(speaker, speaker), text), 0.0, 0.0, True)
+        u = Utterance(int(time.monotonic() - self.t0), self.aliases.get(speaker, speaker), text)
+        return self._add(u, 0.0, 0.0, True, typed=True)
 
-    def _add(self, u: Utterance, wait_ms: float, asr_ms: float, advise: bool) -> int:
+    def _add(self, u: Utterance, wait_ms: float, asr_ms: float, advise: bool, typed: bool = False) -> int | None:
         """Uitspraak in het transcript, meteen melden, en doorgeven aan de pijplijn."""
-        with self.add_lock:   # spraakdraad en server (getypt) voegen allebei toe: elke index één keer
+        # spraakdraad en server (getypt) voegen allebei toe: elke index één keer, en op volgorde in de pijplijn
+        with self.add_lock:
+            if typed and self.finished:
+                return None
             index = len(self.utterances)
             self.utterances.append(u)
-        self._save_progress()
-        if self.on_utterance:
-            self.on_utterance(index, u)
-        item = (index, time.monotonic(), wait_ms, asr_ms, advise)
-        if self.worker is None:   # buiten run() (tests): meteen afhandelen
-            self._advise(*item)
-        else:
-            self.work.put(item)
+            self._save_progress()
+            if self.on_utterance:
+                self.on_utterance(index, u)
+            item = (index, time.monotonic(), wait_ms, asr_ms, advise)
+            if self.worker is None:   # buiten run() (tests): meteen afhandelen
+                self._advise(*item)
+            else:
+                self.work.put(item)
         return index
 
     def _pipeline_loop(self):
