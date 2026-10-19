@@ -151,6 +151,8 @@ class LiveSession:
         self.transcript_path = transcript_path
         self.started = time.strftime('%Y-%m-%d %H:%M')
         self.save_lock = threading.Lock()   # spraakdraad (uitspraak) en server (hernoemen) schrijven allebei
+        self.add_lock = threading.Lock()
+        self.finished = False   # run() is klaar: de pijplijn wordt gesloten, niets getypts meer aannemen
 
     def _segmenter(self, label: str) -> Segmenter:
         if label not in self.segmenters:
@@ -198,6 +200,7 @@ class LiveSession:
             self.work.put(None)   # pijplijn maakt af wat er nog ligt (begrensd door de timeouts) en stopt
             self.worker.join()
             self.worker = None
+            self.finished = True
         return interrupted
 
     def stop(self):
@@ -222,10 +225,22 @@ class LiveSession:
                 print(f"Sprekerherkenning: {type(e).__name__}: {e}", file=sys.stderr)
         if not text:
             return
-        speaker = self.aliases.get(speaker, speaker)
-        u = Utterance(int(segment.start), speaker, text)
-        index = len(self.utterances)
-        self.utterances.append(u)
+        self._add(Utterance(int(segment.start), self.aliases.get(speaker, speaker), text), wait_ms, asr_ms, advise)
+
+    def say(self, text: str, speaker: str) -> int | None:
+        """Getypt in de app, alsof het gezegd is: transcript, hints en bevestigingen zoals bij een uitspraak.
+        Geeft de index, of None als er niets te zeggen is of de meeting al stopt."""
+        text = " ".join(text.split())[:self.MAX_TYPED]
+        if not text or self.stop_flag.is_set() or self.finished:
+            return None
+        seconds = int(time.monotonic() - self.t0) if self.t0 is not None else 0
+        return self._add(Utterance(seconds, self.aliases.get(speaker, speaker), text), 0.0, 0.0, True)
+
+    def _add(self, u: Utterance, wait_ms: float, asr_ms: float, advise: bool) -> int:
+        """Uitspraak in het transcript, meteen melden, en doorgeven aan de pijplijn."""
+        with self.add_lock:   # spraakdraad en server (getypt) voegen allebei toe: elke index één keer
+            index = len(self.utterances)
+            self.utterances.append(u)
         self._save_progress()
         if self.on_utterance:
             self.on_utterance(index, u)
@@ -234,6 +249,7 @@ class LiveSession:
             self._advise(*item)
         else:
             self.work.put(item)
+        return index
 
     def _pipeline_loop(self):
         while (item := self.work.get()) is not None:
@@ -264,6 +280,7 @@ class LiveSession:
             self.on_event(event)
 
     MAX_NAME = 60
+    MAX_TYPED = 2000
 
     def rename_speaker(self, old: str, new: str, remember: bool = False) -> tuple[bool, bool]:
         """Spreker hernoemen: eerdere uitspraken (voor verslag en hints) en alles wat nog komt. Met remember

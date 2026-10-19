@@ -17,6 +17,7 @@ Overlay → server:
   {"type": "sensitivity", "hints": 0..1, "confirm": 0..1}   (schuifjes; 0,5 = gate.yaml)
   {"type": "language", "code": "nl" | "en" | … | "multi"}    (gesprekstaal, vanaf de volgende uitspraak)
   {"type": "rename", "from": "Speaker 1", "to": "Jan", "remember": false}   (spreker hernoemen)
+  {"type": "say", "text": ..}   (getypt in het transcript, alsof jij het zei: zelfde verwerking als een uitspraak)
 Server → overlay ook: {"type": "renamed", "from": .., "to": ..}
 """
 from __future__ import annotations

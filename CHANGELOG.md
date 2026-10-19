@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-19
+
+### App
+
+- **Type in the transcript as if you said it:** under the Transcript column there is now a text field. Type something and press Return: it lands in the transcript under your name and is handled exactly like something said out loud. It gets hints and corrections, a ✓ in the left column, and it ends up in the report. Use it for something speech recognition missed, or to ask the documents a question quietly. It works while the meeting is listening.
+
 ## 2026-10-17
 
 ### App

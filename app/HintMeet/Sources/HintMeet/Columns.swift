@@ -127,6 +127,7 @@ struct MeetingColumnView: View {
         } else {
             TranscriptView(store: store)
         }
+        SayField(store: store, send: send)
     }
 
     /// Bladeren en de hints op volgorde, en intrekkingen.
@@ -175,6 +176,39 @@ struct MeetingColumnView: View {
             }
         }
         .buttonStyle(.borderless)
+    }
+}
+
+/// Onder het transcript: tekst typen alsof je hem zei. De pijplijn behandelt hem als een uitspraak van jou
+/// (transcript, hints, ✓). Alleen terwijl de meeting luistert: daarvoor en daarna zou de tekst verloren gaan.
+struct SayField: View {
+    @ObservedObject var store: HintStore
+    let send: ([String: Any]) -> Void
+    @State private var text = ""
+
+    private var listening: Bool {
+        store.connected && !store.stopped && (store.status.isEmpty || store.status == "Listening…")
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TextField(listening ? "Type as if you said it…" : "Typing works while the meeting is listening",
+                      text: $text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(say)
+            Button(action: say) { Image(systemName: "arrow.up.circle.fill") }
+                .buttonStyle(.borderless)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help("Add to the transcript as if you said it (Return)")
+        }
+        .disabled(!listening)
+    }
+
+    private func say() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard listening, !t.isEmpty else { return }
+        send(["type": "say", "text": t, "session": store.session])
+        text = ""
     }
 }
 

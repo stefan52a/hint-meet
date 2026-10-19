@@ -405,3 +405,27 @@ def test_rename_refuses_unknown_trims_long_names_and_reports_failed_remember():
     assert session.rename_speaker("Speaker 1", "Unknown") == (False, False)   # ook niet als nieuwe naam
     assert session.rename_speaker("Speaker 1", "J" * 80, remember=True) == (True, False)   # bewaren mislukt
     assert session.utterances[0].speaker == "J" * LiveSession.MAX_NAME
+
+
+def test_typed_text_is_handled_as_if_it_were_said(tmp_path):
+    from hint_meet.transcript import load
+    pipe = FakePipeline()
+    seen = []
+    path = tmp_path / "live.txt"
+    session = LiveSession([], transcriber=lambda audio, speaker=None: ("Wat is de rente?", 5.0), pipeline=pipe,
+                          on_utterance=lambda i, u: seen.append((i, u.speaker, u.text)), transcript_path=path)
+    session._handle(FakeSegment(5), ready_at=time.monotonic())
+    session.aliases["Stefan"] = "Stefan B"
+    assert session.say("  Drie   procent,\nvast. ", "Stefan") == 1
+    assert seen[1] == (1, "Stefan B", "Drie procent, vast.")
+    assert pipe.calls == 2 and not session.events[1].stale   # ook gezocht en beoordeeld, zoals een uitspraak
+    assert [u.text for u in load(path)][-1] == "Drie procent, vast."
+
+
+def test_typed_text_is_ignored_when_empty_or_after_stop():
+    pipe = FakePipeline()
+    session = LiveSession([], transcriber=None, pipeline=pipe)
+    assert session.say("   ", "Stefan") is None
+    session.stop()
+    assert session.say("Nog iets", "Stefan") is None
+    assert session.utterances == [] and pipe.calls == 0
