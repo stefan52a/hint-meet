@@ -597,7 +597,9 @@ struct TranscriptView: View {
                     guard pinned, let last else { return }
                     scroll(proxy, to: last.id, anchor: .bottom)
                     // de LazyVStack kent de echte hoogte van de nieuwe regel pas na het tekenen: nog eens, precies
-                    DispatchQueue.main.async { scroll(proxy, to: last.id, anchor: .bottom) }
+                    DispatchQueue.main.async {
+                        if pinned, store.transcript.last?.id == last.id { scroll(proxy, to: last.id, anchor: .bottom) }
+                    }
                 }
                 .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in de hintlijst
                     guard store.selectionSource == .hints, let id else { return }
@@ -631,9 +633,12 @@ struct TranscriptView: View {
         // vóór een wijziging gemeten: stond de laatste uitspraak onderaan in beeld, dan blijft hij daar. Niet de
         // hoogte van de hele inhoud: die schat de LazyVStack voor regels buiten beeld, en bij een lang transcript
         // zit die schatting ernaast, waardoor helemaal onderaan toch niet als onderaan telde.
-        // Nog geen maat van de laatste (net binnengekomen, nog niet getekend): de vorige stand houden.
-        if let last = store.transcript.last?.id, let frame = all[last] {
-            let now = frame.maxY <= height + 8
+        // Nog geen maat van de laatste (net binnengekomen, nog niet getekend): dan telt de regel ervoor. Ook die
+        // niet getekend: ver naar boven gescrold (bv. de scrollbalk in één keer naar boven getrokken).
+        let tail = store.transcript.suffix(2).map(\.id)
+        if let last = tail.last {
+            let now = all[last].map { $0.maxY <= height + 8 }
+                ?? (tail.count == 2 ? all[tail[0]].map { $0.maxY <= height + 8 } ?? false : pinned)
             if now != pinned { pinned = now }
         }
         guard !store.transcript.isEmpty else { return }
