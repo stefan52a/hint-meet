@@ -594,7 +594,10 @@ struct TranscriptView: View {
                     followScroll(frames, height: viewport.size.height)
                 }
                 .onChange(of: store.transcript.last) { _, last in   // nieuwe uitspraak, of de laatste werd langer
-                    if pinned, let last { scroll(proxy, to: last.id, anchor: .bottom) }
+                    guard pinned, let last else { return }
+                    scroll(proxy, to: last.id, anchor: .bottom)
+                    // de LazyVStack kent de echte hoogte van de nieuwe regel pas na het tekenen: nog eens, precies
+                    DispatchQueue.main.async { scroll(proxy, to: last.id, anchor: .bottom) }
                 }
                 .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in de hintlijst
                     guard store.selectionSource == .hints, let id else { return }
@@ -625,9 +628,12 @@ struct TranscriptView: View {
     /// Wat er in beeld staat bepaalt de hint: helemaal onderaan = live, anders de hint van de uitspraak
     /// met 💡 die het dichtst bij het midden staat. Staat er geen 💡 in beeld, dan blijft de hint staan.
     private func followScroll(_ all: [Int: CGRect], height: CGFloat) {
-        // vóór een wijziging gemeten: stond de scrollbalk onderaan, dan blijft hij daar
-        if let content = all[Int.min] {
-            let now = content.maxY <= height + 8
+        // vóór een wijziging gemeten: stond de laatste uitspraak onderaan in beeld, dan blijft hij daar. Niet de
+        // hoogte van de hele inhoud: die schat de LazyVStack voor regels buiten beeld, en bij een lang transcript
+        // zit die schatting ernaast, waardoor helemaal onderaan toch niet als onderaan telde.
+        // Nog geen maat van de laatste (net binnengekomen, nog niet getekend): de vorige stand houden.
+        if let last = store.transcript.last?.id, let frame = all[last] {
+            let now = frame.maxY <= height + 8
             if now != pinned { pinned = now }
         }
         guard !store.transcript.isEmpty else { return }

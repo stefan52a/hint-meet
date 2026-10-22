@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-22
+
+### App
+
+- **The transcript keeps following at the bottom, also in long meetings:** scroll all the way down and the newest utterance stays in view as new ones come in. Before, in a long meeting (hundreds of utterances), scrolling to the bottom often didn't count as "at the bottom", so the transcript stopped following and new utterances appeared below the window.
+
 ## 2026-10-19
 
 ### App
