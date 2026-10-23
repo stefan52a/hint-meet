@@ -13,6 +13,15 @@ from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
 from .rerank import make_reranker
 
 
+
+def load_config(path) -> dict:
+    """config/gate.yaml, en de prijzen daaruit voor het tellen van de kosten (usage.py)."""
+    import yaml
+    from . import usage
+    config = yaml.safe_load(open(path, encoding="utf-8"))
+    usage.configure(config)
+    return config
+
 def language_code(value: str) -> str:
     """--language: "multi" of een taalcode die Whisper kent."""
     from .languages import LANGUAGES
@@ -110,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         import json
 
         import yaml
-        problems, unchecked = apierrors.check_keys(yaml.safe_load(open(a.config, encoding="utf-8")))
+        problems, unchecked = apierrors.check_keys(load_config(a.config))
         print(json.dumps({"problems": problems, "unchecked": unchecked}, ensure_ascii=False))
         return 0
     if a.cmd == "report":
@@ -120,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
 
         from .summary import write_report
         try:
-            note = write_report(Path(a.transcript), yaml.safe_load(open(a.config, encoding="utf-8")))
+            note = write_report(Path(a.transcript), load_config(a.config))
         except Exception as e:  # noqa: BLE001 - de app toont de reden
             print(json.dumps({"error": apierrors.key_problem(e) or f"{type(e).__name__}: {e}"}, ensure_ascii=False))
             return 1
@@ -212,7 +221,7 @@ def replay_cmd(a) -> int:
     from .replay import replay, score
     from .transcript import load
 
-    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    config = load_config(a.config)
     try:
         roots = kb_dirs(a.project)
     except ValueError as e:
@@ -371,7 +380,7 @@ def search_cmd(a) -> int:
         paths.update({prefix + k: v for k, v in source_paths(r).items()})
 
     import yaml
-    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    config = load_config(a.config)
     reranker = make_reranker(config)
 
     def answer(query: str) -> tuple[list[dict], bool]:
@@ -534,7 +543,7 @@ def live_cmd(a) -> int:
     from .live import DeviceSource, LiveSession, WavSource
     from .pipeline import Pipeline, Sensitivity
 
-    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    config = load_config(a.config)
     sensitivity = Sensitivity(config)   # de pijplijn leest dezelfde config, dus wijzigingen gelden meteen
     lang = {"code": a.language}   # gesprekstaal; de app kan hem tijdens de meeting wijzigen
     try:
@@ -821,7 +830,7 @@ def calibrate_cmd(a) -> int:
     from .gate import make_gate
     from .transcript import load
 
-    config = yaml.safe_load(open(a.config, encoding="utf-8"))
+    config = load_config(a.config)
     if a.gate:
         config["gate"]["provider"] = a.gate
     provider = config["gate"]["provider"]

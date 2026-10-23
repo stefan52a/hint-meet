@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 
 from .gate import format_passages, format_window
+from . import usage
 
 ADVISE_SYSTEM = """Je bent de meeting-copilot van Stefan. Tijdens een gesprek verschijnt jouw hint op zijn scherm; hij leest hem in een paar seconden en gebruikt hem in zijn antwoord.
 
@@ -138,6 +139,7 @@ class ClaudeAdvisor:
                     if on_text:
                         on_text(visible)
             final = stream.get_final_message()
+        usage.record_claude(final, self.model)
         if final.stop_reason == "refusal":
             return Advice("", first_ms=first_ms)
         advice = parse_reply(reply, hits, self.max_points)

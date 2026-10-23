@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from . import usage
+
 GATE_SYSTEM = """Je bent de poortwachter van een meeting-copilot voor Stefan. Je beslist alleen óf er op dit moment een korte hint op Stefans scherm moet verschijnen; je schrijft de hint niet zelf.
 
 Beoordeel alleen de onderste beurt; de beurten erboven zijn context. Een vraag of onderwerp van een eerdere beurt is geen reden meer voor een hint.
@@ -98,6 +100,7 @@ class ClaudeGate:
             messages=[{"role": "user", "content": prompt}],
             output_config={"format": {"type": "json_schema", "schema": self.schema}},
         )
+        usage.record_claude(response, self.model)
         text = next(b.text for b in response.content if b.type == "text")
         data = json.loads(text)
         p = min(max(float(data["intervene_probability"]), 0.0), 1.0)
@@ -161,6 +164,7 @@ class JevGate:
             "net_getoonde_hint": previous_hint,
         }
         r = self.client.system_one(state, self.questions, model=self.model)
+        usage.record_jev(r)
         self.last_model = r.model  # jev-latest kan ongemerkt veranderen: loggen wat er echt draaide
         return GateResult(float(r.nouls["hint_nodig"].noul), r.choices["moment"].choice,
                           int(round(r.scores["urgentie"].score)))

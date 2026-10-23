@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-23
+
+### App
+
+- **See how much API credit is left:** the top of the panel (start screen and during a meeting) shows an estimate like *Claude ~$14.20 · Jev ~$3.10*, orange when less than 10% (or under $1) is left. Anthropic and Jev don't tell apps your credit, so you enter it once in *Settings → Credit* (from the Anthropic Console → Billing, and your TypeSafe dashboard); HintMeet subtracts what it uses from then on: hints, the left column, the gatekeeper, Find Documents and the report, at the current prices (Jev: $0.042 per million input tokens). Use of the same key by other apps isn't counted, so enter the amount again now and then. Hover for the details; click to update.
+
 ## 2026-10-22
 
 ### App

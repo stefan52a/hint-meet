@@ -102,6 +102,7 @@ struct OverlayView: View {
     /// Drie stappen in één kaart, gecentreerd: kennisbank kiezen (en laden), meeting beschrijven, starten.
     private var setupCard: some View {
         VStack(alignment: .leading, spacing: 22) {
+            HStack { Spacer(); CreditBadge(openSettings: openSettings) }   // tegoed bij Claude en Jev, geschat
             if case .failed(let why) = backend.state {
                 Label(why, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
@@ -216,6 +217,7 @@ struct OverlayView: View {
                                                   : "Starting pipeline…")
             }
             Spacer()
+            CreditBadge(openSettings: openSettings)
             if backend.isRunning && backend.state != .stopping {   // taal wisselen tijdens de meeting
                 Picker("Language", selection: $settings.language) {
                     ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }

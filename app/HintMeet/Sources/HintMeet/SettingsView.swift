@@ -73,6 +73,7 @@ struct SettingsView: View {
                     if saved == false { Text("Saving failed (Keychain)").font(.caption).foregroundStyle(.red) }
                 }
             }
+            CreditSettings()
             Section("Pipeline") {
                 TextField("hint-meet project folder", text: $settings.repoPath)
                 Text(settings.backendReady ? "Python environment found" : "No .venv/bin/python in this folder")

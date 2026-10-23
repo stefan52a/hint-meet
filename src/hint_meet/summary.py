@@ -16,6 +16,8 @@ import threading
 import time
 from pathlib import Path
 
+from . import usage
+
 SUMMARY_SYSTEM = """Je maakt het verslag van een zakelijk gesprek voor Stefan, op basis van een automatisch transcript. Het transcript komt van spraakherkenning: neem namen en getallen over zoals ze er staan, en zet [onzeker] achter wat duidelijk verkeerd verstaan lijkt. Verbeter niets op eigen gezag.
 
 Schrijf in de taal waarin het gesprek gevoerd is (zijn het meerdere talen: de taal waarin het meest gesproken is), in Markdown, met precies deze drie kopjes, vertaald naar die taal (Engels: Summary / Commitments and action items / Open questions; Duits: Zusammenfassung / Zusagen und Aufgaben / Offene Fragen; Frans: Résumé / Engagements et actions / Questions ouvertes):
@@ -43,6 +45,7 @@ def summarize(utterances, config, client=None, language: str | None = None) -> s
                                  f"verslag in die taal, ook de kopjes." if language in LANGUAGE_NAMES else ""),
         messages=[{"role": "user", "content": f"Transcript:\n{transcript}"}],
     )
+    usage.record_claude(response, config["advise"]["model"])
     return next((b.text for b in response.content if b.type == "text"), "").strip()
 
 

@@ -12,6 +12,7 @@ import re
 
 from .advise import Advice, language_rule, parse_reply
 from .gate import format_passages, format_window
+from . import usage
 
 CONFIRM_SYSTEM = """Je helpt Stefan tijdens een meeting. Naast zijn scherm staat een kolom die laat zien wat zijn dossier zegt over wat er in het gesprek gezegd wordt. Correcties staan elders; daar gaat deze kolom niet over.
 
@@ -70,6 +71,7 @@ class ClaudeConfirmer:
             messages=[{"role": "user", "content": prompt}],
             output_config={"effort": self.effort},
         )
+        usage.record_claude(response, self.model)
         if response.stop_reason == "refusal":
             return Advice("")
         reply = "".join(b.text for b in response.content if b.type == "text")

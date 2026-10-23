@@ -17,7 +17,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from . import apierrors
+from . import apierrors, usage
 
 BATCH = 8   # zoveel passages per Jev-aanroep (twee vragen per passage); grotere sets parallel
 # Passages gaan heel naar Jev, zodat de injectiecheck precies de tekst ziet die de adviseur krijgt. Dat kan
@@ -70,6 +70,7 @@ class JevReranker:
                           "tekst": p.get("tekst", "")} for i, p in enumerate(passages, 1)],
         }
         r = self.client.system_one(state, self._questions(len(passages)), model=self.model)
+        usage.record_jev(r)
         self.last_model = r.model
         return [PassageScore(float(r.nouls[f"relevant_{i}"].noul), float(r.nouls[f"injectie_{i}"].noul))
                 for i in range(1, len(passages) + 1)]
