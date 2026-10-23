@@ -140,7 +140,7 @@ struct CreditSettings: View {
     var body: some View {
         Section("Credit (estimate)") {
             Text("Anthropic and Jev don't report your credit to apps. Enter what you have now (Anthropic: Console → "
-                 + "Billing; Jev: your TypeSafe dashboard); HintMeet subtracts what it uses from then on and shows "
+                 + "Billing; Jev: TypeSafe console → Billing); HintMeet subtracts what it uses from then on and shows "
                  + "what's left at the top of the panel. Other apps using the same key aren't counted, so enter "
                  + "it again now and then.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -160,8 +160,13 @@ struct CreditSettings: View {
                         .font(.caption).foregroundStyle(credit.low(s) ? Color.orange : Color.secondary)
                 }
             }
-            Button("Open Anthropic Billing") {
-                NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/billing")!)
+            HStack {
+                Button("Open Anthropic Billing") {
+                    NSWorkspace.shared.open(URL(string: "https://console.anthropic.com/settings/billing")!)
+                }
+                Button("Open Jev Billing") {
+                    NSWorkspace.shared.open(URL(string: "https://console.typesafe.ai/settings/billing")!)
+                }
             }
         }
     }
