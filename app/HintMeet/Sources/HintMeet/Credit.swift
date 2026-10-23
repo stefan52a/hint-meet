@@ -67,7 +67,9 @@ final class CreditTracker: ObservableObject {
     /// Uitgegeven sinds je het tegoed invulde.
     func used(_ s: Service) -> Double? {
         guard let e = entries[s] else { return nil }
-        return max((spent[s] ?? 0) - e.baseline, 0)   // teller opnieuw begonnen (bestand weg): niet negatief
+        let total = spent[s] ?? 0
+        // teller opnieuw begonnen (usage.json weg): alles wat hij nu telt is van na het invullen
+        return total >= e.baseline ? total - e.baseline : total
     }
 
     func left(_ s: Service) -> Double? {

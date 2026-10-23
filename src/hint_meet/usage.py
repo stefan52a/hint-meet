@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -37,13 +39,31 @@ _prices: dict = {}      # overschreven door configure() met costs uit gate.yaml
 _unknown: set[str] = set()
 
 
+def _price(v) -> float:
+    v = float(v)
+    if not math.isfinite(v) or v < 0:
+        raise ValueError(f"prijs {v}")
+    return v
+
+
 def configure(config: dict):
-    """Prijzen uit config/gate.yaml (costs: {claude: {model: [in, out]}, jev_input: ..}), als die er staan."""
-    costs = config.get("costs") or {}
+    """Prijzen uit config/gate.yaml (costs: {claude: {model: [in, out]}, jev_input: ..}), als die er staan.
+    Een onbruikbare prijs wordt overgeslagen (met een melding): die mag de meeting niet tegenhouden."""
     _prices.clear()
-    _prices.update({m: tuple(p) for m, p in (costs.get("claude") or {}).items()})
+    costs = config.get("costs") or {}
+    if not isinstance(costs, dict):
+        return
+    for m, p in (costs.get("claude") or {}).items():
+        try:
+            p_in, p_out = p
+            _prices[m] = (_price(p_in), _price(p_out))
+        except (TypeError, ValueError):
+            print(f"Kosten: prijs voor {m} in config/gate.yaml onbruikbaar ({p!r}); standaard gebruikt", file=sys.stderr)
     if "jev_input" in costs:
-        _prices["jev"] = float(costs["jev_input"])
+        try:
+            _prices["jev"] = _price(costs["jev_input"])
+        except (TypeError, ValueError):
+            print(f"Kosten: jev_input onbruikbaar ({costs['jev_input']!r}); standaard gebruikt", file=sys.stderr)
 
 
 def ledger_path() -> Path:
@@ -52,7 +72,8 @@ def ledger_path() -> Path:
 
 def claude_cost(model: str, usage) -> float | None:
     """USD voor één Claude-antwoord; None bij een onbekend model (dan liever niets dan een verkeerd bedrag)."""
-    price = _prices.get(model) or CLAUDE_PRICES.get(model)
+    base = re.sub(r"-\d{8}$", "", model)   # een datumversie (claude-haiku-4-5-20251001) kost hetzelfde
+    price = _prices.get(model) or _prices.get(base) or CLAUDE_PRICES.get(model) or CLAUDE_PRICES.get(base)
     if price is None:
         return None
     p_in, p_out = price
@@ -71,6 +92,8 @@ def record_claude(response, requested_model: str):
         model = getattr(response, "model", None)
         model = model if isinstance(model, str) and model else requested_model
         usd = claude_cost(model, usage)
+        if usd is None and model != requested_model:   # onbekend antwoordmodel: liever de gevraagde prijs dan niets
+            usd = claude_cost(requested_model, usage)
         if usd is None:
             if model not in _unknown:
                 _unknown.add(model)

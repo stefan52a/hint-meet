@@ -51,3 +51,19 @@ def test_concurrent_records_all_add_up(tmp_path):
     for t in threads:
         t.join()
     assert ledger(tmp_path)["jev"]["calls"] == 20
+
+
+def test_dated_or_unknown_answer_model_still_gets_a_price(tmp_path):
+    u = NS(input_tokens=1_000_000, output_tokens=0)
+    assert usage.claude_cost("claude-haiku-4-5-20251001", u) == pytest.approx(1.0)
+    usage.record_claude(NS(model="claude-something-new", usage=u), "claude-opus-5-5")
+    assert ledger(tmp_path)["anthropic"]["usd"] == pytest.approx(4.0)
+
+
+def test_bad_prices_in_config_are_skipped_not_fatal():
+    usage.configure({"costs": {"claude": {"a": [-1, 2], "b": "x", "c": [1, 2]}, "jev_input": "nan"}})
+    try:
+        assert "a" not in usage._prices and "b" not in usage._prices and usage._prices["c"] == (1.0, 2.0)
+        assert "jev" not in usage._prices
+    finally:
+        usage.configure({})
