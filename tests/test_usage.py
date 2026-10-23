@@ -23,6 +23,9 @@ def test_jev_counts_input_tokens_only(tmp_path):
     usage.record_jev(NS(usage=NS(input_tokens=2_000_000, output_tokens=500)))
     j = ledger(tmp_path)["jev"]
     assert j["usd"] == pytest.approx(0.084) and j["calls"] == 1 and j["output_tokens"] == 500
+    since = ledger(tmp_path)["since"]
+    usage.record_jev(NS(usage=NS(input_tokens=1, output_tokens=0)))
+    assert ledger(tmp_path)["since"] == since   # blijft staan: zo ziet de app een opnieuw begonnen teller
 
 
 def test_unknown_model_or_missing_usage_is_not_counted_and_never_raises(tmp_path):
@@ -61,6 +64,7 @@ def test_dated_or_unknown_answer_model_still_gets_a_price(tmp_path):
 
 
 def test_bad_prices_in_config_are_skipped_not_fatal():
+    usage.configure({"costs": {"claude": ["not", "a", "dict"]}})
     usage.configure({"costs": {"claude": {"a": [-1, 2], "b": "x", "c": [1, 2]}, "jev_input": "nan"}})
     try:
         assert "a" not in usage._prices and "b" not in usage._prices and usage._prices["c"] == (1.0, 2.0)

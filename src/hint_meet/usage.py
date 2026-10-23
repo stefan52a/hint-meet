@@ -6,7 +6,7 @@ bestand voor alle processen (meeting, Find Documents, verslag). De app trekt dat
 Settings invult. Alleen het gebruik van hint-meet zelf: andere apps met dezelfde sleutel ziet dit niet.
 
 Het bestand: {"anthropic": {"usd": .., "input_tokens": .., "output_tokens": .., "calls": ..}, "jev": {..},
-"updated": "2026-10-23T10:00:00"}. Tellen mag nooit een hint of de meeting kosten: elke fout wordt ingeslikt.
+"since": "2026-10-23T09:00:00", "updated": "2026-10-23T10:00:00"}. Tellen mag nooit een hint of de meeting kosten: elke fout wordt ingeslikt.
 """
 from __future__ import annotations
 
@@ -53,7 +53,8 @@ def configure(config: dict):
     costs = config.get("costs") or {}
     if not isinstance(costs, dict):
         return
-    for m, p in (costs.get("claude") or {}).items():
+    claude = costs.get("claude") or {}
+    for m, p in (claude.items() if isinstance(claude, dict) else []):
         try:
             p_in, p_out = p
             _prices[m] = (_price(p_in), _price(p_out))
@@ -128,6 +129,8 @@ def _add(service: str, usd: float, tokens_in: int, tokens_out: int):
             data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         except ValueError:
             data = {}   # kapot bestand: opnieuw beginnen is beter dan nooit meer tellen
+        # wanneer deze teller begon: de app ziet zo dat hij opnieuw begonnen is, en telt dan vanaf nul
+        data.setdefault("since", time.strftime("%Y-%m-%dT%H:%M:%S"))
         s = data.setdefault(service, {})
         s["usd"] = float(s.get("usd", 0)) + usd
         s["input_tokens"] = int(s.get("input_tokens", 0)) + tokens_in

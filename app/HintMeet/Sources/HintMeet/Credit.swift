@@ -20,11 +20,14 @@ final class CreditTracker: ObservableObject {
         var balance: Double
         var baseline: Double
         var date: Date
+        /// Begin van de teller toen ("since" in usage.json). Anders nu: de teller begon opnieuw, alles telt.
+        var ledgerSince: String?
     }
 
     /// Totaal uitgegeven volgens usage.json, sinds het begin van het tellen.
     @Published private(set) var spent: [Service: Double] = [:]
     @Published private(set) var entries: [Service: Entry] = [:]
+    @Published private(set) var ledgerSince: String?
 
     static let ledgerURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/hint-meet/usage.json")
@@ -49,13 +52,15 @@ final class CreditTracker: ObservableObject {
         var now: [Service: Double] = [:]
         for s in Service.allCases { now[s] = ((json[s.rawValue] as? [String: Any])?["usd"] as? NSNumber)?.doubleValue ?? 0 }
         if now != spent { spent = now }
+        let since = json["since"] as? String
+        if since != ledgerSince { ledgerSince = since }
     }
 
     /// Je huidige tegoed invullen (nil = niet meer tonen).
     func set(_ s: Service, balance: Double?) {
         refresh()
         if let balance {
-            let e = Entry(balance: balance, baseline: spent[s] ?? 0, date: Date())
+            let e = Entry(balance: balance, baseline: spent[s] ?? 0, date: Date(), ledgerSince: ledgerSince)
             entries[s] = e
             d.set(try? JSONEncoder().encode(e), forKey: key(s))
         } else {
@@ -68,8 +73,9 @@ final class CreditTracker: ObservableObject {
     func used(_ s: Service) -> Double? {
         guard let e = entries[s] else { return nil }
         let total = spent[s] ?? 0
-        // teller opnieuw begonnen (usage.json weg): alles wat hij nu telt is van na het invullen
-        return total >= e.baseline ? total - e.baseline : total
+        // teller opnieuw begonnen (usage.json weg of nieuw): alles wat hij nu telt is van na het invullen
+        if ledgerSince != e.ledgerSince { return total }
+        return max(total - e.baseline, 0)
     }
 
     func left(_ s: Service) -> Double? {
