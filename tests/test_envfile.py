@@ -41,21 +41,35 @@ def test_silent_1password_pipe_does_not_hang_and_explains_missing_key(tmp_path, 
         assert "1Password" in apierrors.key_problem(TypeError("Could not resolve authentication method"))
     finally:
         envfile.problem = None
-        # de hangende lezer losmaken, zodat er geen draad blijft wachten
-        fd = os.open(tmp_path / ".env", os.O_WRONLY | os.O_NONBLOCK)
-        os.close(fd)
 
 
 def test_empty_1password_pipe_says_so(tmp_path, monkeypatch):
     pipe = tmp_path / ".env"
     os.mkfifo(pipe)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(envfile, "RETRY_S", 0.05)
 
-    def onepassword():
-        with open(pipe, "w"):
-            pass
+    def onepassword():   # elke poging leeg
+        for _ in range(envfile.RETRIES):
+            with open(pipe, "w"):
+                pass
     threading.Thread(target=onepassword, daemon=True).start()
     try:
         assert envfile.load(timeout_s=5) == envfile.EMPTY
     finally:
         envfile.problem = None
+
+
+def test_empty_answer_is_retried_and_a_timed_out_reader_frees_the_lock(tmp_path, monkeypatch):
+    pipe = tmp_path / ".env"
+    os.mkfifo(pipe)
+    monkeypatch.setattr(envfile, "RETRY_S", 0.05)
+    assert envfile.read_text(str(pipe), timeout_s=0.3) is None   # niemand schrijft: losgemaakt, slot vrij
+
+    def onepassword():   # eerst leeg (een andere lezer was eerder), dan de inhoud
+        with open(pipe, "w"):
+            pass
+        with open(pipe, "w") as f:
+            f.write("A=1\n")
+    threading.Thread(target=onepassword, daemon=True).start()
+    assert envfile.read_text(str(pipe), timeout_s=5) == "A=1\n"
