@@ -62,8 +62,21 @@ struct SettingsView: View {
                 }
             }
             Section("API-keys (Keychain)") {
+                Text("Paste a key in the field and click Save. Stored in the macOS Keychain; it goes before a "
+                     + ".env (also one from 1Password). Leave a field empty to use the .env.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(Settings.keyNames, id: \.self) { name in
-                    SecureField(name, text: Binding(get: { keys[name] ?? "" }, set: { keys[name] = $0; saved = nil }))
+                    LabeledContent {
+                        SecureField("", text: Binding(get: { keys[name] ?? "" }, set: { keys[name] = $0; saved = nil }),
+                                    prompt: Text(name.hasPrefix("ANTHROPIC") ? "sk-ant-…" : "Paste your Jev key"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 220)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(name.hasPrefix("ANTHROPIC") ? "Claude" : name.hasPrefix("TYPESAFE") ? "Jev" : name)
+                            Text(name).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 HStack {
                     Button("Save") {
