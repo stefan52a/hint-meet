@@ -24,22 +24,33 @@ enum ReportCopy {
         guard panel.runModal() == .OK, let target = panel.url else { return }
         UserDefaults.standard.set(target.deletingLastPathComponent().path, forKey: dirKey)
         guard target.standardizedFileURL != source.standardizedFileURL else { return }   // zelfde bestand: klaar
-        do {
-            if FileManager.default.fileExists(atPath: target.path) {   // de dialoog vroeg al of vervangen mag
-                _ = try FileManager.default.replaceItemAt(target, withItemAt: copyToTemp(source))
-            } else {
-                try FileManager.default.copyItem(at: source, to: target)
+        // buiten de hoofddraad: een trage of weggevallen netwerkmap mag het paneel niet bevriezen
+        Task.detached {
+            do {
+                try copy(source, to: target)
+            } catch {
+                await MainActor.run { alert("Couldn't save the copy: \(error.localizedDescription)") }
             }
-        } catch {
-            alert("Couldn't save the copy: \(error.localizedDescription)")
         }
     }
 
-    /// replaceItemAt verplaatst: eerst een kopie maken, anders verdwijnt het origineel.
-    private static func copyToTemp(_ source: URL) throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "-" + source.lastPathComponent)
-        try FileManager.default.copyItem(at: source, to: tmp)
-        return tmp
+    /// Eerst naast het doel kopiëren, dan op zijn plek zetten: een bestaand bestand (de dialoog vroeg al of het
+    /// vervangen mag) blijft heel als het kopiëren halverwege faalt, ook op een andere schijf of netwerkmap.
+    nonisolated private static func copy(_ source: URL, to target: URL) throws {
+        let fm = FileManager.default
+        let staged = target.deletingLastPathComponent()
+            .appendingPathComponent(".\(target.lastPathComponent).hintmeet-\(UUID().uuidString)")
+        do {
+            try fm.copyItem(at: source, to: staged)
+            if fm.fileExists(atPath: target.path) {
+                _ = try fm.replaceItemAt(target, withItemAt: staged)
+            } else {
+                try fm.moveItem(at: staged, to: target)
+            }
+        } catch {
+            try? fm.removeItem(at: staged)   // geen halve of verborgen kopie achterlaten
+            throw error
+        }
     }
 
     private static func alert(_ text: String) {

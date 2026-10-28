@@ -89,7 +89,10 @@ struct OverlayView: View {
         .onChange(of: store.summaryPath) { _, path in
             guard let path else { pointAtReport = false; return }
             if settings.askSaveReport {   // even later: eerst het paneel bijwerken (de knop en de pijl)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { ReportCopy.save(path) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    // intussen uitgezet of een ander verslag: niet meer vragen
+                    if settings.askSaveReport && store.summaryPath == path { ReportCopy.save(path) }
+                }
             }
             pointAtReport = true
             blink = false

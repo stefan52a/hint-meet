@@ -30,7 +30,6 @@ struct SettingsView: View {
                 }
                 Toggle("Report with action items afterwards", isOn: $settings.summary)
                 Toggle("When the report is ready, ask where to save a copy", isOn: $settings.askSaveReport)
-                    .disabled(!settings.summary)
             }
             Section("Your voice") {
                 Text("With only a microphone, HintMeet tells speakers apart by voice (Speaker 1, 2, …). Record "
