@@ -441,3 +441,18 @@ def test_typed_text_after_the_pipeline_finished_is_refused():
     session.run(until=lambda: True)
     assert session.say("Te laat", "Stefan") is None
     assert session.utterances == [] and pipe.calls == 0
+
+
+def test_hint_language_option_parses_same_or_a_fixed_language():
+    import argparse
+    from hint_meet.cli import hint_language_code
+    assert hint_language_code("same") == "same" and hint_language_code(" EN ") == "en"
+    for bad in ("multi", "klingon"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            hint_language_code(bad)
+
+
+def test_fixed_hint_language_is_told_to_claude_even_in_another_conversation_language():
+    from hint_meet.advise import language_rule
+    assert "English" in language_rule("en") and "andere taal" in language_rule("en")
+    assert "taal van het gesprek" in language_rule(None)

@@ -35,8 +35,8 @@ from .languages import LANGUAGES as LANGUAGE_NAMES   # code → Engelse naam, al
 
 def language_rule(language: str | None) -> str:
     if language in LANGUAGE_NAMES:
-        return (f"Schrijf de hint in deze taal: {LANGUAGE_NAMES[language]} (code {language}); "
-                "dat is de taal van het gesprek.")
+        return (f"Schrijf de hint in deze taal: {LANGUAGE_NAMES[language]} (code {language}), ook als het gesprek "
+                "in een andere taal is; citeer documenten in die taal of vertaal ze.")
     return ("Schrijf de hint in de taal van het gesprek: de taal van de laatste beurten "
             "(Nederlands, Engels, Duits, Frans, …).")
 

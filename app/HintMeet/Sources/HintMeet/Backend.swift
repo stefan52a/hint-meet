@@ -161,7 +161,7 @@ final class Backend: ObservableObject {
             if !settings.system.isEmpty { args += ["--system", settings.system] }
         }
         if !settings.summary { args.append("--no-summary") }
-        args += ["--language", settings.language]
+        args += ["--language", settings.language, "--hint-language", settings.hintLanguage]
         let info = settings.meetingInfo.trimmingCharacters(in: .whitespacesAndNewlines)
         if !info.isEmpty { args += ["--info", info] }
 

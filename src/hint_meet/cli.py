@@ -30,6 +30,17 @@ def language_code(value: str) -> str:
     return value
 
 
+def hint_language_code(value: str) -> str:
+    """--hint-language: "same" (de gesprekstaal volgen) of een vaste taalcode."""
+    value = value.strip().lower()
+    if value == "same":
+        return value
+    code = language_code(value)
+    if code == "multi":
+        raise argparse.ArgumentTypeError("hints in multi kan niet: kies same of een taal")
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     # .env vanaf de werkmap (ook een 1Password-pipe); bestaande omgevingsvariabelen gaan voor. Staan de sleutels
     # al in de omgeving (Keychain via de app), dan niet lang op een dichte 1Password wachten
@@ -66,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--language", default="nl", type=language_code,
                     help="taal van het gesprek: een Whisper-code (nl, en, de, fr, es, …) of multi (per uitspraak "
                          "herkend); hints en verslag volgen de gesprekstaal")
+    lv.add_argument("--hint-language", default="same", type=hint_language_code,
+                    help="taal van de hints en de linkerkolom: same (die van het gesprek, standaard) of een "
+                         "taalcode, bv. en voor Engelse hints bij een Nederlands gesprek")
     lv.add_argument("--info", "--met", dest="info", default="",
                     help="meeting-info, bv. met wie en waar; komt in de naam en kop van het verslag")
     vc = sub.add_parser("voice", help="je stem opnemen, zodat de sprekerherkenning jou bij naam herkent")
@@ -547,7 +561,13 @@ def live_cmd(a) -> int:
 
     config = load_config(a.config)
     sensitivity = Sensitivity(config)   # de pijplijn leest dezelfde config, dus wijzigingen gelden meteen
-    lang = {"code": a.language}   # gesprekstaal; de app kan hem tijdens de meeting wijzigen
+    lang = {"code": a.language, "hints": a.hint_language}   # gesprekstaal en hinttaal; de app kan ze wijzigen
+
+    def hint_language() -> str | None:
+        """Taal van hints en linkerkolom: vast gekozen, anders die van het gesprek (None = volgen wat er gezegd wordt)."""
+        if lang["hints"] != "same":
+            return lang["hints"]
+        return None if lang["code"] == "multi" else lang["code"]
     try:
         roots = kb_dirs(a.project)
     except ValueError as e:
@@ -597,10 +617,21 @@ def live_cmd(a) -> int:
                 if pipeline_ref.get("transcriber"):
                     pipeline_ref["transcriber"].set_language(fixed)
                 if pipeline_ref.get("pipeline"):
-                    pipeline_ref["pipeline"].set_language(fixed)
+                    pipeline_ref["pipeline"].set_language(hint_language())
                 else:   # nog aan het laden: de pijplijn neemt hem straks over
-                    config["advise"]["language"] = fixed
+                    config["advise"]["language"] = hint_language()
                 print(f"Taal: {code}", file=sys.stderr)
+            elif msg.get("type") == "hint_language":   # taal van de hints en de linkerkolom, vanaf de volgende
+                try:
+                    lang["hints"] = hint_language_code(str(msg.get("code", "")))
+                except argparse.ArgumentTypeError as e:
+                    print(e, file=sys.stderr)
+                    return
+                if pipeline_ref.get("pipeline"):
+                    pipeline_ref["pipeline"].set_language(hint_language())
+                else:
+                    config["advise"]["language"] = hint_language()
+                print(f"Hinttaal: {lang['hints']}", file=sys.stderr)
             elif msg.get("type") == "sensitivity":   # schuifjes in de app: geldt vanaf de volgende uitspraak
                 if "hints" in msg:
                     sensitivity.set_hints(msg["hints"])
@@ -655,7 +686,7 @@ def live_cmd(a) -> int:
     status("Loading speech recognition…")
     transcriber = Transcriber(kb_terms(kb.chunks), language=None if lang["code"] == "multi" else lang["code"])
     pipeline_ref["transcriber"] = transcriber
-    config["advise"]["language"] = None if lang["code"] == "multi" else lang["code"]
+    config["advise"]["language"] = hint_language()
     # bevestigingen (linkerkolom) alleen met de app erbij: in de terminal zouden ze de hints ondersneeuwen
     try:
         pipeline = Pipeline(kb, make_gate(config), ClaudeAdvisor(config), config,
