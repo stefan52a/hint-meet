@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:  # noqa: BLE001 - de app toont de reden
             print(json.dumps({"error": apierrors.key_problem(e) or f"{type(e).__name__}: {e}"}, ensure_ascii=False))
             return 1
-        print(json.dumps({"path": str(note)}, ensure_ascii=False))
+        print(json.dumps({"path": str(note.resolve())}, ensure_ascii=False))   # volledig pad: de app draait elders
         return 0
     if a.cmd == "kb":
         try:
@@ -753,7 +753,7 @@ def live_cmd(a) -> int:
     # alles wat nodig is om het verslag later alsnog te schrijven, mocht de meeting zonder eindigen
     from .summary import save_meta
     meta = {"project": "+".join(r.name for r in roots), "info": a.info, "language": lang["code"],
-            "started": started, "report_dir": str(Path("logs") if a.wav else roots[0]),
+            "started": started, "report_dir": str((Path("logs") if a.wav else roots[0]).resolve()),
             "summary": not a.no_summary, "hints": shown_hints, "report": None}
 
     meta_lock = threading.Lock()   # pijplijndraad (hints) en het einde (verslag): de laatste stand wint altijd
@@ -808,6 +808,7 @@ def live_cmd(a) -> int:
             note = write_note(Path("logs") if a.wav else roots[0], session.utterances, shown_hints, md, started,
                               project="+".join(r.name for r in roots), info=a.info, language=lang["code"])
             print(f"\n{md}\n\nVerslag: {note}")
+            note = note.resolve()   # volledig pad: de app heeft een andere werkmap (een testrun schrijft in logs/)
             meta["report"] = str(note)
             save_progress()
             status("Report ready")
