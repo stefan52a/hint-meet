@@ -13,6 +13,8 @@ final class Settings: ObservableObject {
     @Published var mic: String { didSet { d.set(mic, forKey: "mic") } }
     @Published var system: String { didSet { d.set(system, forKey: "system") } }
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
+    /// Is het verslag klaar, dan meteen vragen waar een kopie heen moet (naast die in de map van het project).
+    @Published var askSaveReport: Bool { didSet { d.set(askSaveReport, forKey: "askSaveReport") } }
     /// Taal van het gesprek (een Whisper-code zoals "nl" of "en", of "multi"); hints en verslag volgen die taal.
     @Published var language: String { didSet { d.set(language, forKey: "language") } }
     /// Gevoeligheid (0 = minder, 1 = meer, 0,5 = gate.yaml): hints en correcties rechts, onderbouwing links.
@@ -135,6 +137,7 @@ final class Settings: ObservableObject {
         mic = d.string(forKey: "mic") ?? ""
         system = d.string(forKey: "system") ?? ""
         summary = d.object(forKey: "summary") as? Bool ?? true
+        askSaveReport = d.bool(forKey: "askSaveReport")
         language = d.string(forKey: "language") ?? "nl"
         hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
         confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5

@@ -87,7 +87,10 @@ struct OverlayView: View {
             if backend.isRunning { send(["type": "language", "code": code]) }
         }
         .onChange(of: store.summaryPath) { _, path in
-            guard path != nil else { pointAtReport = false; return }
+            guard let path else { pointAtReport = false; return }
+            if settings.askSaveReport {   // even later: eerst het paneel bijwerken (de knop en de pijl)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { ReportCopy.save(path) }
+            }
             pointAtReport = true
             blink = false
             DispatchQueue.main.async { blink = true }   // na de eerste weergave: dan start het knipperen
@@ -292,6 +295,8 @@ struct OverlayView: View {
                         Label("Open Report", systemImage: "doc.text")
                     }
                     .buttonStyle(FilledButtonStyle(color: .accentColor))
+                    Button { ReportCopy.save(path) } label: { Image(systemName: "square.and.arrow.down") }
+                        .help("Save a copy of the report somewhere else")
                 default:
                     Button { pendingReports.write(item, settings) } label: {
                         Label(state == nil ? "Write Report" : "Try Again", systemImage: "square.and.pencil")
@@ -333,6 +338,9 @@ struct OverlayView: View {
                     Label("Open Report with Action Items", systemImage: "doc.text")
                 }
                 .buttonStyle(FilledButtonStyle(color: .accentColor))
+                Button { ReportCopy.save(path) } label: { Label("Save a Copy…", systemImage: "square.and.arrow.down") }
+                    .help("Save a copy of the report somewhere else, e.g. a shared folder; the original stays "
+                          + "in the meetings folder of the project")
             } else {
                 Text("Meeting ended. No report was written.").font(.callout).foregroundStyle(.secondary)
             }

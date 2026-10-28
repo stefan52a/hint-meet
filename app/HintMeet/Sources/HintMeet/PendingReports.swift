@@ -65,6 +65,7 @@ final class PendingReports: ObservableObject {
     func write(_ item: Item, _ settings: Settings) {
         guard writing[item.id] != .busy, settings.backendReady else { return }
         writing[item.id] = .busy
+        let ask = settings.askSaveReport
         let p = Backend.pythonProcess(settings, ["-m", "hint_meet.cli", "report", item.id])
         let out = Pipe()
         p.standardOutput = out
@@ -76,6 +77,7 @@ final class PendingReports: ObservableObject {
             Task { @MainActor in
                 if let path = json?["path"] as? String {
                     self?.writing[item.id] = .done(path)
+                    if ask { ReportCopy.save(path) }   // Settings: meteen vragen waar een kopie heen moet
                 } else {
                     self?.writing[item.id] = .failed(json?["error"] as? String ?? "Writing the report failed; see the log")
                 }
