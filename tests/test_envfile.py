@@ -44,3 +44,18 @@ def test_silent_1password_pipe_does_not_hang_and_explains_missing_key(tmp_path, 
         # de hangende lezer losmaken, zodat er geen draad blijft wachten
         fd = os.open(tmp_path / ".env", os.O_WRONLY | os.O_NONBLOCK)
         os.close(fd)
+
+
+def test_empty_1password_pipe_says_so(tmp_path, monkeypatch):
+    pipe = tmp_path / ".env"
+    os.mkfifo(pipe)
+    monkeypatch.chdir(tmp_path)
+
+    def onepassword():
+        with open(pipe, "w"):
+            pass
+    threading.Thread(target=onepassword, daemon=True).start()
+    try:
+        assert envfile.load(timeout_s=5) == envfile.EMPTY
+    finally:
+        envfile.problem = None

@@ -19,6 +19,9 @@ TIMEOUT_S = 15   # ruim genoeg om in 1Password op Allow te klikken
 PROBLEM = ("the .env from 1Password couldn't be read. Open and unlock 1Password (and allow access if it asks), "
            "or put the key in Settings (API-keys).")
 
+EMPTY = ("the .env from 1Password is empty. In 1Password, check that this project's environment has the key and "
+         "that its local .env destination is this folder, or put the key in Settings (API-keys).")
+
 problem: str | None = None   # gezet als .env een 1Password-pipe was die niets leverde
 
 
@@ -59,6 +62,11 @@ def load(timeout_s: float = TIMEOUT_S) -> str | None:
         problem = PROBLEM
         print(f"⚠ .env is een 1Password-pipe die binnen {timeout_s:.0f} s niets gaf: 1Password dicht of "
               "vergrendeld? Verder zonder .env.", file=sys.stderr)
+        return problem
+    if not text.strip() and stat.S_ISFIFO(os.stat(path).st_mode):   # 1Password antwoordt, maar zonder variabelen
+        problem = EMPTY
+        print("⚠ .env (1Password-pipe) is leeg: geen variabelen in die environment, of een andere bestemming?",
+              file=sys.stderr)
         return problem
     load_dotenv(stream=io.StringIO(text))
     return None
