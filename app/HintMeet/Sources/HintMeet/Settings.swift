@@ -17,8 +17,6 @@ final class Settings: ObservableObject {
     @Published var askSaveReport: Bool { didSet { d.set(askSaveReport, forKey: "askSaveReport") } }
     /// Taal van het gesprek (een Whisper-code zoals "nl" of "en", of "multi"); hints en verslag volgen die taal.
     @Published var language: String { didSet { d.set(language, forKey: "language") } }
-    /// Taal van de hints en de linkerkolom: "same" = die van het gesprek, anders een vaste taalcode.
-    @Published var hintLanguage: String { didSet { d.set(hintLanguage, forKey: "hintLanguage") } }
     /// Gevoeligheid (0 = minder, 1 = meer, 0,5 = gate.yaml): hints en correcties rechts, onderbouwing links.
     @Published var hintSensitivity: Double { didSet { d.set(hintSensitivity, forKey: "hintSensitivity") } }
     @Published var confirmSensitivity: Double { didSet { d.set(confirmSensitivity, forKey: "confirmSensitivity") } }
@@ -141,7 +139,6 @@ final class Settings: ObservableObject {
         summary = d.object(forKey: "summary") as? Bool ?? true
         askSaveReport = d.bool(forKey: "askSaveReport")
         language = d.string(forKey: "language") ?? "nl"
-        hintLanguage = d.string(forKey: "hintLanguage") ?? "same"
         hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
         confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5
     }

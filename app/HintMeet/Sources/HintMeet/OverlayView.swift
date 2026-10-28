@@ -86,9 +86,6 @@ struct OverlayView: View {
         .onChange(of: settings.language) { _, code in   // tijdens een meeting: meteen naar de pijplijn
             if backend.isRunning { send(["type": "language", "code": code]) }
         }
-        .onChange(of: settings.hintLanguage) { _, code in
-            if backend.isRunning { send(["type": "hint_language", "code": code]) }
-        }
         .onChange(of: store.summaryPath) { _, path in
             guard let path else { pointAtReport = false; return }
             if settings.askSaveReport {   // even later: eerst het paneel bijwerken (de knop en de pijl)
@@ -105,19 +102,6 @@ struct OverlayView: View {
     }
 
     // MARK: startscherm
-
-    /// Taal van de hints en de linkerkolom: standaard die van het gesprek, of een vaste (bv. Engelse hints
-    /// bij een Nederlands gesprek).
-    private var hintLanguagePicker: some View {
-        Picker("Hints in", selection: $settings.hintLanguage) {
-            Text("Same as the conversation").tag("same")
-            Divider()
-            ForEach(Settings.languages.filter { $0.code != "multi" }, id: \.code) { Text($0.name).tag($0.code) }
-        }
-        .fixedSize()
-        .help("Language of the hints and the left column (Backed by the KB). Same as the conversation: the "
-              + "language people are speaking. Or pick one, e.g. English hints in a Dutch conversation.")
-    }
 
     private var kbBusy: Bool { preparer.isRunning || kbPrep.isRunning }
 
@@ -159,15 +143,12 @@ struct OverlayView: View {
             step(2, "Meeting") {
                 TextField("With whom, where (optional; used in the report file name)", text: $settings.meetingInfo)
                     .textFieldStyle(.roundedBorder)
-                HStack(spacing: 16) {
-                    Picker("Language", selection: $settings.language) {
-                        ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
-                    }
-                    .fixedSize()
-                    .help("Language of the conversation, for speech recognition; the report follows it. "
-                          + "Multilingual recognizes the language per utterance (less reliable for very short ones).")
-                    hintLanguagePicker
+                Picker("Language", selection: $settings.language) {
+                    ForEach(Settings.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }
+                .fixedSize()
+                .help("Language of the conversation, for speech recognition; hints and the report follow it. "
+                      + "Multilingual recognizes the language per utterance (less reliable for very short ones).")
             }
             step(3, "Start") {
                 Button { startMeeting() } label: {
