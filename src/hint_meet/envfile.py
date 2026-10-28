@@ -66,13 +66,16 @@ def read_text(path: str, timeout_s: float = TIMEOUT_S) -> str | None:
     t.start()
     t.join(timeout_s)
     cancelled.set()
-    if t.is_alive() and not opened.is_set():
-        # wacht nog op een schrijver (1Password dicht): onze lezer losmaken, anders houdt hij het slot vast en
-        # kunnen andere processen (de zoekserver blijft draaien) ook later nooit meer lezen
+    # wacht onze lezer nog op een schrijver (1Password dicht), dan losmaken: anders houdt hij het slot vast en
+    # kunnen andere processen (de zoekserver blijft draaien) nooit meer lezen. Een paar keer: hij kan net
+    # tussen twee pogingen zitten en pas daarna gaan wachten.
+    deadline = time.monotonic() + 2
+    while t.is_alive() and not opened.is_set() and time.monotonic() < deadline:
         try:
             os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
         except OSError:
-            pass
+            pass   # (nog) geen lezer op de pipe
+        t.join(0.05)
     return out.get("text")
 
 
