@@ -46,6 +46,9 @@ def key_problem(e: BaseException) -> str | None:
             or (status == 400 and any(s in msg.lower() for s in NO_CREDIT))):
         return None
     if missing:
+        from . import envfile
+        if envfile.problem:   # .env komt uit 1Password, maar die gaf niets
+            return f"{service}: no API key ({var}): {envfile.problem}"
         return f"{service}: no API key ({var}). Add it in Settings (API-keys) or .env."
     return f"{service} API key ({var}) doesn't work: {msg}"
 

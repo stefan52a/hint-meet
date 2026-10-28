@@ -6,9 +6,8 @@ import time
 from pathlib import Path
 import sys
 
-from dotenv import find_dotenv, load_dotenv
 
-from . import apierrors
+from . import apierrors, envfile
 from .kb import DEFAULT_MODEL, KB, default_embedder, kb_dirs, ref_path
 from .rerank import make_reranker
 
@@ -32,7 +31,10 @@ def language_code(value: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv(find_dotenv(usecwd=True))  # .env vanaf de werkmap; bestaande omgevingsvariabelen gaan voor
+    # .env vanaf de werkmap (ook een 1Password-pipe); bestaande omgevingsvariabelen gaan voor. Staan de sleutels
+    # al in de omgeving (Keychain via de app), dan niet lang op een dichte 1Password wachten
+    keys_set = all(os.environ.get(var) for _, var in apierrors.KEYS.values())
+    envfile.load(timeout_s=3 if keys_set else envfile.TIMEOUT_S)
     ap = argparse.ArgumentParser(prog="hint-meet")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("kb", help="toon welke KB-map gebruikt wordt")

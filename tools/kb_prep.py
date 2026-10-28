@@ -672,9 +672,23 @@ def default_root() -> Path:
     """KB_ROOT uit de omgeving of een .env vanaf de werkmap, anders ~/KB_md."""
     if "KB_ROOT" not in os.environ:
         try:
+            import io
+            import stat
+            import threading
             from dotenv import dotenv_values, find_dotenv
-            root = dotenv_values(find_dotenv(usecwd=True)).get("KB_ROOT")
-        except ImportError:
+            path, got = find_dotenv(usecwd=True), {}
+            if path and stat.S_ISFIFO(os.stat(path).st_mode):
+                # 1Password levert .env als pipe: zonder 1Password open blijft lezen eeuwig wachten
+                def read():
+                    with open(path, encoding="utf-8") as f:
+                        got["text"] = f.read()
+                t = threading.Thread(target=read, daemon=True)
+                t.start()
+                t.join(15)
+                root = dotenv_values(stream=io.StringIO(got["text"])).get("KB_ROOT") if "text" in got else None
+            else:
+                root = dotenv_values(path).get("KB_ROOT") if path else None
+        except (ImportError, OSError):
             root = None
         if root:
             return Path(root).expanduser()

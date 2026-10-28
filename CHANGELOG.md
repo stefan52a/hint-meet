@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-10-28
+
+### App
+
+- **A `.env` from 1Password no longer hangs HintMeet:** 1Password (Environments) provides `.env` as a pipe whose contents only arrive while the 1Password app is open and unlocked. If it wasn't, the meeting stayed on *Starting pipeline…* forever, and the key check, Find Documents and converting documents waited too. Now HintMeet waits at most 15 seconds (3 if the keys are already in *Settings → API-keys*), then continues and says what's wrong: *Claude: no API key (ANTHROPIC_API_KEY): the .env from 1Password couldn't be read. Open and unlock 1Password (and allow access if it asks), or put the key in Settings (API-keys).* With 1Password open, the keys come from `.env` as before.
+
 ## 2026-10-23
 
 ### App
