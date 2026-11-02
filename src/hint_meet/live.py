@@ -111,8 +111,10 @@ class AudioRecorder:
     """Bewaart de meeting als WAV (16 kHz, 16 bit), één kanaal per bron in de volgorde van `labels`: dan is
     hij later af te spelen met --audio en --channels in dezelfde volgorde. De apparaten leveren elk op hun
     eigen tempo; een frame gaat pas naar schijf als elk kanaal het heeft. Loopt één kanaal meer dan
-    MAX_LAG_S achter (apparaat hapert), dan wordt dat kanaal met stilte aangevuld. wave werkt de kop bij
-    na elke write: na een crash is de opname tot dat moment af te spelen."""
+    MAX_LAG_S achter (apparaat hapert), dan wordt dat kanaal met stilte aangevuld; wat er daarna van dat
+    kanaal nog binnenkomt over die periode valt weg, zodat de kanalen gelijk blijven lopen. wave werkt de
+    kop bij na elke write: na een crash is de opname tot dat moment af te spelen. Een fout in de opname
+    stopt alleen de opname, nooit de meeting."""
     MAX_LAG_S = 2.0
 
     def __init__(self, path: Path, labels: list[str]):
@@ -120,17 +122,27 @@ class AudioRecorder:
         self.path, self.labels = path, list(dict.fromkeys(labels))
         path.parent.mkdir(parents=True, exist_ok=True)
         self.file = open(path, "wb")   # zelf openen: na elke write flushen, anders staat de kop nog in de buffer
-        self.wav = wave.open(self.file, "wb")
-        self.wav.setnchannels(len(self.labels))
-        self.wav.setsampwidth(2)
-        self.wav.setframerate(RATE)
+        try:
+            self.wav = wave.open(self.file, "wb")
+            self.wav.setnchannels(len(self.labels))
+            self.wav.setsampwidth(2)
+            self.wav.setframerate(RATE)
+        except Exception:
+            self.file.close()
+            raise
         self.pending = {label: [] for label in self.labels}
+        self.skip = dict.fromkeys(self.labels, 0)   # aangevuld met stilte: zoveel samples van dit kanaal overslaan
         self.failed = False
 
     def add(self, block: Block):
         if self.failed or block.channel not in self.pending:
             return
-        self.pending[block.channel].append(block.samples)
+        samples = block.samples
+        if self.skip[block.channel]:
+            drop = min(self.skip[block.channel], len(samples))
+            self.skip[block.channel] -= drop
+            samples = samples[drop:]
+        self.pending[block.channel].append(samples)
         sizes = {k: sum(len(b) for b in v) for k, v in self.pending.items()}
         ready = min(sizes.values())
         if max(sizes.values()) - ready > self.MAX_LAG_S * RATE:
@@ -143,14 +155,15 @@ class AudioRecorder:
         for label in self.labels:
             buf = np.concatenate(self.pending[label]) if self.pending[label] else np.zeros(0, np.float32)
             cols.append(np.pad(buf[:n], (0, max(0, n - len(buf)))))
+            self.skip[label] += max(0, n - len(buf))
             self.pending[label] = [buf[n:]] if len(buf) > n else []
         pcm = (np.clip(np.stack(cols, axis=1), -1.0, 1.0) * 32767).astype("<i2")
         try:
             self.wav.writeframes(pcm.tobytes())
             self.file.flush()
-        except OSError as e:   # schijf vol: de meeting loopt door, alleen zonder opname
+        except Exception as e:  # noqa: BLE001 - schijf vol, WAV boven 4 GB: de meeting loopt door, zonder opname
             self.failed = True
-            print(f"Opname gestopt: {e}", file=sys.stderr)
+            print(f"Opname gestopt: {type(e).__name__}: {e}", file=sys.stderr)
 
     def close(self):
         sizes = [sum(len(b) for b in v) for v in self.pending.values()]
@@ -158,9 +171,13 @@ class AudioRecorder:
             self._write(max(sizes))
         try:
             self.wav.close()   # wave sluit een meegegeven bestand niet zelf
-            self.file.close()
-        except OSError as e:
-            print(f"Opname niet afgesloten: {e}", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001
+            print(f"Opname niet afgesloten: {type(e).__name__}: {e}", file=sys.stderr)
+        finally:
+            try:
+                self.file.close()
+            except OSError:   # schijf vol: de rest van de buffer gaat verloren, de meeting niet
+                pass
 
 
 @dataclass

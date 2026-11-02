@@ -470,6 +470,33 @@ def test_audio_recorder_fills_a_stalled_channel_with_silence(tmp_path):
     rec.close()
 
 
+def test_audio_channels_stay_aligned_when_a_stalled_channel_catches_up(tmp_path):
+    from hint_meet.audio import read_wav
+    from hint_meet.live import AudioRecorder, Block
+    rec = AudioRecorder(tmp_path / "live.wav", ["Stefan", "Gesprekspartner"])
+    n = int(AudioRecorder.MAX_LAG_S * 16000 / 512) + 2
+    for _ in range(n):   # systeemaudio hapert: wordt met stilte aangevuld
+        rec.add(Block("Stefan", np.zeros(512, np.float32), 0.0))
+    for _ in range(n):   # daarna komt de achterstand alsnog binnen (te laat: valt weg), dan weer gewoon
+        rec.add(Block("Gesprekspartner", np.full(512, 0.5, np.float32), 0.0))
+    rec.add(Block("Stefan", np.full(512, 0.25, np.float32), 0.0))
+    rec.add(Block("Gesprekspartner", np.full(512, -0.5, np.float32), 0.0))
+    rec.close()
+    data = read_wav(tmp_path / "live.wav")
+    assert data.shape == ((n + 1) * 512, 2)            # niet n blokken achter elkaar extra
+    assert np.allclose(data[-512:, 0], 0.25, atol=1e-3) and np.allclose(data[-512:, 1], -0.5, atol=1e-3)
+
+
+def test_a_failing_recording_never_stops_the_meeting(tmp_path):
+    from hint_meet.live import AudioRecorder, Block
+    rec = AudioRecorder(tmp_path / "live.wav", ["Stefan"])
+    rec.wav.writeframes = lambda _: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+    rec.add(Block("Stefan", np.zeros(512, np.float32), 0.0))
+    assert rec.failed
+    rec.add(Block("Stefan", np.zeros(512, np.float32), 0.0))
+    rec.close()
+
+
 def test_live_session_feeds_the_recorder_and_closes_it(tmp_path):
     from hint_meet.audio import read_wav
     from hint_meet.live import AudioRecorder
