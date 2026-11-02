@@ -545,3 +545,20 @@ def test_to_mp3_keeps_broken_wav(tmp_path):
     wav = tmp_path / "live-x.wav"
     wav.write_bytes(b"not a wav")
     assert to_mp3(wav) is None and wav.exists()
+
+
+def test_to_mp3_keeps_wav_with_more_than_two_channels(tmp_path):
+    from hint_meet.live import to_mp3
+    wav = tmp_path / "live-x.wav"
+    _write_wav(wav, 3)
+    assert to_mp3(wav) is None and wav.exists() and not list(tmp_path.glob("*.mp3"))
+
+
+@pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="ffmpeg ontbreekt")
+def test_to_mp3_keeps_wav_when_ffmpeg_fails(tmp_path, monkeypatch):
+    import subprocess
+    from hint_meet.live import to_mp3
+    wav = tmp_path / "live-x.wav"
+    _write_wav(wav, 1)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"boom"))
+    assert to_mp3(wav) is None and wav.exists() and not list(tmp_path.glob("*.mp3*"))

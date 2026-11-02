@@ -197,8 +197,11 @@ def to_mp3(wav: Path) -> Path | None:
     except (wave.Error, EOFError, OSError) as e:
         print(f"Audio blijft WAV: {e}", file=sys.stderr)
         return None
+    if channels > 2:   # MP3 kent hooguit stereo: dan zouden kanalen samenvallen
+        print(f"Audio blijft WAV: {channels} kanalen past niet in een MP3", file=sys.stderr)
+        return None
     mp3 = wav.with_suffix(".mp3")
-    tmp = mp3.with_name(mp3.name + ".tmp")
+    tmp = mp3.with_name(f"{mp3.name}.{os.getpid()}.tmp")
     try:
         out = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-codec:a", "libmp3lame",
                               "-b:a", "64k" if channels > 1 else "32k", "-f", "mp3", str(tmp)],
@@ -208,7 +211,10 @@ def to_mp3(wav: Path) -> Path | None:
         os.replace(tmp, mp3)
         wav.unlink()
     except (OSError, subprocess.TimeoutExpired) as e:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass   # opruimen mag het afsluiten niet stoppen; de WAV staat er nog
         print(f"Audio blijft WAV: omzetten naar MP3 mislukt: {e}", file=sys.stderr)
         return None
     return mp3
