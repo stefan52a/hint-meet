@@ -107,6 +107,62 @@ class WavSource:
         return self.done.is_set()
 
 
+class AudioRecorder:
+    """Bewaart de meeting als WAV (16 kHz, 16 bit), één kanaal per bron in de volgorde van `labels`: dan is
+    hij later af te spelen met --audio en --channels in dezelfde volgorde. De apparaten leveren elk op hun
+    eigen tempo; een frame gaat pas naar schijf als elk kanaal het heeft. Loopt één kanaal meer dan
+    MAX_LAG_S achter (apparaat hapert), dan wordt dat kanaal met stilte aangevuld. wave werkt de kop bij
+    na elke write: na een crash is de opname tot dat moment af te spelen."""
+    MAX_LAG_S = 2.0
+
+    def __init__(self, path: Path, labels: list[str]):
+        import wave
+        self.path, self.labels = path, list(dict.fromkeys(labels))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.file = open(path, "wb")   # zelf openen: na elke write flushen, anders staat de kop nog in de buffer
+        self.wav = wave.open(self.file, "wb")
+        self.wav.setnchannels(len(self.labels))
+        self.wav.setsampwidth(2)
+        self.wav.setframerate(RATE)
+        self.pending = {label: [] for label in self.labels}
+        self.failed = False
+
+    def add(self, block: Block):
+        if self.failed or block.channel not in self.pending:
+            return
+        self.pending[block.channel].append(block.samples)
+        sizes = {k: sum(len(b) for b in v) for k, v in self.pending.items()}
+        ready = min(sizes.values())
+        if max(sizes.values()) - ready > self.MAX_LAG_S * RATE:
+            ready = max(sizes.values())
+        if ready >= FRAME:
+            self._write(ready)
+
+    def _write(self, n: int):
+        cols = []
+        for label in self.labels:
+            buf = np.concatenate(self.pending[label]) if self.pending[label] else np.zeros(0, np.float32)
+            cols.append(np.pad(buf[:n], (0, max(0, n - len(buf)))))
+            self.pending[label] = [buf[n:]] if len(buf) > n else []
+        pcm = (np.clip(np.stack(cols, axis=1), -1.0, 1.0) * 32767).astype("<i2")
+        try:
+            self.wav.writeframes(pcm.tobytes())
+            self.file.flush()
+        except OSError as e:   # schijf vol: de meeting loopt door, alleen zonder opname
+            self.failed = True
+            print(f"Opname gestopt: {e}", file=sys.stderr)
+
+    def close(self):
+        sizes = [sum(len(b) for b in v) for v in self.pending.values()]
+        if sizes and max(sizes) and not self.failed:
+            self._write(max(sizes))
+        try:
+            self.wav.close()   # wave sluit een meegegeven bestand niet zelf
+            self.file.close()
+        except OSError as e:
+            print(f"Opname niet afgesloten: {e}", file=sys.stderr)
+
+
 @dataclass
 class LiveEvent:
     utterance: Utterance
@@ -124,11 +180,12 @@ class LiveSession:
 
     def __init__(self, sources, transcriber, pipeline, on_event=None, on_text=None, on_utterance=None,
                  min_silence_ms: int = 400, on_confirm=None, speaker_id=None, voice_channels=("Unknown",),
-                 transcript_path: Path | None = None):
+                 transcript_path: Path | None = None, recorder: AudioRecorder | None = None):
         """on_utterance(index, utterance): meteen na de spraakherkenning. on_text(partial, index): hint in wording.
         on_event(LiveEvent): na de pijplijn. De laatste twee komen uit de pijplijndraad. on_confirm(index, Advice):
         het dossier onderbouwt de uitspraak, later uit een draad van de bevestiger. transcript_path: daar staat het
-        transcript, bijgewerkt na elke uitspraak en elke hernoemde spreker."""
+        transcript, bijgewerkt na elke uitspraak en elke hernoemde spreker. recorder: bewaart de audio."""
+        self.recorder = recorder
         self.sources, self.transcriber, self.pipeline = sources, transcriber, pipeline
         self.on_event, self.on_text, self.on_utterance = on_event, on_text, on_utterance
         self.on_confirm = on_confirm
@@ -178,6 +235,8 @@ class LiveSession:
                         if until and until() and self.q.empty():
                             break
                         continue
+                    if self.recorder:
+                        self.recorder.add(block)
                     buf = np.concatenate([pending.get(block.channel, np.zeros(0, np.float32)), block.samples])
                     seg = self._segmenter(block.channel)
                     while len(buf) >= FRAME:
@@ -193,6 +252,8 @@ class LiveSession:
                         s.stop()
                     except Exception:  # noqa: BLE001
                         pass
+                if self.recorder:
+                    self.recorder.close()
             for seg in self.segmenters.values():
                 for segment in seg.flush():
                     self._handle(segment, ready_at=time.monotonic(), advise=False)

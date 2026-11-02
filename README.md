@@ -297,7 +297,7 @@ App: build with `app/build-app.sh`; that installs HintMeet in `~/Applications`, 
 
 **Language.** Pick it before the meeting or change it during the meeting in the top bar; speech recognition, hints, the left column and the report follow from the next utterance.
 
-Live saves the transcript in `logs/live-<date>.txt`, in the same format as the test transcripts: add `#! advies:` lines below it and play it back with `replay` to calibrate thresholds.
+Live saves the transcript in `logs/live-<date>.txt`, in the same format as the test transcripts: add `#! advies:` lines below it and play it back with `replay` to calibrate thresholds. The audio goes next to it in `logs/live-<date>.wav` (16 kHz, one channel per source in the order of `--channels`; off with `--no-audio`).
 
 System audio (Teams, Zoom, Meet, calls via the Mac) needs [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, and in Audio MIDI Setup a multi-output device with your speakers and BlackHole, so you still hear the meeting yourself.
 

@@ -63,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
     lv.add_argument("--no-summary", action="store_true", help="geen verslag met actiepunten na afloop")
+    lv.add_argument("--no-audio", action="store_true",
+                    help="de audio niet bewaren (standaard: logs/live-….wav naast het transcript)")
     lv.add_argument("--language", default="nl", type=language_code,
                     help="taal van het gesprek: een Whisper-code (nl, en, de, fr, es, …) of multi (per uitspraak "
                          "herkend); hints en verslag volgen de gesprekstaal")
@@ -767,10 +769,19 @@ def live_cmd(a) -> int:
 
     meta_ref["save"] = save_progress
     save_progress()
+    # de audio naast het transcript; een afgespeelde opname staat al op schijf
+    recorder = None
+    if not a.wav and not a.no_audio:
+        from .live import AudioRecorder
+        try:
+            recorder = AudioRecorder(out.with_suffix(".wav"), channels)
+            print(f"Audio: {recorder.path} (kanalen: {','.join(recorder.labels)})")
+        except OSError as e:   # de meeting gaat voor de opname
+            print(f"Audio wordt niet bewaard: {e}", file=sys.stderr)
     session = LiveSession(sources, transcriber, pipeline, on_event=on_event, on_text=on_text,
                           on_utterance=on_utterance, min_silence_ms=config.get("audio", {}).get("min_silence_ms", 400),
                           on_confirm=on_confirm if pipeline.confirmer else None, speaker_id=speaker_id,
-                          transcript_path=out)
+                          transcript_path=out, recorder=recorder)
     pipeline_ref["session"] = session
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
     status("Listening…")

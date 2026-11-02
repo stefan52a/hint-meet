@@ -441,3 +441,41 @@ def test_typed_text_after_the_pipeline_finished_is_refused():
     session.run(until=lambda: True)
     assert session.say("Te laat", "Stefan") is None
     assert session.utterances == [] and pipe.calls == 0
+
+
+def test_audio_is_saved_one_channel_per_source_and_replayable(tmp_path):
+    from hint_meet.audio import read_wav
+    from hint_meet.live import AudioRecorder, Block
+    rec = AudioRecorder(tmp_path / "live.wav", ["Stefan", "Gesprekspartner"])
+    mic, other = np.full(512, 0.25, np.float32), np.full(512, -0.5, np.float32)
+    rec.add(Block("Stefan", mic, 0.0))
+    rec.add(Block("Stefan", mic, 0.0))          # de microfoon loopt een blok voor
+    rec.add(Block("Gesprekspartner", other, 0.0))
+    data = read_wav(tmp_path / "live.wav")        # tussentijds leesbaar, zoals na een crash
+    assert data.shape == (512, 2)
+    rec.close()
+    data = read_wav(tmp_path / "live.wav")
+    assert data.shape == (1024, 2)                # het restje met stilte aangevuld
+    assert np.allclose(data[:512, 0], 0.25, atol=1e-3) and np.allclose(data[:512, 1], -0.5, atol=1e-3)
+    assert np.allclose(data[512:, 1], 0.0)
+
+
+def test_audio_recorder_fills_a_stalled_channel_with_silence(tmp_path):
+    from hint_meet.audio import read_wav
+    from hint_meet.live import AudioRecorder, Block
+    rec = AudioRecorder(tmp_path / "live.wav", ["Stefan", "Gesprekspartner"])
+    for _ in range(int(AudioRecorder.MAX_LAG_S * 16000 / 512) + 2):
+        rec.add(Block("Stefan", np.zeros(512, np.float32), 0.0))
+    assert read_wav(tmp_path / "live.wav").shape[0] > 0   # niet eindeloos bufferen op een stil apparaat
+    rec.close()
+
+
+def test_live_session_feeds_the_recorder_and_closes_it(tmp_path):
+    from hint_meet.audio import read_wav
+    from hint_meet.live import AudioRecorder
+    write_wav(tmp_path / "in.wav", channels=2, seconds=0.5)
+    rec = AudioRecorder(tmp_path / "out.wav", ["Stefan", "Ander"])
+    src = WavSource(tmp_path / "in.wav", ["Stefan", "Ander"], speed=50)
+    session = LiveSession([src], transcriber=None, pipeline=FakePipeline(), recorder=rec)
+    session.run(until=lambda: src.finished)
+    assert read_wav(tmp_path / "out.wav").shape == ((8000 // 512) * 512, 2)
