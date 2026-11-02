@@ -247,7 +247,7 @@ git commit -m "Pipeline: phone audio source on localhost, live --phone-port/--ph
 - Produces:
   - `LiveSession.heard_s: float` (seconds of audio taken from the queue) and `LiveSession.processed_s: float` (seconds through segmenter + `_handle`; the speech thread is synchronous, so this equals "transcribed up to")
   - Hub message `progress` every 5 s while running (see the wire protocol)
-  - `stop` with `final_offset`: a thread calls `phone.wait_acked(final_offset, 60)` and then `session.stop()`; `stop` without it stops immediately (Mac overlay, unchanged)
+  - `stop` with `final_offset`: a thread calls `phone.wait_acked(final_offset, 60)`, then waits (within the same 60 s budget) until `session.heard_s * 16000 >= final_offset`, and only then `session.stop()`. The run loop exits on `stop_flag` without draining its queue, so stopping right after the ack would drop the last blocks. `stop` without `final_offset` stops immediately (Mac overlay, unchanged)
   - meta JSON gets `"phone_meeting": HEX` and `"stopped_by": "user" | "watchdog"`
   - when `lost_s` grows, a hub `status` message: `"Audio from the phone lost: N s"`
 
@@ -260,6 +260,10 @@ def test_progress_tracks_heard_and_processed_audio():
 def test_stop_waits_for_final_offset_then_stops(monkeypatch):
     # fake phone with wait_acked recording its args → on_message({"type":"stop","final_offset":32000})
     # → wait_acked called with (32000, 60) before session.stop()
+
+def test_stop_keeps_the_last_seconds():
+    # real LiveSession + PhoneSource, stub transcriber that records segment lengths; send 3 s of speech
+    # then stop with final_offset=48000 immediately → the transcriber saw audio up to 3 s (nothing dropped)
 
 def test_watchdog_stop_is_recorded_in_meta(tmp_path):
     # run live_cmd's stop path with phone.finished True → meta["stopped_by"] == "watchdog"
@@ -308,7 +312,7 @@ git commit -m "Phone meetings: stop drains the phone's audio, watchdog after 30 
 **Interfaces:**
 - Produces (all `nonisolated`, no I/O except `LastResult.read`):
   - `enum Tailnet { static func isTailnet(_ ipv4: String) -> Bool; static func address(from interfaces: [(name: String, ipv4: String)]) -> String? }` (picks the first 100.64.0.0/10 address; `currentAddress()` wraps `getifaddrs`)
-  - `struct Pairing { static func url(host: String, port: Int, token: String) -> String }` → `hintmeet://pair?host=…&port=…&token=…` (token percent-encoded)
+  - `struct Pairing { static func url(host: String, port: Int, token: String) -> String }` → `hintmeet://pair?host=…&port=…&token=…` (token percent-encoded). `host` is the Mac's MagicDNS name (`Self.DNSName` from `tailscale status --json`, trailing dot removed, e.g. `macbook.tail1234.ts.net`) when available, otherwise the 100.x address. The name survives a changed Tailscale IP, so the phone needs no re-pairing.
   - `enum PhoneRequest: Equatable { case projects, state, start(requestID: String, projects: [String], language: String, info: String), toHub(String), invalid }` and `static func parse(_ text: String) -> PhoneRequest`. `stop`, `feedback` and `language` go to `.toHub`; unknown types are `.invalid`.
   - `struct GatewayState: Codable, Equatable` matching the wire protocol's `state` message, with `func json() -> String`
   - `struct LastResult { static func read(logs: URL, meeting: String) -> GatewayState.Last? }`: the newest `live-*.meta.json` with `phone_meeting == meeting`; `report_md` = contents of `meta["report"]` if that file exists
@@ -480,7 +484,7 @@ git commit -m "Android companion: project setup, wire protocol and meeting state
 **Interfaces:**
 - Consumes: `parseServer`, `ServerMessage`, `reduce` (Task 7).
 - Produces:
-  - `data class Pairing(host: String, port: Int, token: String)` with `companion fun parse(uri: String): Pairing?` (only `hintmeet://pair`, host must be in 100.64.0.0/10, port 1–65535, token ≥ 32 chars) and `fun wsUrl(): String`; stored with `EncryptedSharedPreferences` (`androidx.security:security-crypto:1.1.0-alpha06`)
+  - `data class Pairing(host: String, port: Int, token: String)` with `companion fun parse(uri: String): Pairing?` (only `hintmeet://pair`, host must be in 100.64.0.0/10 or end in `.ts.net`, port 1–65535, token ≥ 32 chars) and `fun wsUrl(): String`; stored with `EncryptedSharedPreferences` (`androidx.security:security-crypto:1.1.0-alpha06`)
   - `class Backoff { fun next(): Long; fun reset() }` → 1 s, 2 s, 4 s, 8 s, then 10 s capped
   - `class GatewayClient(pairing: Pairing, scope: CoroutineScope)` with `val messages: SharedFlow<ServerMessage>`, `val connected: StateFlow<Boolean>`, `fun sendText(json: String)`, `fun sendBinary(bytes: ByteArray): Boolean` (false when not connected), `fun close()`; it reconnects with `Backoff` until closed and sends `{"type":"state"}` after every connect
   - Pairing screen scans QR with `com.journeyapps:zxing-android-embedded:4.3.0`. Start screen: Mac reachable, project multi-select from `projects`, language (same codes as the Mac's menu: `nl`, `en`, …, `multi`), "With whom, where", Start (sends `start` with a fresh UUID `request_id`); while `starting`, it shows the hub `status` text (KB loading); `busy_elsewhere` → "A meeting is already running on the Mac".
@@ -565,7 +569,7 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 - Consumes: `AudioBuffer`, `OffsetClock` (Task 10), `GatewayClient`, `Frame`, `ServerMessage` (Tasks 7–8).
 - Produces:
   - `RecordingService`: starts on `AudioReady`. It reads `AudioRecord` (`VOICE_RECOGNITION`, falling back to `MIC`, 16 kHz mono PCM16) in 1600-sample frames, holds a partial wake lock, and shows an ongoing notification with the elapsed time. It stores `meeting` + `startedAtMs` in prefs, so after a restart it rejoins via `state` and an `OffsetClock`.
-  - `class Streamer(buffer: AudioBuffer, send: (ByteArray) -> Boolean, meeting: ULong)` with `fun onFrame(offset: Long, pcm: ShortArray)`, `fun onAck(offset: Long)`, `fun onReconnected()` (resend everything unacked, oldest first), `fun stop(): Long` (returns `final_offset`; the caller sends `{"type":"stop","final_offset":…}` once the buffer is empty or after 60 s; if offline, on reconnect)
+  - `class Streamer(buffer: AudioBuffer, send: (ByteArray) -> Boolean, meeting: ULong)` with `fun onFrame(offset: Long, pcm: ShortArray)`, `fun onAck(offset: Long)`, `fun onReconnected()` (resend everything unacked, oldest first). **Frames go out strictly in offset order.** While a resend is running, new live frames only go into the buffer and are sent after it. Otherwise the Mac sees a live frame first, fills the gap with silence, and then drops the resent audio as a duplicate. `fun stop(): Long` (returns `final_offset`; the caller sends `{"type":"stop","final_offset":…}` once the buffer is empty or after 60 s; if offline, on reconnect)
   - `data class Health(capturing: Boolean, lastLevelAtMs: Long, connectedSinceMs: Long?, lastDisconnectMs: Long?, ackedS: Double, heardS: Double, processedS: Double, bufferFill: Double, droppedS: Double, batteryPct: Int, charging: Boolean, macPhase: String?, localStopSent: Boolean)` and `fun alarms(h: Health, nowMs: Long): Set<Alarm>` with `enum Alarm { CONNECTION_LOST, BUFFER_HALF_FULL, MAC_STOPPED, TRANSCRIPTION_BEHIND, BATTERY_LOW, AUDIO_LOST, MIC_SILENT }`
   - Status bar shows three dots: capturing / Mac received (acked) / Mac processed, each with "n s ago". An alarm shows a red banner and vibrates once per new alarm.
 
@@ -578,6 +582,7 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 @Test fun batteryLowOnlyWhenNotCharging() { /* 14 %, charging false → BATTERY_LOW; charging true → not */ }
 @Test fun macGoneWhileRecordingRaisesAlarm() { /* macPhase "idle", localStopSent false, capturing true → MAC_STOPPED */ }
 @Test fun resendAfterReconnectStartsAtFirstUnacked() { /* Streamer with fake send (false while offline): frames 0..4, ack 2, reconnect → sent offsets [3200, 4800, 6400] in order */ }
+@Test fun liveFramesWaitBehindResend() { /* offline for frames 0..2, reconnect, frame 3 arrives mid-resend → sent offsets strictly increasing [0, 1600, 3200, 4800] */ }
 @Test fun stopReturnsFinalOffset() { /* after 5 frames of 1600 → stop() == 8000 */ }
 ```
 
