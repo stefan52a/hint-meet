@@ -28,7 +28,8 @@ Transcript and document search are secondary.
 - Running anything (Whisper, KB, models) on the phone. The phone is microphone + screen.
 - Opening original source documents on the phone. Sources are shown as their reference text only.
 - Document search (⌘F) and voice enrollment from the phone.
-- Audio compression (Opus). Raw PCM is ~32 KB/s, ~115 MB per two hours; fine on 4G for now.
+- Audio compression (Opus). Raw PCM is ~32 KB/s, ~230 MB per two hours; acceptable on 4G
+  for now (Opus would bring it to ~15 MB, a later improvement).
 
 ## Anti-goals (a failure even if it technically works)
 
@@ -156,6 +157,35 @@ hints screen ◄─────────────────────�
 - **After the meeting**: steps shown as the Mac reports them; when `summary` arrives (or later via `state`'s last
   result), show the report (Markdown rendered) and offer share. Reconnecting to a meeting the watchdog already
   stopped shows that, plus the report when ready.
+
+### Recovery and lifecycle rules (Claude's calls)
+
+These are part of the contract, not implementation details; step 1 and 2 test each of them.
+
+- **Every audio frame and ack carries the meeting ID.** Frames for another or an ended meeting are refused with
+  a reason; the phone shows it.
+- **The sample offset is owned by the Mac.** On (re)join the gateway tells the phone the meeting's start time and
+  the last acknowledged offset. The phone sets its offset from its own elapsed recording time since that start
+  (wall clock, corrected once at join), so an app restart continues at the right offset; the Mac fills
+  `last ack → first new frame` with silence and reports the lost interval.
+- **Acks are cumulative** ("everything up to offset n received"); a lost ack only means a later one covers it.
+- **One audio producer per meeting.** A new audio connection with the same meeting ID replaces the old one (the
+  old socket is closed). `start` carries a client request ID and is idempotent: a repeated `start` with the same ID
+  returns the running meeting instead of starting a second.
+- **Stop drains first.** On Stop the phone sends all buffered audio, then `stop`; the gateway waits for the final
+  ack (at most 60 s) before stopping the pipeline. If the phone can't reach the Mac, a local Stop keeps the buffer
+  and sends it + stop on reconnect; the watchdog still applies.
+- **Catch-up stays bounded.** Resent audio is transcribed (for transcript and report) but live audio has
+  priority: the pipeline transcribes the newest live segment first and works through backlog segments in between.
+  Old segments never go to gate/rerank/Claude (see timestamps above).
+- **Health is more than a connected socket.** The status bar shows three things separately: phone is capturing
+  (level moving), Mac has acknowledged audio up to n seconds ago, Mac has transcribed up to n seconds ago. If
+  transcription falls more than 60 s behind live audio, that is an alarm.
+- **Security.** The gateway authenticates the phone token before sending anything (no replay, no project list
+  without it). "New pairing" closes all active phone connections immediately. Frames over 1 s of audio, offsets
+  more than 10 min ahead of the Mac's clock, and unknown message types are rejected. Tailscale itself is the
+  device restriction: Stefan's tailnet contains only his own devices; the gateway additionally checks the peer is
+  a Tailscale address (100.64.0.0/10).
 
 ## Build order (each step usable on its own)
 
