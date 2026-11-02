@@ -39,6 +39,7 @@ final class HintStore: ObservableObject {
     @Published var hints: [Hint] = []           // nieuwste laatst
     @Published var utterances: [Utterance] = []  // laatste paar
     @Published var summaryPath: String?
+    @Published var audioPath: String?   // de opname van de meeting (MP3, of WAV zonder ffmpeg)
     @Published var stopped = false
     @Published var status = ""      // wat de pijplijn aan het doen is (KB laden, luistert…)
     /// API-keys die niet werken (fout, ontbreekt, geen tegoed, limiet): elke melding één keer, tot een nieuwe meeting.
@@ -184,7 +185,7 @@ final class HintStore: ObservableObject {
             // nieuwe sessie: niets van een vorige meeting meenemen (id's beginnen weer bij 0)
             let new = msg["session"] as? String ?? ""
             if new != session {
-                hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
+                hints = []; utterances = []; summaryPath = nil; audioPath = nil; status = ""; spoken = [:]; transcript = []; browseID = nil
                 aliases = [:]   // hernoemde sprekers horen bij die ene meeting
                 confirmations = []; backedID = nil; apiErrors = []
                 session = new
@@ -243,6 +244,8 @@ final class HintStore: ObservableObject {
             if let text = msg["text"] as? String, !text.isEmpty, !apiErrors.contains(text) { apiErrors.append(text) }
         case "summary":
             summaryPath = msg["path"] as? String
+        case "audio":
+            audioPath = msg["path"] as? String
         case "stopped":
             stopped = true
         default:
@@ -252,7 +255,7 @@ final class HintStore: ObservableObject {
 
     /// "New Meeting": het gesprek van de vorige meeting uit beeld, terug naar het startscherm.
     func clearMeeting() {
-        hints = []; utterances = []; summaryPath = nil; status = ""; spoken = [:]; transcript = []
+        hints = []; utterances = []; summaryPath = nil; audioPath = nil; status = ""; spoken = [:]; transcript = []
         confirmations = []; backedID = nil; browseID = nil; stopped = false; aliases = [:]; apiErrors = []
     }
 

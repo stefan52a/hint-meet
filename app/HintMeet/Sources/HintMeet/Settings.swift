@@ -13,7 +13,7 @@ final class Settings: ObservableObject {
     @Published var mic: String { didSet { d.set(mic, forKey: "mic") } }
     @Published var system: String { didSet { d.set(system, forKey: "system") } }
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
-    /// De audio van de meeting bewaren, naast het transcript in logs/ (live-….wav).
+    /// De audio van de meeting bewaren, naast het transcript in logs/ (live-….mp3; WAV tijdens de meeting).
     @Published var saveAudio: Bool { didSet { d.set(saveAudio, forKey: "saveAudio") } }
     /// Is het verslag klaar, dan meteen vragen waar een kopie heen moet (naast die in de map van het project).
     @Published var askSaveReport: Bool { didSet { d.set(askSaveReport, forKey: "askSaveReport") } }

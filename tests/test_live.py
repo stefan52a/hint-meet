@@ -506,3 +506,42 @@ def test_live_session_feeds_the_recorder_and_closes_it(tmp_path):
     session = LiveSession([src], transcriber=None, pipeline=FakePipeline(), recorder=rec)
     session.run(until=lambda: src.finished)
     assert read_wav(tmp_path / "out.wav").shape == ((8000 // 512) * 512, 2)
+
+
+def _write_wav(path, channels, seconds=1.0):
+    n = int(16000 * seconds)
+    t = np.arange(n) / 16000
+    data = np.stack([np.sin(2 * np.pi * 440 * (c + 1) * t) for c in range(channels)], axis=1)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes((data * 10000).astype(np.int16).tobytes())
+
+
+@pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="ffmpeg ontbreekt")
+def test_to_mp3_replaces_wav_and_keeps_channels(tmp_path):
+    from hint_meet.audio import read_wav
+    from hint_meet.live import to_mp3
+    wav = tmp_path / "live-x.wav"
+    _write_wav(wav, 2)
+    mp3 = to_mp3(wav)
+    assert mp3 == tmp_path / "live-x.mp3" and mp3.exists() and not wav.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+    assert read_wav(mp3).shape[1] == 2   # nog af te spelen met --audio, per kanaal
+
+
+def test_to_mp3_keeps_wav_without_ffmpeg(tmp_path, monkeypatch):
+    import shutil
+    from hint_meet.live import to_mp3
+    wav = tmp_path / "live-x.wav"
+    _write_wav(wav, 1)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    assert to_mp3(wav) is None and wav.exists()
+
+
+def test_to_mp3_keeps_broken_wav(tmp_path):
+    from hint_meet.live import to_mp3
+    wav = tmp_path / "live-x.wav"
+    wav.write_bytes(b"not a wav")
+    assert to_mp3(wav) is None and wav.exists()

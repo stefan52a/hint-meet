@@ -1,20 +1,20 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// Een kopie van het verslag ergens anders bewaren (bv. een gedeelde map). Het origineel blijft in de map
+/// Een kopie van het verslag (of de opname) ergens anders bewaren (bv. een gedeelde map). Het origineel blijft in de map
 /// meetings van het project; de map die je kiest, onthoudt HintMeet voor de volgende keer.
 @MainActor
 enum ReportCopy {
     private static let dirKey = "reportCopyDir"
 
-    static func save(_ path: String) {
+    static func save(_ path: String, what: String = "Report") {
         let source = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: source.path) else {
-            alert("The report is no longer at \(source.path).")
+            alert(what, "The \(what.lowercased()) is no longer at \(source.path).")
             return
         }
         let panel = NSSavePanel()
-        panel.title = "Save a Copy of the Report"
+        panel.title = "Save a Copy of the \(what)"
         panel.nameFieldStringValue = source.lastPathComponent
         panel.allowedContentTypes = [UTType(filenameExtension: source.pathExtension) ?? .plainText]
         panel.canCreateDirectories = true
@@ -29,7 +29,7 @@ enum ReportCopy {
             do {
                 try copy(source, to: target)
             } catch {
-                await MainActor.run { alert("Couldn't save the copy: \(error.localizedDescription)") }
+                await MainActor.run { alert(what, "Couldn't save the copy: \(error.localizedDescription)") }
             }
         }
     }
@@ -53,9 +53,9 @@ enum ReportCopy {
         }
     }
 
-    private static func alert(_ text: String) {
+    private static func alert(_ what: String, _ text: String) {
         let a = NSAlert()
-        a.messageText = "Report not copied"
+        a.messageText = "\(what) not copied"
         a.informativeText = text
         a.runModal()
     }

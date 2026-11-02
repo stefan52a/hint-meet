@@ -180,6 +180,40 @@ class AudioRecorder:
                 pass
 
 
+def to_mp3(wav: Path) -> Path | None:
+    """De opname na de meeting als MP3 (64 kbit/s stereo, 32 mono: ~15–30 MB per uur i.p.v. 115–230), met
+    dezelfde kanalen, dus nog steeds af te spelen met --audio. Tijdens de meeting blijft het WAV: dat is na
+    een crash leesbaar, een half geschreven MP3 niet. Geeft het pad van de MP3, of None als de WAV blijft
+    (geen ffmpeg, of het omzetten faalt)."""
+    import shutil
+    import subprocess
+    import wave
+    if not shutil.which("ffmpeg"):
+        print("Audio blijft WAV: ffmpeg ontbreekt (brew install ffmpeg)", file=sys.stderr)
+        return None
+    try:
+        with wave.open(str(wav)) as w:
+            channels = w.getnchannels()
+    except (wave.Error, EOFError, OSError) as e:
+        print(f"Audio blijft WAV: {e}", file=sys.stderr)
+        return None
+    mp3 = wav.with_suffix(".mp3")
+    tmp = mp3.with_name(mp3.name + ".tmp")
+    try:
+        out = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-codec:a", "libmp3lame",
+                              "-b:a", "64k" if channels > 1 else "32k", "-f", "mp3", str(tmp)],
+                             capture_output=True, timeout=900)
+        if out.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+            raise OSError(out.stderr.decode(errors="replace")[:200] or "geen uitvoer")
+        os.replace(tmp, mp3)
+        wav.unlink()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        tmp.unlink(missing_ok=True)
+        print(f"Audio blijft WAV: omzetten naar MP3 mislukt: {e}", file=sys.stderr)
+        return None
+    return mp3
+
+
 @dataclass
 class LiveEvent:
     utterance: Utterance

@@ -792,6 +792,13 @@ def live_cmd(a) -> int:
         status("Saving transcript…")  # de app toont tijdens het afsluiten waar de pijplijn is
         session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
         pipeline.close()
+        if recorder:   # run() heeft de WAV gesloten; nu pas kleiner maken
+            from .live import to_mp3
+            status("Saving transcript and audio…")   # zelfde stap in de app
+            audio = (to_mp3(recorder.path) or recorder.path).resolve()   # volledig pad: de app heeft een andere werkmap
+            print(f"Audio: {audio}")
+            if hub and audio.exists():
+                hub.send(type="audio", path=str(audio))   # de app biedt hem aan om op te slaan
     if session.overflows:
         print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
     stale = sum(1 for e in session.events if e.stale)

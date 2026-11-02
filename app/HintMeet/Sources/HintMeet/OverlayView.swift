@@ -347,6 +347,12 @@ struct OverlayView: View {
             } else {
                 Text("Meeting ended. No report was written.").font(.callout).foregroundStyle(.secondary)
             }
+            if let audio = store.audioPath {
+                Button { ReportCopy.save(audio, what: "Audio") } label: {
+                    Label("Save Audio…", systemImage: "waveform")
+                }
+                .help("Save a copy of the meeting audio somewhere else; the original stays in logs/")
+            }
             Spacer()
             Button { store.clearMeeting() } label: { Label("New Meeting", systemImage: "plus") }
                 .help("Back to the start screen; the report stays in the meetings folder")
