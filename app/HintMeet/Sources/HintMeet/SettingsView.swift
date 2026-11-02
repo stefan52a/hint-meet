@@ -28,6 +28,8 @@ struct SettingsView: View {
                     Text("For Teams/Zoom/Meet: install BlackHole (brew install --cask blackhole-2ch).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Toggle("Save the meeting audio (next to the transcript in logs/, ~115–230 MB per hour)",
+                       isOn: $settings.saveAudio)
                 Toggle("Report with action items afterwards", isOn: $settings.summary)
                 Toggle("When the report is ready, ask where to save a copy", isOn: $settings.askSaveReport)
             }

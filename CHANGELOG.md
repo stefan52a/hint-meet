@@ -6,7 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
-- **The meeting audio is saved too:** next to the transcript, in `logs/live-<date>.wav`, one channel per source (your microphone, and the system audio if that's on). It is written as the meeting goes, so after a crash the audio up to that moment is kept. Play it back later with *Use a recorded meeting instead…*. Count on about 115 MB per hour with only a microphone, 230 MB with system audio. From the command line, `--no-audio` turns it off; playing a recording doesn't save it again.
+- **The meeting audio is saved too:** next to the transcript, in `logs/live-<date>.wav`, one channel per source (your microphone, and the system audio if that's on). It is written as the meeting goes, so after a crash the audio up to that moment is kept. Play it back later with *Use a recorded meeting instead…*. Count on about 115 MB per hour with only a microphone, 230 MB with system audio. Turn it off in *Settings → Audio → Save the meeting audio* (from the command line: `--no-audio`); playing a recording doesn't save it again.
 
 ## 2026-10-28
 
