@@ -674,8 +674,9 @@ def default_root() -> Path:
         try:
             from dotenv import dotenv_values, find_dotenv
             path = find_dotenv(usecwd=True)
-            root = dotenv_values(path).get("KB_ROOT") if path else None
-        except (ImportError, OSError):
+            # alleen een gewoon bestand: een pipe kan het lezen eeuwig laten wachten
+            root = dotenv_values(path).get("KB_ROOT") if path and os.path.isfile(path) else None
+        except (ImportError, OSError, UnicodeDecodeError):
             root = None
         if root:
             return Path(root).expanduser()

@@ -6,7 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
-- **No more 1Password integration:** HintMeet reads the API keys from *Settings → API-keys* or from a normal `.env` file in the project folder, and nothing else. The special handling for a `.env` delivered by 1Password (Environments) is gone, and so are its messages. If you used that, put the keys in *Settings → API-keys* or in a regular `.env`.
+- **No more 1Password integration:** HintMeet reads the API keys from *Settings → API-keys* or from a normal `.env` file in the project folder. The special handling for a `.env` delivered by 1Password (Environments) is gone, and so are its messages. A `.env` that isn't a regular file (like the 1Password pipe) is now skipped, so HintMeet never waits on it. If you used 1Password for this, put the keys in *Settings → API-keys* or in a regular `.env`.
 
 ## 2026-11-02
 
