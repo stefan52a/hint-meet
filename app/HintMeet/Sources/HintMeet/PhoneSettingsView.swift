@@ -67,6 +67,14 @@ private struct PhoneGatewayView: View {
                 } message: {
                     Text("The phone that is paired now stops working until you scan the new code with it.")
                 }
+            Toggle("Also when HintMeet is closed", isOn: Binding(get: { settings.phoneWake },
+                                                                set: { gateway.setWake($0) }))
+            Text("A small background helper starts HintMeet when the phone knocks; the phone connects a few "
+                 + "seconds later. It runs while you're logged in.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let wake = gateway.wakeProblem {
+                Text(wake).font(.caption).foregroundStyle(.orange)
+            }
             Text("Keep this Mac on power with the lid open during phone meetings.")
                 .font(.caption).foregroundStyle(.secondary)
         }

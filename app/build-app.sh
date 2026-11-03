@@ -10,6 +10,8 @@ APP=../build/HintMeet.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/HintMeet "$APP/Contents/MacOS/HintMeet"
+# achtergronddienst die HintMeet start als de telefoon aanklopt terwijl de app dicht is (Settings → Phone)
+cp .build/release/HintMeetWaker "$APP/Contents/MacOS/HintMeetWaker"
 ICONSET=../build/AppIcon.iconset
 rm -rf "$ICONSET"
 swift ../make-icon.swift "$ICONSET"
@@ -54,4 +56,9 @@ cp -R "$APP" "$DEST.new"
 rm -rf "$DEST"
 mv "$DEST.new" "$DEST"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
+# draait de achtergronddienst voor de telefoon (Settings → Phone → Also when HintMeet is closed): herstarten,
+# zodat hij het nieuwe programma gebruikt
+if launchctl print "gui/$(id -u)/com.zoof-it.hintmeet.waker" >/dev/null 2>&1; then
+  launchctl kickstart -k "gui/$(id -u)/com.zoof-it.hintmeet.waker"
+fi
 echo "Geïnstalleerd: $DEST"

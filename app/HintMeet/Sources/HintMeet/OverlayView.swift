@@ -18,6 +18,7 @@ struct OverlayView: View {
     let send: ([String: Any]) -> Void
     let startMeeting: () -> Void
     let playRecording: () -> Void
+    let startFromPhone: () -> Void
     let stopMeeting: () -> Void
     let openSettings: () -> Void
     let addFolder: () -> Void
@@ -160,6 +161,9 @@ struct OverlayView: View {
                 Button("Use a recorded meeting instead…") { playRecording() }
                     .buttonStyle(.link).font(.caption)
                     .disabled(settings.project.isEmpty || kbBusy)
+                Button("Start from the Android app…") { startFromPhone() }   // de telefoon kiest zelf het project
+                    .buttonStyle(.link).font(.caption)
+                    .help("Let the HintMeet app on your Android phone start meetings here, over Tailscale")
             }
         }
         .padding(24)

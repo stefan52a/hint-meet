@@ -122,6 +122,7 @@ hint-meet/
 │       ├── Sources/HintMeet/       SwiftUI app: panel with columns, menus, settings, voice, Convert Documents,
 │       │                           Gateway.swift (phone companion), PhoneSettingsView.swift (pairing QR)
 │       ├── Sources/HintMeetCore/   the gateway's protocol logic, without UI or sockets
+│       ├── Sources/HintMeetWaker/  background helper: starts HintMeet when the phone knocks while it's closed
 │       └── Sources/GatewayChecks/  `swift run GatewayChecks`: checks on HintMeetCore
 ├── android/                the phone companion (Kotlin, Jetpack Compose)
 │   ├── gradle/             versions (libs.versions.toml), JDK 21 for the build (gradle-daemon-jvm.properties)
@@ -184,6 +185,10 @@ cd android && ./gradlew installDebug
 The build needs a JDK 21 on the Mac (any vendor); Gradle finds it by itself, also when your default `java` is newer. Without a cable: `./gradlew assembleDebug` and copy `android/app/build/outputs/apk/debug/app-debug.apk` to the phone. To update, install the new APK over the old one; the pairing stays. It's a debug build signed with the standard debug key, which is fine for a sideloaded app.
 
 **Connecting the phone.** Both devices in the same [Tailscale](https://tailscale.com) tailnet. In HintMeet: *Settings → Phone → Allow phone companion* (off by default), then scan the QR code with the app. HintMeet listens on the Mac's Tailscale address only, port 8790, and only lets in the phone with the key from the QR code; *New pairing…* replaces the key. During phone meetings keep the Mac on power with the lid open (HintMeet then keeps it awake). A two-hour meeting uses about 230 MB of mobile data.
+
+**Starting from the phone while HintMeet is closed.** The start screen has *Start from the Android app…* (under *Use a recorded meeting instead…*): it opens the same switch and QR code, plus *Also when HintMeet is closed* (on by default). With that on, HintMeet installs a small background helper, `HintMeetWaker`, as a LaunchAgent (`~/Library/LaunchAgents/com.zoof-it.hintmeet.waker.plist`, pointing to the program inside `~/Applications/HintMeet.app`). While HintMeet isn't running, the helper listens on the Tailscale address, port 8790; when the phone connects it closes that connection without exchanging anything, starts HintMeet in the background and steps aside. The phone connects again a few seconds later, now to HintMeet itself, and *Start Meeting* works as usual. While HintMeet runs, the helper doesn't listen. macOS may show *Background Items Added* once. Turning the switch (or the phone companion) off removes the LaunchAgent. `app/build-app.sh` restarts the helper after a build. Log: `~/Library/Logs/HintMeet/waker.log`.
+
+The phone's key is created by HintMeet and kept in the Keychain (separate from the API keys); it doesn't go in `.env`.
 
 ## Preparing the knowledge base
 

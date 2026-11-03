@@ -106,6 +106,8 @@ final class Gateway: ObservableObject {
 
     @Published private(set) var listening: String?   // "100.x.y.z:8790" of nil
     @Published private(set) var problem: String?
+    /// Melding over de achtergronddienst die HintMeet start als de app dicht is (nil = in orde of uit).
+    @Published private(set) var wakeProblem: String?
 
     private let settings: Settings
     private let backend: Backend
@@ -157,6 +159,13 @@ final class Gateway: ObservableObject {
             problem = nil
         }
         keepAwake.update(enabled: on)
+        wakeProblem = PhoneWake.update(on: on && settings.phoneWake)
+    }
+
+    /// "Also when HintMeet is closed" aan of uit.
+    func setWake(_ on: Bool) {
+        if settings.phoneWake != on { settings.phoneWake = on }
+        wakeProblem = PhoneWake.update(on: settings.phoneEnabled && on)
     }
 
     private func poll() {

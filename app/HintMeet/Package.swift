@@ -17,6 +17,13 @@ let package = Package(
             path: "Sources/HintMeet",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // achtergronddienst: start HintMeet als de telefoon aanklopt terwijl de app dicht is
+        .executableTarget(
+            name: "HintMeetWaker",
+            dependencies: ["HintMeetCore"],
+            path: "Sources/HintMeetWaker",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // `swift run GatewayChecks`: controles op HintMeetCore. Geen XCTest/Swift Testing: met alleen de
         // Command Line Tools (geen Xcode) draait `swift test` niets.
         .executableTarget(

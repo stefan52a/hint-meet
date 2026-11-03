@@ -14,6 +14,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **Start a meeting from the phone, also when HintMeet is closed:** the start screen has *Start from the Android app…*, with the pairing QR code and the switch *Also when HintMeet is closed* (on by default). A small background helper then starts HintMeet as soon as the phone connects; a few seconds later the phone can start the meeting. Off: the helper is removed. See *Deployment* in the README.
 - **The transcript keeps up:** every new utterance scrolls the transcript down, also on the phone. Scroll up yourself (or pick a hint or a card that's further back) and it stays put for 10 seconds so you can read; scroll back to the bottom and it follows again right away. Before, it sometimes stopped following after a new line.
 - **Smaller hints** in the panel (16 instead of 19 pt).
 - **New app icon on the Mac, the same as on Android:** the light bulb is now drawn by HintMeet itself instead of Apple's SF Symbol (Apple doesn't allow SF Symbols in app icons). Same blue tile, a yellow bulb with a dot under it, like an exclamation mark.

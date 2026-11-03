@@ -25,6 +25,8 @@ final class Settings: ObservableObject {
     @Published var confirmSensitivity: Double { didSet { d.set(confirmSensitivity, forKey: "confirmSensitivity") } }
     /// Telefoon-companion toestaan: de gateway luistert dan op het Tailscale-adres (standaard uit).
     @Published var phoneEnabled: Bool { didSet { d.set(phoneEnabled, forKey: "phoneEnabled") } }
+    /// Ook als HintMeet dicht is: een achtergronddienst (HintMeetWaker) start de app als de telefoon aanklopt.
+    @Published var phoneWake: Bool { didSet { d.set(phoneWake, forKey: "phoneWake") } }
     /// Multilingual eerst, dan alle talen van Whisper alfabetisch (typ in het open menu de eerste letter).
     /// Gelijk aan src/hint_meet/languages.py.
     static let languages: [(code: String, name: String)] = [
@@ -148,6 +150,7 @@ final class Settings: ObservableObject {
         hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
         confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5
         phoneEnabled = d.bool(forKey: "phoneEnabled")
+        phoneWake = d.object(forKey: "phoneWake") as? Bool ?? true
     }
 
     /// Voor de lopende meeting (zie "sensitivity" in src/hint_meet/server.py).
