@@ -21,7 +21,8 @@ import kotlinx.coroutines.delay
 /** Bovenbalk tijdens de meeting: REC met de tijd, verbinding met de Mac, en wat de Mac doet.
  *  De gezondheid van de opname (Task 11) komt er later bij. */
 @Composable
-fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, modifier: Modifier = Modifier) {
+fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, stopping: Boolean = false,
+              modifier: Modifier = Modifier) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -31,8 +32,8 @@ fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, modifier:
     }
     Row(modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("● REC " + (startedAtMs?.let { elapsed(now - it) } ?: "--:--"), color = Color(0xFFE53935),
-             style = MaterialTheme.typography.titleMedium)
+        Text((if (stopping) "■ Stopping " else "● REC ") + (startedAtMs?.let { elapsed(now - it) } ?: "--:--"),
+             color = if (stopping) Color(0xFF9E9E9E) else Color(0xFFE53935), style = MaterialTheme.typography.titleMedium)
         ConnectionDot(connected)
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1,
                            color = MaterialTheme.colorScheme.onSurfaceVariant) }

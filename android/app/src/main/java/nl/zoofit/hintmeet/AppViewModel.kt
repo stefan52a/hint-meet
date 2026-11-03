@@ -141,12 +141,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun feedback(id: Int, rating: Int) {
+        if (meeting.value.ratings.containsKey(id)) return
         val msg = buildJsonObject {
             put("type", "feedback")
             put("id", id)
             put("rating", rating)
         }
-        client.value?.sendText(msg.toString())
+        if (client.value?.sendText(msg.toString()) == true) meeting.update { nl.zoofit.hintmeet.protocol.rate(it, id, rating) }
     }
 
     /** Na het verslag: terug naar het startscherm. */

@@ -35,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import nl.zoofit.hintmeet.protocol.MeetingUi
@@ -62,7 +64,7 @@ fun MeetingScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var confirmStop by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        StatusBar(connected, startedAtMs, meeting.status)
+        StatusBar(connected, startedAtMs, meeting.status, stopping = meeting.phase == Phase.STOPPING)
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hints") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
@@ -98,7 +100,7 @@ private fun Hints(meeting: MeetingUi, feedback: (Int, Int) -> Unit) {
         }
         return
     }
-    val pager = rememberPagerState { hints.size }
+    val pager = rememberPagerState(initialPage = hints.size - 1) { hints.size }   // openen bij de nieuwste
     val scope = rememberCoroutineScope()
     var lastCount by remember { mutableIntStateOf(hints.size) }
     // een nieuwe hint: alleen meespringen als je al bij de nieuwste was (terugbladeren wordt niet onderbroken)
@@ -107,23 +109,31 @@ private fun Hints(meeting: MeetingUi, feedback: (Int, Int) -> Unit) {
         lastCount = hints.size
     }
     Column(Modifier.fillMaxSize()) {
-        HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page -> HintCard(hints[page], feedback) }
+        HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
+            HintCard(hints[page], meeting.ratings[hints[page].id] ?: 0, feedback)
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
-                       enabled = pager.currentPage > 0) { Text("◀") }
+                       enabled = pager.currentPage > 0,
+                       modifier = Modifier.semantics { contentDescription = "Previous hint" }) { Text("◀") }
             Text("${pager.currentPage + 1} / ${hints.size}", Modifier.weight(1f),
                  style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             TextButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
-                       enabled = pager.currentPage < hints.size - 1) { Text("▶") }
+                       enabled = pager.currentPage < hints.size - 1,
+                       modifier = Modifier.semantics { contentDescription = "Next hint" }) { Text("▶") }
         }
     }
 }
 
 @Composable
 private fun Transcript(meeting: MeetingUi) {
-    val list = rememberLazyListState()
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (meeting.transcript.size - 1).coerceAtLeast(0))
+    var lastSize by remember { mutableIntStateOf(meeting.transcript.size) }
+    // alleen meelopen als je onderaan stond: wie terugleest, wordt niet weggetrokken
     LaunchedEffect(meeting.transcript.size) {
-        if (meeting.transcript.isNotEmpty()) list.animateScrollToItem(meeting.transcript.size - 1)
+        val atBottom = (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) >= lastSize - 2
+        if (meeting.transcript.isNotEmpty() && atBottom) list.animateScrollToItem(meeting.transcript.size - 1)
+        lastSize = meeting.transcript.size
     }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         items(meeting.transcript, key = { it.id }) { line ->

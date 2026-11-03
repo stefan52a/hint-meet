@@ -49,6 +49,9 @@ fun ReportScreen(meeting: MeetingUi, done: () -> Unit) {
                 meeting.stoppedBy == StoppedBy.UNEXPECTED ->
                     Text("No report: the pipeline on the Mac ended before it could write one. The transcript up to "
                          + "that moment is on the Mac in logs/.", style = MaterialTheme.typography.bodyLarge)
+                meeting.pipelineDone -> Text("No report for this meeting (turned off on the Mac, too short, or "
+                                             + "writing it failed). The transcript is on the Mac in logs/.",
+                                             style = MaterialTheme.typography.bodyLarge)
                 else -> Text("Writing the report…", style = MaterialTheme.typography.bodyLarge)
             }
         }

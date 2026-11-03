@@ -17,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,8 +26,7 @@ import nl.zoofit.hintmeet.protocol.HintUi
 
 /** Eén hint, groot genoeg om van 60 cm te lezen met de telefoon plat op tafel. */
 @Composable
-fun HintCard(hint: HintUi, feedback: (Int, Int) -> Unit, modifier: Modifier = Modifier) {
-    var rated by remember(hint.id) { mutableStateOf(0) }
+fun HintCard(hint: HintUi, rated: Int, feedback: (Int, Int) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp).verticalScroll(rememberScrollState()),
            verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -44,10 +45,12 @@ fun HintCard(hint: HintUi, feedback: (Int, Int) -> Unit, modifier: Modifier = Mo
         }
         if (hint.final && !hint.struck) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { rated = 1; feedback(hint.id, 1) }, enabled = rated == 0) {
+                OutlinedButton(onClick = { feedback(hint.id, 1) }, enabled = rated == 0,
+                               modifier = Modifier.semantics { contentDescription = "Useful hint" }) {
                     Text(if (rated == 1) "👍 thanks" else "👍")
                 }
-                OutlinedButton(onClick = { rated = -1; feedback(hint.id, -1) }, enabled = rated == 0) {
+                OutlinedButton(onClick = { feedback(hint.id, -1) }, enabled = rated == 0,
+                               modifier = Modifier.semantics { contentDescription = "Not useful" }) {
                     Text(if (rated == -1) "👎 noted" else "👎")
                 }
             }

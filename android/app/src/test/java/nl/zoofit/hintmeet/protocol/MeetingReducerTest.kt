@@ -99,6 +99,19 @@ class MeetingReducerTest {
         assertEquals(StoppedBy.MAC, ui.stoppedBy)
     }
 
+    @Test fun endWithoutReportIsFinal() {
+        var ui = reduce(running(), parse("""{"type":"stopped"}"""))
+        assertEquals(false, ui.pipelineDone)                      // verslag kan nog komen
+        ui = reduce(ui, state("idle", null, """{"meeting":"00000000000000aa","stopped_by":"user","report_md":null}"""))
+        assertTrue(ui.pipelineDone)
+        assertNull(ui.report)
+    }
+
+    @Test fun ratingIsRememberedPerHint() {
+        val ui = rate(running(), 5, 1)
+        assertEquals(1, ui.ratings[5])
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))

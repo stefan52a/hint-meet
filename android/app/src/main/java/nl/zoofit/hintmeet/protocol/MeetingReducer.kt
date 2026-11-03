@@ -22,7 +22,13 @@ data class MeetingUi(
     val stoppedBy: StoppedBy? = null,
     val progress: ProgressUi? = null,
     val localStopSent: Boolean = false,
+    /** De pijplijn op de Mac is klaar (state idle met resultaat): komt er geen verslag meer, dan ook niet later. */
+    val pipelineDone: Boolean = false,
+    /** 👍 = 1, 👎 = -1 per hint-id: één keer per hint, ook na wisselen van tab. */
+    val ratings: Map<Int, Int> = emptyMap(),
 )
+
+fun rate(ui: MeetingUi, id: Int, rating: Int): MeetingUi = ui.copy(ratings = ui.ratings + (id to rating))
 
 /** De telefoon stuurde zelf Stop: een "stopped" daarna is dus geen stop vanaf de Mac. */
 fun markStopSent(ui: MeetingUi): MeetingUi = ui.copy(localStopSent = true, phase = Phase.STOPPING)
@@ -76,6 +82,7 @@ private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {
             when {
                 last != null && (ui.meeting == null || ui.meeting == last.meeting) -> ui.copy(
                     phase = Phase.ENDED,
+                    pipelineDone = true,
                     meeting = last.meeting,
                     report = last.reportMd ?: ui.report,
                     stoppedBy = when {
@@ -84,7 +91,7 @@ private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {
                         // alleen een live "stopped" zonder eigen Stop zegt "op de Mac"; na een herstart weten we het niet
                         else -> ui.stoppedBy?.takeIf { it != StoppedBy.UNEXPECTED }
                     })
-                ui.phase in active -> ui.copy(phase = Phase.ENDED, stoppedBy = StoppedBy.UNEXPECTED)
+                ui.phase in active -> ui.copy(phase = Phase.ENDED, stoppedBy = StoppedBy.UNEXPECTED, pipelineDone = true)
                 else -> ui
             }
         }
