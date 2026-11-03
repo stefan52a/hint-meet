@@ -6,6 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### Android companion app
 
+- **The app asks for the microphone only once:** Start only asks for permissions that are still missing, and refusing notifications no longer gets in the way. Choose *While using the app* in the dialog (with *Only this time* Android asks again every meeting).
 - **Record a meeting with your phone while the Mac at home does the work:** the new HintMeet app for Android (in `android/`, install it yourself, see the README) pairs with the QR code from *Settings → Phone*, starts the meeting on the Mac, records with the phone's microphone (also with the screen off) and shows the hints large enough to read with the phone flat on the table. The transcript is in a second tab; the report appears on the phone when the meeting ends and can be shared. If the connection drops, the phone keeps recording and sends the missed audio when it's back (up to 10 minutes); those minutes appear in the transcript without hints. A red banner warns when the connection is gone for more than 30 seconds, the Mac falls more than a minute behind, the battery is low, the Mac stopped unexpectedly or the microphone hears nothing. Stop waits for the last seconds of audio. Closed by accident? Reopen it and it continues with the same meeting.
 
 ### App

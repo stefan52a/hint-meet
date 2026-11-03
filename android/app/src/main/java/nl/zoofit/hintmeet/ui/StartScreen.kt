@@ -1,6 +1,9 @@
 package nl.zoofit.hintmeet.ui
 
 import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,10 +68,12 @@ fun StartScreen(
     var language by rememberSaveable { mutableStateOf("nl") }
     var info by rememberSaveable { mutableStateOf("") }
     var languageMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     var micRefused by remember { mutableStateOf(false) }
     // microfoon (en meldingen voor de opname) pas vragen bij Start: dan is duidelijk waarvoor
     val askPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.RECORD_AUDIO] == true) {
+        // meldingen weigeren mag; alleen de microfoon is nodig (die kan al eerder gegeven zijn)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             micRefused = false
             start(chosen, language, info.trim())
         } else micRefused = true
@@ -110,11 +115,13 @@ fun StartScreen(
                           singleLine = true, modifier = Modifier.fillMaxWidth())
 
         Button(onClick = {
-                   val wanted = buildList {
+                   // alleen vragen wat nog ontbreekt: wie "While using the app" koos, krijgt geen dialoog meer
+                   val missing = buildList {
                        add(Manifest.permission.RECORD_AUDIO)
                        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-                   }
-                   askPermissions.launch(wanted.toTypedArray())
+                   }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+                   if (missing.isEmpty()) start(chosen, language, info.trim())
+                   else askPermissions.launch(missing.toTypedArray())
                },
                enabled = connected && chosen.isNotEmpty() && !busy && !starting,
                modifier = Modifier.fillMaxWidth()) { Text(if (starting) "Starting…" else "Start Meeting") }
