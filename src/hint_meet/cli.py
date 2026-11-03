@@ -534,6 +534,34 @@ def mic_label(me: str | None, system: str | None) -> str:
     return me or ("Stefan" if system else "Unknown")
 
 
+STOP_DRAIN_S = 60.0   # zo lang wacht Stop op de laatste audio van de telefoon
+
+
+def handle_stop(msg: dict, session, phone, budget_s: float = STOP_DRAIN_S) -> None:
+    """Stop uit de app of van de telefoon. Met final_offset (de telefoon) eerst wachten tot alle audio binnen is
+    én uit de wachtrij gehaald: run() stopt zonder de wachtrij leeg te maken, dus te vroeg stoppen kost de laatste
+    seconden. Zonder final_offset (overlay of menu op de Mac) meteen stoppen. Blokkeert: roep aan in een draad."""
+    final = msg.get("final_offset")
+    if phone is not None and isinstance(final, int) and not isinstance(final, bool) and final > 0:
+        end = time.monotonic() + budget_s
+        if not phone.wait_acked(final, budget_s):
+            print(f"Stop: niet alle audio van de telefoon kwam binnen ({phone.stream.acked} van {final} samples)",
+                  file=sys.stderr)
+        while session.heard_s * 16000 < min(final, phone.stream.acked) and time.monotonic() < end:
+            time.sleep(0.05)
+    session.stop()
+
+
+def phone_meta(phone, watchdog: bool | None = None) -> dict:
+    """Wat er over de telefoon in de meta komt; watchdog=None: nog bezig (nog geen reden)."""
+    if phone is None:
+        return {}
+    out = {"phone_meeting": phone.meeting_hex}
+    if watchdog is not None:
+        out["stopped_by"] = "watchdog" if watchdog else "user"
+    return out
+
+
 def live_cmd(a) -> int:
     import shutil
     import statistics
@@ -581,7 +609,12 @@ def live_cmd(a) -> int:
             if msg.get("type") == "feedback" and msg.get("session") in (None, hub.session):
                 feedback.record(msg.get("id"), msg.get("rating"))
             elif msg.get("type") == "stop":
-                stop_requested.set()
+                live, ph = pipeline_ref.get("session"), pipeline_ref.get("phone")
+                if live is not None and ph is not None and "final_offset" in msg:   # telefoon: eerst leeglopen
+                    threading.Thread(target=handle_stop, args=(msg, live, ph), daemon=True,
+                                     name="hint-meet-stop-drain").start()
+                else:
+                    stop_requested.set()
             elif msg.get("type") == "rename" and msg.get("session") in (None, hub.session):   # niet uit een oude meeting
                 live = pipeline_ref.get("session")
                 old, new = str(msg.get("from", "")), str(msg.get("to", ""))
@@ -679,6 +712,7 @@ def live_cmd(a) -> int:
         return 2
     pipeline_ref["reranker"] = pipeline.reranker
     pipeline_ref["pipeline"] = pipeline
+    phone = None
     if a.wav:
         try:
             wav = WavSource(Path(a.wav), a.channels.split(","), a.speed)
@@ -698,6 +732,7 @@ def live_cmd(a) -> int:
             print(e, file=sys.stderr)
             return 2
         sources, until = [phone], (lambda: phone.finished)
+        pipeline_ref["phone"] = phone
     else:
         sources = [DeviceSource(a.mic, mic_label(a.me, a.system))]
         if a.system:
@@ -775,7 +810,7 @@ def live_cmd(a) -> int:
     from .summary import save_meta
     meta = {"project": "+".join(r.name for r in roots), "info": a.info, "language": lang["code"],
             "started": started, "report_dir": str((Path("logs") if a.wav else roots[0]).resolve()),
-            "summary": not a.no_summary, "hints": shown_hints, "report": None}
+            "summary": not a.no_summary, "hints": shown_hints, "report": None, **phone_meta(phone)}
 
     meta_lock = threading.Lock()   # pijplijndraad (hints) en het einde (verslag): de laatste stand wint altijd
 
@@ -803,11 +838,26 @@ def live_cmd(a) -> int:
                           transcript_path=out, recorder=recorder)
     pipeline_ref["session"] = session
     threading.Thread(target=lambda: (stop_requested.wait(), session.stop()), daemon=True).start()
+    if hub and phone is not None:   # de telefoon ziet hoe ver het transcript is en of er audio kwijt is
+        def report_progress():
+            lost = 0.0
+            while not session.finished and not session.stop_flag.wait(5.0):
+                hub.send(type="progress", heard_s=round(session.heard_s, 1), processed_s=round(session.processed_s, 1))
+                if phone.stream.lost_s >= lost + 0.5:
+                    lost = phone.stream.lost_s
+                    status(f"Audio from the phone lost: {lost:.0f} s")
+        threading.Thread(target=report_progress, daemon=True, name="hint-meet-progress").start()
     status("Listening…")
     try:
         if session.run(until=until):
             print("\nGestopt.")
     finally:
+        if phone is not None:
+            watchdog = phone.finished and not session.stop_flag.is_set()
+            if watchdog:
+                print("Gestopt: 30 minuten geen audio van de telefoon.", file=sys.stderr)
+            meta.update(phone_meta(phone, watchdog))
+            save_progress()
         status("Saving transcript…")  # de app toont tijdens het afsluiten waar de pijplijn is
         session.save_transcript(out)  # ook bij een fout: wat er gezegd is, blijft bewaard
         pipeline.close()

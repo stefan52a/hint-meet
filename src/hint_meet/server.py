@@ -137,7 +137,7 @@ class Hub:
             else:
                 kind = msg.get("type")
                 self._count += 1
-                key = (kind, msg.get("id")) if kind in REPLACES else (kind,) if kind == "status" else self._count
+                key = (kind, msg.get("id")) if kind in REPLACES else (kind,) if kind in ("status", "progress") else self._count
                 self._backlog.pop(key, None)   # een hint in wording: alleen zijn laatste stand
                 self._backlog[key] = data
                 if len(self._backlog) > MAX_BACKLOG:

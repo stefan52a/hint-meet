@@ -65,19 +65,20 @@ class PhoneStream:
         if offset / RATE_HZ > (self._clock() - self.mono_base) + MAX_AHEAD_S:
             raise FrameError("offset too far ahead")
 
-        self.last_frame_at = self._clock()
         pcm = np.frombuffer(body, dtype="<i2")
         blocks: list[Block] = []
         if offset > self.acked:                       # gat: stilte invullen
             gap = offset - self.acked
             blocks.append(self._block(np.zeros(gap, dtype=np.float32), self.acked))
-            self.lost_s += gap / RATE_HZ
+            if self.last_frame_at is not None:        # vóór het eerste frame: de telefoon begon later, niets kwijt
+                self.lost_s += gap / RATE_HZ
             self.acked = offset
         skip = self.acked - offset                    # al binnen: wegknippen
         if skip < n:
             samples = (pcm[skip:] / 32768.0).astype(np.float32)
             blocks.append(self._block(samples, self.acked))
             self.acked += len(samples)
+        self.last_frame_at = self._clock()
         return blocks
 
     def timed_out(self, now: float | None = None) -> bool:

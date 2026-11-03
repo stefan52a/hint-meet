@@ -201,3 +201,102 @@ def test_ready_comes_before_any_ack(source):
         for _ in range(5):                      # reconnects terwijl de ack-draad elke seconde stuurt
             with connect(url(src)) as b:
                 assert json.loads(b.recv(timeout=2))["type"] == "audio_ready"
+
+
+def test_gap_before_first_frame_is_not_lost():
+    s = PhoneStream(meeting=7)
+    blocks = s.accept(encode_frame(7, 0, 8000, tone(1600)))    # telefoon begon een halve seconde later
+    assert sum(len(b.samples) for b in blocks) == 8000 + 1600   # wel opgevuld: de tijdlijn klopt
+    assert s.lost_s == 0
+
+
+# --- Stop: leeglopen, watchdog, meta (Task 3) ---
+
+from hint_meet.cli import handle_stop, phone_meta  # noqa: E402
+from hint_meet.live import LiveSession  # noqa: E402
+
+
+class FakeSession:
+    def __init__(self, log, heard_s=10.0):
+        self.log, self.heard_s = log, heard_s
+
+    def stop(self):
+        self.log.append("stop")
+
+
+class FakePhone:
+    def __init__(self, log, acked=10 ** 9):
+        self.log = log
+        self.stream = type("S", (), {"acked": acked})()
+
+    def wait_acked(self, offset, timeout):
+        self.log.append(("wait_acked", offset, timeout))
+        return True
+
+
+def test_stop_waits_for_final_offset_then_stops():
+    log = []
+    handle_stop({"type": "stop", "final_offset": 32000}, FakeSession(log), FakePhone(log))
+    assert log == [("wait_acked", 32000, 60.0), "stop"]
+
+
+@pytest.mark.parametrize("msg", [{"type": "stop"}, {"type": "stop", "final_offset": "x"},
+                                 {"type": "stop", "final_offset": True}])
+def test_stop_without_usable_final_offset_stops_at_once(msg):
+    log = []
+    handle_stop(msg, FakeSession(log), FakePhone(log))
+    assert log == ["stop"]
+
+
+def test_stop_drain_is_bounded():
+    log = []
+    t = time.monotonic()
+    handle_stop({"final_offset": 32000}, FakeSession(log, heard_s=0.0), FakePhone(log), budget_s=0.3)
+    assert log[-1] == "stop" and time.monotonic() - t < 1.0
+
+
+def test_phone_meta_records_who_stopped():
+    src = PhoneSource(meeting=0xAA, port=0, token=TOKEN)
+    assert phone_meta(None) == {}
+    assert phone_meta(src) == {"phone_meeting": "00000000000000aa"}
+    assert phone_meta(src, watchdog=True)["stopped_by"] == "watchdog"
+    assert phone_meta(src, watchdog=False)["stopped_by"] == "user"
+
+
+def demo_speech(seconds):
+    from pathlib import Path
+    from hint_meet.audio import read_wav
+    wav = Path(__file__).resolve().parent.parent / "examples" / "demo-meeting.wav"
+    if not wav.exists():
+        pytest.skip("examples/demo-meeting.wav ontbreekt (examples/make_demo_audio.py)")
+    pcm = (np.clip(read_wav(wav).mean(axis=1), -1, 1) * 32767).astype(np.int16)
+    return pcm[:int(16000 * seconds)]
+
+
+def test_stop_keeps_the_last_seconds():
+    seen = []
+
+    def transcriber(audio, channel=None):
+        seen.append(len(audio))
+        return ("woorden", 1.0)
+
+    src = PhoneSource(meeting=7, port=free_port(), token=TOKEN)
+    session = LiveSession([src], transcriber, pipeline=None)
+    session._advise = lambda *a, **k: None          # geen pijplijn nodig
+    pcm = demo_speech(3.0)
+    import threading
+    runner = threading.Thread(target=session.run)
+    runner.start()
+    try:
+        time.sleep(0.5)                              # server luistert
+        with connect(url(src)) as ws:
+            ws.recv(timeout=2)
+            for i in range(0, len(pcm), 1600):       # alles in één keer, sneller dan echte tijd
+                ws.send(encode_frame(7, i // 1600, i, pcm[i:i + 1600]))
+            handle_stop({"type": "stop", "final_offset": len(pcm)}, session, src)
+    finally:
+        session.stop()
+        runner.join(timeout=30)
+    assert session.heard_s * 16000 >= len(pcm)       # niets uit de wachtrij laten liggen
+    assert session.processed_s * 16000 >= len(pcm)
+    assert seen, "de laatste uitspraak werd niet meer herkend"

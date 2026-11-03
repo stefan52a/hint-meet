@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-11-03
+
+### Command line
+
+- **The pipeline can take audio from a phone** (groundwork for the coming Android companion): `hint-meet live --phone-port PORT --phone-meeting ID` listens on localhost instead of the microphone. Audio that arrives late after a dropout lands at the right moment in the transcript, without hints. *Stop* from the phone waits up to a minute for its last seconds of audio, so the end of the conversation isn't cut off. With no audio from the phone for 30 minutes, the meeting stops by itself and the report is still written; the meeting info records whether you or the timeout stopped it. Try it without a phone with `tools/phone_client.py`.
+
 ## 2026-11-02
 
 ### App
