@@ -139,7 +139,11 @@ class PhoneSource:
             print("Telefoon geweigerd (verkeerde sleutel of browser)", file=sys.stderr)
             ws.close(code=1008, reason="geen toegang")
             return
+        self._send(ws, type="audio_ready")   # eerst ready, pas daarna ziet de ack-draad deze verbinding
         with self.lock:
+            if self._stopped.is_set():       # stop() liep al: niet meer aannemen
+                ws.close(code=1001, reason="meeting gestopt")
+                return
             old, self._ws = self._ws, ws
         if old is not None:
             try:
@@ -147,7 +151,6 @@ class PhoneSource:
             except Exception:  # noqa: BLE001
                 pass
         print("Telefoon verbonden", file=sys.stderr)
-        self._send(ws, type="audio_ready")
         try:
             for raw in ws:
                 if not isinstance(raw, bytes):
@@ -198,8 +201,8 @@ class PhoneSource:
             time.sleep(0.01)
 
     def stop(self):
-        self._stopped.set()
         with self.lock:
+            self._stopped.set()
             ws, self._ws = self._ws, None
         if ws is not None:
             try:

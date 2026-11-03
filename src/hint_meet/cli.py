@@ -1,6 +1,7 @@
 """Entrypoint: hint-meet live | replay <opname.wav>"""
 import argparse
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -689,7 +690,7 @@ def live_cmd(a) -> int:
         try:
             if a.phone_port is None or not a.phone_meeting:
                 raise ValueError("--phone-port en --phone-meeting horen bij elkaar")
-            if len(a.phone_meeting) != 16:
+            if not re.fullmatch(r"[0-9a-f]{16}", a.phone_meeting):
                 raise ValueError("--phone-meeting moet 16 hex-tekens zijn")
             phone = PhoneSource(int(a.phone_meeting, 16), a.phone_port, load_or_create_token(),
                                 a.me or "Unknown")

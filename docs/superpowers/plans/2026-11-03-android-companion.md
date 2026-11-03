@@ -249,7 +249,7 @@ git commit -m "Pipeline: phone audio source on localhost, live --phone-port/--ph
   - Hub message `progress` every 5 s while running (see the wire protocol)
   - `stop` with `final_offset`: a thread calls `phone.wait_acked(final_offset, 60)`, then waits (within the same 60 s budget) until `session.heard_s * 16000 >= final_offset`, and only then `session.stop()`. The run loop exits on `stop_flag` without draining its queue, so stopping right after the ack would drop the last blocks. `stop` without `final_offset` stops immediately (Mac overlay, unchanged)
   - meta JSON gets `"phone_meeting": HEX` and `"stopped_by": "user" | "watchdog"`
-  - when `lost_s` grows, a hub `status` message: `"Audio from the phone lost: N s"`
+  - when `lost_s` grows, a hub `status` message: `"Audio from the phone lost: N s"`. The silence that fills the gap before the phone's *first* frame (offset 0 is fixed when `PhoneSource` is built, the phone starts a moment later via `OffsetClock`) is not lost audio: keep it out of `lost_s` (found in the Task 2 smoke test)
 
 - [ ] **Step 1: Write the failing tests**
 

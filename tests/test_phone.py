@@ -177,3 +177,17 @@ def test_finished_follows_watchdog(source):
     assert not src.finished
     src.stream.last_frame_at = time.monotonic() - 2000
     assert src.finished
+
+
+def test_connection_after_stop_is_refused():
+    src = PhoneSource(meeting=7, port=free_port(), token=TOKEN)
+    src.start(queue.Queue())
+    with src.lock:
+        src._stopped.set()          # stop() is bezig, de server nog niet dicht
+    with connect(url(src)) as ws:
+        assert json.loads(ws.recv(timeout=2))["type"] == "audio_ready"
+        with pytest.raises(Exception) as e:
+            ws.recv(timeout=2)
+        assert e.value.rcvd.code == 1001
+    assert src._ws is None
+    src.stop()
