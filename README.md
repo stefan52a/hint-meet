@@ -36,7 +36,21 @@ Speech recognition (Whisper via MLX), the knowledge base and search run locally.
 
 Conversations can be in any of the 100 languages Whisper knows (Dutch, English, German, French, Spanish, Chinese, …), or multilingual (language recognized per speaker). Hints and the report follow the language of the conversation.
 
-> Status: working prototype (Python pipeline + macOS app). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
+> Status: working prototype (Python pipeline + macOS app + Android companion). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
+
+## Quick install
+
+On a Mac with Apple Silicon, Python 3.11+, the Xcode Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh):
+
+```bash
+git clone git@github.com:stefan52a/hint-meet.git && cd hint-meet
+python3 -m venv .venv && .venv/bin/pip install -e ".[kb-prep]"
+brew install tesseract tesseract-lang ffmpeg          # OCR of scans, MP3 of the meeting audio
+app/make-signing-cert.sh                              # once: macOS then keeps the microphone permission
+app/build-app.sh                                      # builds HintMeet.app and installs it in ~/Applications
+```
+
+Open HintMeet (Spotlight), put your Claude and Jev keys in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
 
 ## How it works
 
@@ -59,6 +73,15 @@ rerank.py       Jev per passage: relevant? (Noul) · instructions to an AI? (Nou
 advise.py       Claude, 1 to 4 short bullet points with source  ──►  server.py  ──►  HintMeet.app (overlay)
 ```
 
+With the phone companion the microphone is on the phone and the rest stays the same:
+
+```
+Android app ── audio (PCM 16 kHz) + start/stop ──► Tailscale ──► Gateway.swift in HintMeet.app (port 8790)
+     ▲                                                                 │
+     │                                                   audio ──► phone.py (port 8865) ──► live.py …
+     └──────────── hints, transcript, report ◄──────────── server.py (port 8765)
+```
+
 Speech recognition and the pipeline run on separate threads, so the transcript stays live while Claude writes a hint. Every API call has a short timeout (`timeout_s` in `config/gate.yaml`: 3 s for Jev, 15 s for advice, one retry); a call that fails or takes too long costs that one hint, not the meeting. Measured on the 4.5-minute test conversation: from the end of an utterance to the first words of a hint takes a median of 1.9 s, of which about 1 s is Claude.
 
 Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a probability in a fraction of a second, so the LLM only runs when there is really something to say. Background and sources are in [docs/meeting-copilot-jev-conversation.md](docs/meeting-copilot-jev-conversation.md); the development plan and milestones are in [docs/plan-prototype-to-mac-app.md](docs/plan-prototype-to-mac-app.md).
@@ -68,15 +91,16 @@ Why a gate: an LLM call every few seconds is expensive and slow. Jev returns a p
 ```
 hint-meet/
 ├── README.md
-├── CHANGELOG.md
-├── pyproject.toml
-├── .env.example            API keys, KB_ROOT + KB_PROJECT
+├── CHANGELOG.md            what changes for the user, per day
+├── pyproject.toml          Python package hint-meet (+ extras kb-prep, dev)
+├── .env.example            API keys, KB_ROOT + KB_PROJECT (for the command line; the app uses the Keychain)
 ├── config/
-│   └── gate.yaml           gatekeeper (jev or claude), thresholds and advice settings
-├── src/hint_meet/
+│   └── gate.yaml           gatekeeper (jev or claude), thresholds, advice and confirm settings
+├── src/hint_meet/          the pipeline (Python)
 │   ├── cli.py              hint-meet live | prepare | index | search | voice | replay | calibrate | eval-kb
 │   ├── audio.py            Whisper (MLX), voice activity detection, KB terms as a vocabulary hint
 │   ├── live.py             live session: audio sources, utterances, pipeline per utterance, renaming
+│   ├── phone.py            audio from the phone: frames, resend, gap filling, watchdog (localhost socket)
 │   ├── speakers.py         who says what: voice prints, recorded voices, Speaker 1, 2, …
 │   ├── gate.py             Jev decision layer
 │   ├── rerank.py           Jev reranker: relevance and prompt-injection check per passage
@@ -84,22 +108,40 @@ hint-meet/
 │   ├── advise.py           advice via Claude
 │   ├── confirm.py          left column: what the documents back or say about the topic (Claude Haiku)
 │   ├── pipeline.py         search → gate (+ reranker) → advice per utterance; confirmations; sensitivity
-│   ├── server.py           local WebSocket server for the app, feedback log
+│   ├── server.py           local WebSocket server for the app (port 8765), feedback log
 │   ├── summary.py          report with action items after the meeting
+│   ├── survive.py          the meeting keeps running if the app is force-quit
 │   └── replay.py           calibration on recordings, logs to CSV
-├── app/
-│   ├── build-app.sh        builds HintMeet.app and installs it in ~/Applications
+├── app/                    the Mac app
+│   ├── build-app.sh        builds HintMeet.app, signs it and installs it in ~/Applications
+│   ├── make-signing-cert.sh  once: a local signing certificate, so macOS keeps permissions across builds
 │   ├── make-icon.swift     draws the app icon
-│   └── HintMeet/           SwiftUI app (panel with columns, menus, settings, voice, Convert Documents)
+│   └── HintMeet/           Swift package
+│       ├── Sources/HintMeet/       SwiftUI app: panel with columns, menus, settings, voice, Convert Documents,
+│       │                           Gateway.swift (phone companion), PhoneSettingsView.swift (pairing QR)
+│       ├── Sources/HintMeetCore/   the gateway's protocol logic, without UI or sockets
+│       └── Sources/GatewayChecks/  `swift run GatewayChecks`: checks on HintMeetCore
+├── android/                the phone companion (Kotlin, Jetpack Compose)
+│   ├── gradle/             versions (libs.versions.toml), JDK 21 for the build (gradle-daemon-jvm.properties)
+│   └── app/src/main/java/nl/zoofit/hintmeet/
+│       ├── protocol/       wire format: audio frames, messages from the Mac, meeting state (reducer)
+│       ├── net/            WebSocket to the gateway with reconnect
+│       ├── pairing/        QR pairing, stored encrypted
+│       ├── audio/          recording service, resend buffer, offsets on the Mac's clock
+│       ├── health/         alarms (connection, buffer, battery, Mac stopped, …)
+│       ├── session/        one session per process: connection, meeting, recording
+│       └── ui/             start, meeting (Hints / Backed / Transcript), report
 ├── tools/
 │   ├── kb_prep.py          KB folder (docx, xlsx, pptx, pdf, …) → Markdown
+│   ├── phone_client.py     plays a recording like the phone does (directly, or via the gateway)
 │   └── requirements-kb_prep.txt
 ├── docs/
 │   ├── meeting-copilot-jev-conversation.md
 │   ├── plan-prototype-to-mac-app.md
+│   ├── superpowers/        design and plan of the Android companion
 │   ├── example-report.md
 │   └── images/
-└── tests/
+└── tests/                  pytest; Android unit tests are under android/app/src/test
 ```
 
 ## Tests
@@ -109,6 +151,7 @@ pip install -e ".[kb-prep,dev]"
 pytest                      # fast tests
 pytest -m slow              # with the real speech model (minutes)
 cd app/HintMeet && swift run GatewayChecks   # the app's phone gateway logic (no Xcode needed)
+cd android && ./gradlew testDebugUnitTest    # the Android app's logic (protocol, buffer, alarms, pairing)
 ```
 
 ## Installation
@@ -121,6 +164,24 @@ pip install -e ".[kb-prep]"
 brew install tesseract tesseract-lang   # for OCR of scanned PDFs
 cp .env.example .env        # fill in keys and paths
 ```
+
+## Deployment
+
+HintMeet is a single-user setup: the app runs from this repository on your own Mac, the Android app is installed by hand. There is no App Store, Play Store or server.
+
+**The Mac app.** `app/build-app.sh` builds `app/build/HintMeet.app`, signs it and copies it to `~/Applications`. The app remembers where this repository is (written into the app at build time) and starts the pipeline from `.venv` here; build again after moving the repository, and always build from the main checkout, not from a git worktree. A running HintMeet keeps running; *Restart HintMeet* (⌘R) switches to the new build. Signing: with the certificate from `app/make-signing-cert.sh` (once) macOS recognizes the app across builds and asks for the microphone only once; without it the app is signed ad hoc and macOS asks again after every build. Developer ID signing and notarization aren't set up yet, so the app isn't meant to be handed to other Macs.
+
+**Where things are.** API keys: the Keychain (*Settings → API-keys*), or `.env` for the command line. Knowledge bases: `KB_ROOT` (default `~/KB_md/<project>`). Reports: `<KB>/meetings/`. Transcripts and meeting audio: `logs/` in this repository. Pipeline log: `~/Library/Logs/HintMeet/backend.log`.
+
+**The Android app.** Requires Android 10 or newer. Build and install with the phone connected over USB (USB debugging on):
+
+```bash
+cd android && ./gradlew installDebug
+```
+
+The build needs a JDK 21 on the Mac (any vendor); Gradle finds it by itself, also when your default `java` is newer. Without a cable: `./gradlew assembleDebug` and copy `android/app/build/outputs/apk/debug/app-debug.apk` to the phone. To update, install the new APK over the old one; the pairing stays. It's a debug build signed with the standard debug key, which is fine for a sideloaded app.
+
+**Connecting the phone.** Both devices in the same [Tailscale](https://tailscale.com) tailnet. In HintMeet: *Settings → Phone → Allow phone companion* (off by default), then scan the QR code with the app. HintMeet listens on the Mac's Tailscale address only, port 8790, and only lets in the phone with the key from the QR code; *New pairing…* replaces the key. During phone meetings keep the Mac on power with the lid open (HintMeet then keeps it awake). A two-hour meeting uses about 230 MB of mobile data.
 
 ## Preparing the knowledge base
 
