@@ -1,4 +1,4 @@
-// Tekent het app-icoon (gloeilamp op een rond vierkant, zelfde vormen als het Android-icoon) als iconset; build-app.sh maakt er AppIcon.icns van.
+// Tekent het app-icoon (gloeilamp met een stip eronder, als een uitroepteken, op een rond vierkant; zelfde vormen als het Android-icoon) als iconset; build-app.sh maakt er AppIcon.icns van.
 // Gebruik: swift make-icon.swift <uitvoer.iconset>
 import AppKit
 
@@ -35,10 +35,15 @@ func render(_ px: Int) -> Data {
     bulb.addArc(center: .zero, radius: 1, startAngle: 0, endAngle: .pi, clockwise: false,
                 transform: CGAffineTransform(translationX: 54, y: 77.2).scaledBy(x: 7, y: 4.8))
     bulb.closeSubpath()
+    // lamp iets kleiner en hoger, met een stip eronder: samen een uitroepteken (zoals het Android-icoon)
+    let shrink = CGAffineTransform(translationX: 54, y: 22).scaledBy(x: 0.8, y: 0.8).translatedBy(x: -54, y: -22)
+    let mark = CGMutablePath()
+    mark.addPath(bulb, transform: shrink)
+    mark.addEllipse(in: CGRect(x: 49.5, y: 74.5, width: 9, height: 9))
     let toTile = CGAffineTransform(translationX: tile.minX, y: tile.maxY)
         .scaledBy(x: tile.width / 108, y: -tile.height / 108)
     let ctx = NSGraphicsContext.current!.cgContext
-    ctx.addPath(bulb.copy(using: [toTile])!)
+    ctx.addPath(mark.copy(using: [toTile])!)
     ctx.setFillColor(NSColor(calibratedRed: 1, green: 0.84, blue: 0.25, alpha: 1).cgColor)
     ctx.fillPath()
     NSGraphicsContext.restoreGraphicsState()

@@ -6,12 +6,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- lamp iets kleiner en hoger, met een stip eronder: samen een uitroepteken -->
+    <group android:pivotX="54" android:pivotY="22" android:scaleX="0.8" android:scaleY="0.8">
+        <path android:fillColor="#FFFFD640"
+            android:pathData="M46,63.5 C46,57.5 38,53 38,41 A16,16 0 1,1 70,41 C70,53 62,57.5 62,63.5 Z" />
+        <path android:fillColor="#FFFFD640"
+            android:pathData="M46,66.8 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
+        <path android:fillColor="#FFFFD640"
+            android:pathData="M46,72 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
+        <path android:fillColor="#FFFFD640"
+            android:pathData="M47,77.2 h14 a7,4.8 0 0,1 -14,0 z" />
+    </group>
     <path android:fillColor="#FFFFD640"
-        android:pathData="M46,63.5 C46,57.5 38,53 38,41 A16,16 0 1,1 70,41 C70,53 62,57.5 62,63.5 Z" />
-    <path android:fillColor="#FFFFD640"
-        android:pathData="M46,66.8 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
-    <path android:fillColor="#FFFFD640"
-        android:pathData="M46,72 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
-    <path android:fillColor="#FFFFD640"
-        android:pathData="M47,77.2 h14 a7,4.8 0 0,1 -14,0 z" />
+        android:pathData="M49.5,79 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z" />
 </vector>
