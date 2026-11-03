@@ -69,12 +69,24 @@ final class OverlayPanel: NSPanel {
         isReleasedWhenClosed = false   // sluiten verbergt; Show Overlay, het Dock-icoon of 💡 haalt hem terug
         hasShadow = true
         contentView = content
+        // HintMeet actief via het Dock, ⌘-Tab of 💡 zonder eigen key-venster: het paneel wordt key, zodat de
+        // menubalk op het scherm van het paneel staat
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isVisible, NSApp.keyWindow == nil else { return }
+                self.makeKey()
+            }
+        }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: self,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.restoreFloating() }
         }
     }
-    override var canBecomeKey: Bool { acceptsKeyboard() }
+    /// Ook tijdens een meeting key zodra HintMeet zelf actief is (dan heeft de meeting-app het toetsenbord toch al
+    /// niet meer): macOS zet de menubalk van de actieve app op het scherm van het key-venster, dus zo staat het
+    /// HintMeet-menu boven het paneel en niet op een ander scherm.
+    override var canBecomeKey: Bool { acceptsKeyboard() || NSApp.isActive }
 
     /// Hoogte van de kopbalk (hint-meet · project) vanaf de bovenrand van het paneel.
     static let headerHeight: CGFloat = 70   // titelbalk plus de regel hint-meet · project
@@ -96,6 +108,7 @@ final class OverlayPanel: NSPanel {
             if acceptsKeyboard() || onHeader {
                 previousApp = NSWorkspace.shared.frontmostApplication
                 NSApp.activate(ignoringOtherApps: true)
+                makeKey()   // de menubalk naar het scherm van dit paneel
             }
         }
         super.sendEvent(event)

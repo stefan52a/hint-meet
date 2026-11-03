@@ -13,6 +13,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **The HintMeet menu bar shows on the screen with the HintMeet window:** with more than one screen, clicking the window's header (or switching to HintMeet via the Dock or ⌘-Tab) puts the HintMeet menus above the window instead of on another screen.
 - **Listen back to the meeting, in step with the transcript:** after a meeting there is a player under *Open Report* (▶/⏸, position, slider). While it plays, the line you're hearing lights up and the transcript scrolls along; click a line and the audio jumps there. Also for a recorded meeting (*Use a recorded meeting instead…*): then the recording itself plays.
 - **Save a Copy only when you ask:** HintMeet no longer offers to save a copy of the report by itself; the *Save a Copy…* button does that. The setting *When the report is ready, ask where to save a copy* is gone.
 - **No more Keychain questions when your keys are in `.env`:** HintMeet now uses the API keys from `.env` in the project folder first and only looks in the Keychain for a key that isn't there (before, the Keychain went first, and since the new signing macOS asked for permission per key). *Settings → API-keys* says "Using the key from .env" for those. The phone's key moved from the Keychain to `~/Library/Application Support/hint-meet/phone-token`; scan the QR code on the phone once more. A `phone-token` line in `.env` isn't needed.
