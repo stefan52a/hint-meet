@@ -204,26 +204,74 @@ final class Settings: ObservableObject {
         return session.devices.map(\.localizedName).sorted()
     }
 
-    /// Sleutel van de gekoppelde telefoon (Keychain, los van de ws-token van de overlay). Bestaat er nog geen,
-    /// dan maakt de eerste vraag er een.
-    static let phoneTokenAccount = "phone-token"
-    /// Leeg als de Keychain hem niet kan bewaren: dan komt geen enkele telefoon binnen en is er geen QR.
+    /// Sleutel van de gekoppelde telefoon, in een bestand naast ws-token (alleen voor jou leesbaar), niet in de
+    /// Keychain: zo vraagt macOS nergens om toestemming. Bestaat hij nog niet, dan maakt de eerste vraag er een.
+    static let phoneTokenURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/hint-meet/phone-token")
+
+    /// Leeg als het bestand niet te schrijven is: dan komt geen enkele telefoon binnen en is er geen QR.
     var phoneToken: String {
         if GatewayTestMode.active { return GatewayTestMode.phoneToken }
-        if let t = Keychain.get(Self.phoneTokenAccount), !t.isEmpty { return t }
+        if let t = try? String(contentsOf: Self.phoneTokenURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { return t }
         let t = PhoneAuth.newToken()
-        return Keychain.set(Self.phoneTokenAccount, t) ? t : ""
+        return Self.savePhoneToken(t) ? t : ""
     }
 
-    /// Nieuwe koppeling: de oude telefoon komt er niet meer in. nil als de Keychain hem niet bewaarde
-    /// (dan blijft de oude sleutel staan; Keychain.set werkt eerst bij, dus de oude gaat niet verloren).
+    /// Nieuwe koppeling: de oude telefoon komt er niet meer in. nil als het bestand niet geschreven kon worden
+    /// (dan blijft de oude sleutel staan).
     func renewPhoneToken() -> String? {
         if GatewayTestMode.active { return GatewayTestMode.phoneToken }
         let t = PhoneAuth.newToken()
-        return Keychain.set(Self.phoneTokenAccount, t) ? t : nil
+        return Self.savePhoneToken(t) ? t : nil
     }
 
-    func key(_ name: String) -> String { GatewayTestMode.active ? "" : Keychain.get(name) ?? "" }
+    private static func savePhoneToken(_ token: String) -> Bool {
+        let fm = FileManager.default
+        let dir = phoneTokenURL.deletingLastPathComponent()
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let tmp = dir.appendingPathComponent("phone-token.\(getpid()).tmp")
+            guard fm.createFile(atPath: tmp.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600])
+            else { return false }
+            if fm.fileExists(atPath: phoneTokenURL.path) {
+                _ = try fm.replaceItemAt(phoneTokenURL, withItemAt: tmp)   // in één keer, nooit half
+            } else {
+                try fm.moveItem(at: tmp, to: phoneTokenURL)                // replaceItemAt wil een bestaand doel
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Waarde uit de .env in de projectmap (zelfde bestand als de pijplijn leest), of nil.
+    func envFileValue(_ name: String) -> String? {
+        guard let text = try? String(contentsOfFile: repoPath + "/.env", encoding: .utf8) else { return nil }
+        for raw in text.split(whereSeparator: \.isNewline) {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#") || line.isEmpty { continue }
+            if line.hasPrefix("export ") { line = String(line.dropFirst(7)) }
+            guard let eq = line.firstIndex(of: "=") else { continue }
+            guard line[..<eq].trimmingCharacters(in: .whitespaces) == name else { continue }
+            var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, let q = value.first, q == "\"" || q == "'", value.last == q {
+                value = String(value.dropFirst().dropLast())
+            }
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    /// Een sleutel uit de .env gaat voor: dan blijft de Keychain dicht (geen toestemmingsvragen van macOS).
+    func key(_ name: String) -> String {
+        if let v = envFileValue(name) { return v }
+        return keychainKey(name)
+    }
+
+    /// Alleen wat in de Keychain staat (voor het veld in de instellingen).
+    func keychainKey(_ name: String) -> String { GatewayTestMode.active ? "" : Keychain.get(name) ?? "" }
+
     @discardableResult
     func setKey(_ name: String, _ value: String) -> Bool {
         Keychain.set(name, value.trimmingCharacters(in: .whitespacesAndNewlines))

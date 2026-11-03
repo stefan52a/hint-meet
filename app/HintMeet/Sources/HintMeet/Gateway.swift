@@ -141,6 +141,15 @@ final class Gateway: ObservableObject {
         setEnabled(settings.phoneEnabled)
     }
 
+    /// ~/Library/Logs/HintMeet/gateway.log: wie er geweigerd werd (om koppelproblemen te kunnen zien).
+    nonisolated static func log(_ text: String) {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/HintMeet/gateway.log")
+        let line = Data("\(ISO8601DateFormatter().string(from: Date())) \(text)\n".utf8)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(line); try? h.close() }
+        else { try? line.write(to: url) }
+    }
+
     // MARK: aan/uit en het adres
 
     func setEnabled(_ on: Bool) {
@@ -190,6 +199,7 @@ final class Gateway: ObservableObject {
             let ok = MainActor.assumeIsolated {
                 self.map { PhoneAuth.authorized(headers: headers, token: $0.settings.phoneToken) } ?? false
             }
+            if !ok { Gateway.log("handshake refused (wrong or missing key)") }
             return NWProtocolWebSocket.Response(status: ok ? .accept : .reject, subprotocol: nil)
         }
         let params = NWParameters.tcp
@@ -246,11 +256,11 @@ final class Gateway: ObservableObject {
     }
 
     /// Nieuwe sleutel: de oude telefoon komt er niet meer in, en open verbindingen gaan meteen dicht.
-    /// Kan de Keychain de nieuwe sleutel niet bewaren, dan blijft de oude geldig en geeft dit nil.
+    /// Kan de nieuwe sleutel niet bewaard worden, dan blijft de oude geldig en geeft dit nil.
     @discardableResult
     func newPairing() -> String? {
         guard settings.renewPhoneToken() != nil else {
-            problem = "Couldn't save a new phone key in the Keychain"
+            problem = "Couldn't save a new phone key (~/Library/Application Support/hint-meet/phone-token)"
             return nil
         }
         closeAllPhones()
@@ -300,6 +310,7 @@ final class Gateway: ObservableObject {
 
     private func accept(_ conn: NWConnection) {
         guard peerAllowed(conn.endpoint) else {   // niets sturen, gewoon dicht
+            Self.log("refused peer \(conn.endpoint)")
             conn.cancel()
             return
         }

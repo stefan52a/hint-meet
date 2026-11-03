@@ -67,8 +67,9 @@ struct SettingsView: View {
                 }
             }
             Section("API-keys (Keychain)") {
-                Text("Paste a key in the field and click Save. Stored in the macOS Keychain; it goes before "
-                     + "the .env. Leave a field empty to use the .env.")
+                Text("A key in the .env in the project folder is used first; then HintMeet doesn't touch the "
+                     + "Keychain for it. A key pasted here (stored in the macOS Keychain) is used when the .env doesn't "
+                     + "have one.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(Settings.keyNames, id: \.self) { name in
                     LabeledContent {
@@ -79,7 +80,8 @@ struct SettingsView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(name.hasPrefix("ANTHROPIC") ? "Claude" : name.hasPrefix("TYPESAFE") ? "Jev" : name)
-                            Text(name).font(.caption2).foregroundStyle(.secondary)
+                            Text(settings.envFileValue(name) != nil ? "Using the key from .env" : name)
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -105,7 +107,8 @@ struct SettingsView: View {
         .frame(width: 480)
         .onAppear {
             devices = Settings.inputDevices()
-            for name in Settings.keyNames { keys[name] = settings.key(name) }
+            // alleen de Keychain openen voor sleutels die niet in de .env staan
+            for name in Settings.keyNames where settings.envFileValue(name) == nil { keys[name] = settings.keychainKey(name) }
         }
     }
 }

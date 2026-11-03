@@ -14,6 +14,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **No more Keychain questions when your keys are in `.env`:** HintMeet now uses the API keys from `.env` in the project folder first and only looks in the Keychain for a key that isn't there (before, the Keychain went first, and since the new signing macOS asked for permission per key). *Settings → API-keys* says "Using the key from .env" for those. The phone's key moved from the Keychain to `~/Library/Application Support/hint-meet/phone-token`; scan the QR code on the phone once more. A `phone-token` line in `.env` isn't needed.
 - **Start a meeting from the phone, also when HintMeet is closed:** the start screen has *Start from the Android app…*, with the pairing QR code and the switch *Also when HintMeet is closed* (on by default). A small background helper then starts HintMeet as soon as the phone connects; a few seconds later the phone can start the meeting. Off: the helper is removed. See *Deployment* in the README.
 - **The transcript keeps up:** every new utterance scrolls the transcript down, also on the phone. Scroll up yourself (or pick a hint or a card that's further back) and it stays put for 10 seconds so you can read; scroll back to the bottom and it follows again right away. Before, it sometimes stopped following after a new line.
 - **Smaller hints** in the panel (16 instead of 19 pt).

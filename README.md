@@ -14,7 +14,7 @@ app/make-signing-cert.sh                              # once: macOS then keeps t
 app/build-app.sh                                      # builds HintMeet.app and installs it in ~/Applications
 ```
 
-Open HintMeet (Spotlight), put your Claude and Jev keys in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
+Open HintMeet (Spotlight), put your Claude and Jev keys in `.env` (`cp .env.example .env`) or in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
 
 ## What it does
 
@@ -95,7 +95,7 @@ hint-meet/
 ├── README.md
 ├── CHANGELOG.md            what changes for the user, per day
 ├── pyproject.toml          Python package hint-meet (+ extras kb-prep, dev)
-├── .env.example            API keys, KB_ROOT + KB_PROJECT (for the command line; the app uses the Keychain)
+├── .env.example            API keys, KB_ROOT + KB_PROJECT (the app reads the API keys from .env first)
 ├── config/
 │   └── gate.yaml           gatekeeper (jev or claude), thresholds, advice and confirm settings
 ├── src/hint_meet/          the pipeline (Python)
@@ -174,7 +174,7 @@ HintMeet is a single-user setup: the app runs from this repository on your own M
 
 **The Mac app.** `app/build-app.sh` builds `app/build/HintMeet.app`, signs it and copies it to `~/Applications`. The app remembers where this repository is (written into the app at build time) and starts the pipeline from `.venv` here; build again after moving the repository, and always build from the main checkout, not from a git worktree. A running HintMeet keeps running; *Restart HintMeet* (⌘R) switches to the new build. Signing: with the certificate from `app/make-signing-cert.sh` (once) macOS recognizes the app across builds, so it should ask for the microphone only after the first build with the certificate; without it the app is signed ad hoc and macOS asks again after every build. Developer ID signing and notarization aren't set up yet, so the app isn't meant to be handed to other Macs.
 
-**Where things are.** API keys: the Keychain (*Settings → API-keys*), or `.env` for the command line. Knowledge bases: `KB_ROOT` (default `~/KB_md/<project>`). Reports: `<KB>/meetings/`. Transcripts and meeting audio: `logs/` in this repository. Pipeline log: `~/Library/Logs/HintMeet/backend.log`.
+**Where things are.** API keys: `.env` in this repository (used first, by the app and the command line), otherwise the Keychain (*Settings → API-keys*); with both keys in `.env` HintMeet never opens the Keychain, so macOS doesn't ask for permission. Phone key: `~/Library/Application Support/hint-meet/phone-token`. Knowledge bases: `KB_ROOT` (default `~/KB_md/<project>`). Reports: `<KB>/meetings/`. Transcripts and meeting audio: `logs/` in this repository. Pipeline log: `~/Library/Logs/HintMeet/backend.log`.
 
 **The Android app.** Requires Android 10 or newer. Build and install with the phone connected over USB (USB debugging on):
 
@@ -188,7 +188,9 @@ The build needs a JDK 21 on the Mac (any vendor); Gradle finds it by itself, als
 
 **Starting from the phone while HintMeet is closed.** The start screen has *Start from the Android app…* (under *Use a recorded meeting instead…*): it opens the same switch and QR code, plus *Also when HintMeet is closed* (on by default). With that on, HintMeet installs a small background helper, `HintMeetWaker`, as a LaunchAgent (`~/Library/LaunchAgents/com.zoof-it.hintmeet.waker.plist`, pointing to the program inside `~/Applications/HintMeet.app`). While HintMeet isn't running, the helper listens on the Tailscale address, port 8790; when the phone connects it closes that connection without exchanging anything, starts HintMeet in the background and steps aside. The phone connects again a few seconds later, now to HintMeet itself, and *Start Meeting* works as usual. While HintMeet runs, the helper doesn't listen. macOS may show *Background Items Added* once. Turning the switch (or the phone companion) off removes the LaunchAgent. `app/build-app.sh` restarts the helper after a build. Log: `~/Library/Logs/HintMeet/waker.log`.
 
-The phone's key is created by HintMeet and kept in the Keychain (separate from the API keys); it doesn't go in `.env`.
+If the phone keeps "Looking for the Mac…": the macOS firewall may block HintMeet after its signature changed (e.g. the first build with `app/make-signing-cert.sh`). In *System Settings → Network → Firewall → Options*, remove HintMeet and add `~/Applications/HintMeet.app` again with *Allow incoming connections*. Refused connections are logged in `~/Library/Logs/HintMeet/gateway.log`.
+
+The phone's key is created by HintMeet and kept in `~/Library/Application Support/hint-meet/phone-token` (readable only by you, like the overlay's `ws-token`); it doesn't go in `.env`.
 
 ## Preparing the knowledge base
 
@@ -357,7 +359,7 @@ hint-meet live --devices                                    # list audio devices
 hint-meet voice --name Stefan                              # record 10 s of your voice (adds a sample; --replace starts over)
 ```
 
-App: once, run `app/make-signing-cert.sh` (a signing certificate of your own in your keychain, so macOS keeps the microphone permission across builds). Build with `app/build-app.sh`; that installs HintMeet in `~/Applications`, with an icon, so you start it via Spotlight, Launchpad or the Dock (drag it there to keep it). After a new build, pick up the new version with **Restart HintMeet** (⌘R). The app remembers where this repo is; if you move the repo, build again. Choose a project and start the meeting; the app starts the pipeline itself (from `.venv` in this folder) and stops it again, and on quitting waits until the report is written. API keys go in Settings (Keychain). Without the app it also works: `hint-meet --project acme live --ui` with just the overlay.
+App: once, run `app/make-signing-cert.sh` (a signing certificate of your own in your keychain, so macOS keeps the microphone permission across builds). Build with `app/build-app.sh`; that installs HintMeet in `~/Applications`, with an icon, so you start it via Spotlight, Launchpad or the Dock (drag it there to keep it). After a new build, pick up the new version with **Restart HintMeet** (⌘R). The app remembers where this repo is; if you move the repo, build again. Choose a project and start the meeting; the app starts the pipeline itself (from `.venv` in this folder) and stops it again, and on quitting waits until the report is written. API keys go in `.env` (used first) or in Settings (Keychain). Without the app it also works: `hint-meet --project acme live --ui` with just the overlay.
 
 **The panel.** Before a meeting it shows three steps: knowledge base (with *Ready* or *Not loaded* and *Preload KB*), meeting (with whom, language) and *Start Meeting*. During a meeting a top bar shows a blinking **REC** with the time, the project, what HintMeet is doing (*Listening…*), the language, *Find* and **Stop**. *Find Documents*, *Settings* and *Restart HintMeet* are always at the bottom. The panel remembers its position and size, also on a second screen; it stays above your meeting without taking over your keyboard; during a meeting, click its header to get the HintMeet menu bar. 💡 in the menu bar shows or hides it.
 
