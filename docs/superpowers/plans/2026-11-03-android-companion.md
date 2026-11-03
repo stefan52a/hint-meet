@@ -492,8 +492,8 @@ git commit -m "Android companion: project setup, wire protocol and meeting state
 - [ ] **Step 1: Write the failing tests**
 
 ```kotlin
-@Test fun parsesValidPairing() { assertEquals(Pairing("100.1.2.3", 8790, "x".repeat(40)), Pairing.parse("hintmeet://pair?host=100.1.2.3&port=8790&token=" + "x".repeat(40))) }
-@Test fun refusesNonTailnetHostAndShortToken() { assertNull(Pairing.parse("hintmeet://pair?host=192.168.1.2&port=8790&token=" + "x".repeat(40))); assertNull(Pairing.parse("hintmeet://pair?host=100.1.2.3&port=8790&token=short")) }
+@Test fun parsesValidPairing() { assertEquals(Pairing("100.101.102.103", 8790, "x".repeat(40)), Pairing.parse("hintmeet://pair?host=100.101.102.103&port=8790&token=" + "x".repeat(40))) }
+@Test fun refusesNonTailnetHostAndShortToken() { assertNull(Pairing.parse("hintmeet://pair?host=192.168.1.2&port=8790&token=" + "x".repeat(40))); assertNull(Pairing.parse("hintmeet://pair?host=100.101.102.103&port=8790&token=short")) }
 @Test fun backoffSequence() { val b = Backoff(); assertEquals(listOf(1000L, 2000, 4000, 8000, 10000, 10000), List(6) { b.next() }); b.reset(); assertEquals(1000L, b.next()) }
 ```
 

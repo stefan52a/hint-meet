@@ -9,6 +9,8 @@ okhttp = "4.12.0"
 serialization = "1.7.3"
 coroutines = "1.9.0"
 junit = "4.13.2"
+zxing = "4.3.0"
+securityCrypto = "1.1.0-alpha06"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -23,6 +25,8 @@ serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serializ
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
+security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

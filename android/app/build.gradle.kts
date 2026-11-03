@@ -30,6 +30,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -44,6 +45,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.serialization.json)
     implementation(libs.coroutines.android)
+    implementation(libs.zxing.embedded)
+    implementation(libs.security.crypto)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
