@@ -161,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var backend: Backend!
     /// Telefoon-companion (alleen instantie 1: poort 8790 kan maar één keer open).
     var gateway: Gateway?
+    private var testWindow: NSWindow?
     var preparer: ProgressTask!
     let kbPrep = ProgressTask(logName: "kb_prep")
     var kbPrepWindow: NSWindow?
@@ -193,6 +194,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
         if Instance.number == 1 { gateway = Gateway(settings: settings, backend: backend) }
+        if GatewayTestMode.active {   // test: de Phone-sectie los in beeld, om te bekijken en de QR te scannen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+                                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                w.title = "HintMeet Phone Test"
+                w.contentView = NSHostingView(rootView: Form { PhoneSettingsView(settings: self.settings, gateway: self.gateway) }
+                    .formStyle(.grouped).frame(width: 480))
+                w.isReleasedWhenClosed = false
+                w.center()
+                w.makeKeyAndOrderFront(nil)
+                self.testWindow = w
+            }
+        }
         preparer = ProgressTask(logName: "prepare")
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,
@@ -643,7 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "HintMeet Settings"
-            w.contentView = NSHostingView(rootView: SettingsView(settings: settings))
+            w.contentView = NSHostingView(rootView: SettingsView(settings: settings, gateway: gateway))
             w.isReleasedWhenClosed = false
             w.center()
             settingsWindow = w

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: Settings
+    var gateway: Gateway? = nil
     @State private var keys: [String: String] = [:]
     @State private var devices: [String] = []
     @State private var saved: Bool? = nil
@@ -91,6 +92,7 @@ struct SettingsView: View {
                     if saved == false { Text("Saving failed (Keychain)").font(.caption).foregroundStyle(.red) }
                 }
             }
+            PhoneSettingsView(settings: settings, gateway: gateway)
             CreditSettings()
             Section("Pipeline") {
                 TextField("hint-meet project folder", text: $settings.repoPath)

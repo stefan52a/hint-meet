@@ -106,7 +106,9 @@ hint-meet/
 
 ```bash
 pip install -e ".[kb-prep,dev]"
-pytest
+pytest                      # fast tests
+pytest -m slow              # with the real speech model (minutes)
+cd app/HintMeet && swift run GatewayChecks   # the app's phone gateway logic (no Xcode needed)
 ```
 
 ## Installation
@@ -302,6 +304,17 @@ Live saves the transcript in `logs/live-<date>.txt`, in the same format as the t
 System audio (Teams, Zoom, Meet, calls via the Mac) needs [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install --cask blackhole-2ch`, and in Audio MIDI Setup a multi-output device with your speakers and BlackHole, so you still hear the meeting yourself.
 
 In the KB, a heading with `[VERVALLEN]` marks that section as superseded; hint-meet only uses such a passage to say *that* something is superseded.
+
+### Phone companion
+
+The coming Android app lets the phone record the meeting and show the hints, while this Mac does the work, also when it's at home. Set it up like this:
+
+1. Install [Tailscale](https://tailscale.com) on the Mac and on the phone, logged in to the same tailnet.
+2. In HintMeet: *Settings → Phone → Allow phone companion*. HintMeet then listens on the Mac's Tailscale address (port 8790), never on other networks. With the switch off nothing listens.
+3. Scan the QR code in that section with the HintMeet app on the phone. *New pairing…* makes a new key; the old phone then stops working until it scans again.
+4. Keep the Mac on power with the lid open during phone meetings. While the switch is on and the Mac is on power, HintMeet keeps it from sleeping.
+
+The phone starts and stops the meeting; the report lands in the project's meetings folder as usual. Only the first HintMeet (without a number in the menu bar) does this. Without a phone: `tools/phone_client.py recording.wav --gateway ws://<tailscale-ip>:8790 --token <key> --start <project>` plays a recording through the same path.
 
 ## Gatekeeper
 
