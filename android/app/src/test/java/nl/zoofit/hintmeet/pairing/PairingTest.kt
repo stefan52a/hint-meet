@@ -37,4 +37,15 @@ class PairingTest {
         assertNull(Pairing.parse(uri))
         assertEquals(Pairing("127.0.0.1", 8790, token), Pairing.parse(uri, allowLoopback = true))
     }
+
+    @Test fun refusesHostsThatPointElsewhere() {
+        assertNull(Pairing.parse("hintmeet://pair?host=evil.example%2Ffoo.ts.net&port=8790&token=$token"))
+        assertNull(Pairing.parse("hintmeet://pair?host=evil.example%40mac.ts.net&port=8790&token=$token"))
+        assertNull(Pairing.parse("hintmeet://pair?host=.ts.net&port=8790&token=$token"))
+        assertNull(Pairing.parse("hintmeet://pair?host=mac.ts.net%3A9999&port=8790&token=$token"))
+    }
+
+    @Test fun refusesTokensWithControlCharacters() {
+        assertNull(Pairing.parse("hintmeet://pair?host=100.101.102.103&port=8790&token=$token%0AX-Evil:1"))
+    }
 }

@@ -7,7 +7,9 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,7 +44,7 @@ class MainActivity : ComponentActivity() {
     /** Een hintmeet://pair-link (getikt, of `adb shell am start -d …`) koppelt meteen. */
     private fun pairFrom(intent: android.content.Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "hintmeet") vm.pair(data.toString())
+        if (data.scheme == "hintmeet") vm.offerPairing(data.toString())
     }
 }
 
@@ -53,6 +55,22 @@ fun App(vm: AppViewModel) {
     val gateway by vm.gateway.collectAsStateWithLifecycle()
     val projects by vm.projects.collectAsStateWithLifecycle()
     val meeting by vm.meeting.collectAsStateWithLifecycle()
+    val pending by vm.pendingPairing.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    pending?.let { p ->
+        AlertDialog(
+            onDismissRequest = { vm.confirmPairing(false) },
+            title = { Text("Pair with this Mac?") },
+            text = { Text("A link asks to connect HintMeet to ${p.host}. Only accept if you just opened it from "
+                          + "HintMeet on your own Mac.") },
+            confirmButton = { TextButton(onClick = { vm.confirmPairing(true) }) { Text("Pair") } },
+            dismissButton = { TextButton(onClick = { vm.confirmPairing(false) }) { Text("Cancel") } },
+        )
+    }
+    error?.let { e ->
+        AlertDialog(onDismissRequest = { vm.error.value = null }, text = { Text(e) },
+                    confirmButton = { TextButton(onClick = { vm.error.value = null }) { Text("OK") } })
+    }
     when {
         pairing == null -> PairingScreen(vm::pair)
         meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING -> MeetingPlaceholder(meeting.hints.lastOrNull()?.text) { vm.stop() }

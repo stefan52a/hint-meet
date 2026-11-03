@@ -39,6 +39,7 @@ class GatewayClient(
 
     init { connect() }
 
+    @Synchronized
     private fun connect() {
         if (closed) return
         val request = Request.Builder()
@@ -73,6 +74,7 @@ class GatewayClient(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = lost(webSocket)
     }
 
+    @Synchronized
     private fun lost(webSocket: WebSocket) {
         if (webSocket !== socket) return
         _connected.value = false
@@ -91,6 +93,7 @@ class GatewayClient(
     fun sendBinary(bytes: ByteArray): Boolean =
         if (_connected.value) socket?.send(bytes.toByteString()) ?: false else false
 
+    @Synchronized
     fun close() {
         closed = true
         retry?.cancel()

@@ -39,32 +39,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val projects = MutableStateFlow<ServerMessage.Projects?>(null)
     val meeting = MutableStateFlow(MeetingUi())
     private var collector: Job? = null
+    private var watcher: Job? = null
+    /** Koppel-link van buiten de app (getikt, andere app): eerst bevestigen, nooit stil overnemen. */
+    val pendingPairing = MutableStateFlow<Pairing?>(null)
+    val error = MutableStateFlow<String?>(null)
 
     init { pairing.value?.let(::connect) }
 
-    /** QR-inhoud of geplakte koppel-link. Geeft een foutmelding of null. */
+    private fun parse(uri: String?) = uri?.let { Pairing.parse(it, allowLoopback = BuildConfig.DEBUG) }
+
+    /** QR-inhoud of geplakte koppel-link (in de app zelf gekozen). Geeft een foutmelding of null. */
     fun pair(uri: String?): String? {
-        val p = uri?.let { Pairing.parse(it, allowLoopback = BuildConfig.DEBUG) } ?: return "That isn't a HintMeet pairing code (Settings → Phone on the Mac)."
-        store.save(p)
-        pairing.value = p
-        connect(p)
+        val p = parse(uri) ?: return "That isn't a HintMeet pairing code (Settings → Phone on the Mac)."
+        if (meetingActive()) return "Stop the meeting first."
+        apply(p)
         return null
     }
 
+    /** Link van buiten de app: alleen voorstellen; pas na "Pair" in de dialoog geldt hij. */
+    fun offerPairing(uri: String?) {
+        val p = parse(uri) ?: return
+        if (meetingActive()) { error.value = "A pairing link was ignored: a meeting is running."; return }
+        pendingPairing.value = p
+    }
+
+    fun confirmPairing(accept: Boolean) {
+        val p = pendingPairing.value ?: return
+        pendingPairing.value = null
+        if (accept && !meetingActive()) apply(p)
+    }
+
+    private fun meetingActive() = meeting.value.phase.let { it == nl.zoofit.hintmeet.protocol.Phase.STARTING ||
+        it == nl.zoofit.hintmeet.protocol.Phase.RUNNING || it == nl.zoofit.hintmeet.protocol.Phase.STOPPING }
+
+    private fun apply(p: Pairing) {
+        store.save(p)
+        pairing.value = p
+        connect(p)
+    }
+
     fun unpair() {
-        client.value?.close()
-        client.value = null
+        disconnect()
         store.clear()
         pairing.value = null
+    }
+
+    /** Alles van de vorige koppeling weg: geen oude meeting of projecten bij een andere Mac. */
+    private fun disconnect() {
+        collector?.cancel()
+        watcher?.cancel()
+        client.value?.close()
+        client.value = null
         gateway.value = null
         projects.value = null
+        meeting.value = MeetingUi()
     }
 
     private fun connect(p: Pairing) {
-        client.value?.close()
+        disconnect()
         val c = GatewayClient(p, viewModelScope)
         client.value = c
-        collector?.cancel()
         collector = viewModelScope.launch {
             c.messages.collect { msg ->
                 when (msg) {
@@ -75,7 +109,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 meeting.update { reduce(it, msg) }
             }
         }
-        viewModelScope.launch {
+        watcher = viewModelScope.launch {
             c.connected.collect { if (it) c.sendText("""{"type":"projects"}""") }
         }
     }
@@ -89,7 +123,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             put("language", language)
             put("info", info)
         }
-        client.value?.sendText(msg.toString())
+        if (client.value?.sendText(msg.toString()) != true) {
+            meeting.value = MeetingUi()
+            error.value = "The Mac isn't reachable; the meeting didn't start."
+        }
     }
 
     /** finalOffset: tot waar de telefoon audio opnam (0 = nog geen opname: dan stopt de Mac meteen). */
