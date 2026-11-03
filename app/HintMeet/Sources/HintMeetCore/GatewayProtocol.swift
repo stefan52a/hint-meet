@@ -17,9 +17,10 @@ public enum Tailnet {
         return o[0] == 100 && (o[1] & 0xC0) == 64    // 100.64.0.0 – 100.127.255.255
     }
 
-    /// Het eerste Tailscale-adres uit de lijst met interfaces.
+    /// Het eerste Tailscale-adres uit de lijst met interfaces. Alleen op een utun-interface (daar zet Tailscale het):
+    /// 100.64.0.0/10 is ook het CGNAT-blok van providers, en een mobiele hotspot geeft zo'n adres op en0.
     public static func address(from interfaces: [(name: String, ipv4: String)]) -> String? {
-        interfaces.first { isTailnet($0.ipv4) }?.ipv4
+        interfaces.first { $0.name.hasPrefix("utun") && isTailnet($0.ipv4) }?.ipv4
     }
 
     /// Het Tailscale-adres van deze Mac op dit moment, of nil als Tailscale niet draait.

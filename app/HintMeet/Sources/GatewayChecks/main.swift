@@ -34,6 +34,7 @@ section("tailnet range") {
     check(!Tailnet.isTailnet("100.64.0.256"))
     check(Tailnet.address(from: [("en0", "192.168.1.5"), ("utun4", "100.101.102.103")]) == "100.101.102.103")
     check(Tailnet.address(from: [("en0", "192.168.1.5")]) == nil)
+    check(Tailnet.address(from: [("en0", "100.70.1.2")]) == nil, "CGNAT van een hotspot is geen Tailscale")
 }
 
 section("pairing URL encodes token") {
