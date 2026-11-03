@@ -1,7 +1,13 @@
+import json
+import queue
+import socket
+import time
+
 import numpy as np
 import pytest
+from websockets.sync.client import connect
 
-from hint_meet.phone import FrameError, PhoneStream, encode_frame
+from hint_meet.phone import FrameError, PhoneSource, PhoneStream, encode_frame
 
 
 class FakeClock:
@@ -76,3 +82,98 @@ def test_watchdog_after_30_minutes_without_frames():
     s.accept(encode_frame(7, 0, 0, tone(1600)))
     clock.t = 1799.0; assert not s.timed_out()
     clock.t = 1801.0; assert s.timed_out()
+
+
+TOKEN = "t" * 40
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def next_of_type(ws, kind, timeout=3):
+    end = time.time() + timeout
+    while True:
+        msg = json.loads(ws.recv(timeout=max(0.05, end - time.time())))
+        if msg["type"] == kind:
+            return msg
+
+
+@pytest.fixture
+def source():
+    src = PhoneSource(meeting=7, port=free_port(), token=TOKEN)
+    q = queue.Queue()
+    src.start(q)
+    yield src, q
+    src.stop()
+
+
+def url(src, token=TOKEN):
+    return f"ws://127.0.0.1:{src.port}/?token={token}"
+
+
+def test_phone_source_accepts_audio_and_acks(source):
+    src, q = source
+    with connect(url(src)) as ws:
+        ready = json.loads(ws.recv(timeout=2))
+        assert ready["type"] == "audio_ready" and ready["meeting"] == "0000000000000007"
+        ws.send(encode_frame(7, 0, 0, tone(1600)))
+        assert q.get(timeout=2).channel == "Unknown"
+        assert src.wait_acked(1600, timeout=2)
+        assert next_of_type(ws, "audio_ack")["offset"] == 1600
+    assert src.wait_acked(99999, timeout=0.1) is False
+
+
+def test_phone_source_sends_periodic_acks(source):
+    src, q = source
+    with connect(url(src)) as ws:
+        ws.recv(timeout=2)
+        ws.send(encode_frame(7, 0, 0, tone(1600)))
+        q.get(timeout=2)
+        assert next_of_type(ws, "audio_ack", timeout=3)["meeting"] == "0000000000000007"
+
+
+def test_phone_source_refuses_wrong_token_and_browsers(source):
+    src, _ = source
+    with connect(url(src, "x" * 40)) as ws:
+        with pytest.raises(Exception) as e:
+            ws.recv(timeout=2)
+        assert e.value.rcvd.code == 1008
+    with connect(url(src), origin="http://evil.example") as ws:
+        with pytest.raises(Exception) as e:
+            ws.recv(timeout=2)
+        assert e.value.rcvd.code == 1008
+
+
+def test_new_audio_connection_replaces_old(source):
+    src, q = source
+    with connect(url(src)) as a:
+        a.recv(timeout=2)
+        with connect(url(src)) as b:
+            b.recv(timeout=2)
+            with pytest.raises(Exception):      # A is closed by the server
+                while True:
+                    a.recv(timeout=2)
+            b.send(encode_frame(7, 0, 0, tone(1600)))
+            assert q.get(timeout=2).samples.size == 1600
+            assert next_of_type(b, "audio_ack")["offset"] == 1600
+
+
+def test_rejected_frame_keeps_connection_open(source):
+    src, q = source
+    with connect(url(src)) as ws:
+        ws.recv(timeout=2)
+        ws.send(encode_frame(8, 0, 0, tone(1600)))
+        rej = next_of_type(ws, "audio_reject")
+        assert rej["meeting"] == "0000000000000007" and "meeting" in rej["reason"]
+        ws.send(encode_frame(7, 0, 0, tone(1600)))
+        assert q.get(timeout=2).samples.size == 1600
+
+
+def test_finished_follows_watchdog(source):
+    src, _ = source
+    assert not src.finished
+    src.stream.last_frame_at = time.monotonic() - 2000
+    assert src.finished

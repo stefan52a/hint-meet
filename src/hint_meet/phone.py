@@ -6,7 +6,12 @@ volgt uit die offset en niet uit het moment van binnenkomen, zodat opnieuw verst
 juiste plek in het gesprek landen. Hier zit geen socket in; dat doet een latere laag."""
 from __future__ import annotations
 
+import json
+import queue
+import secrets
 import struct
+import sys
+import threading
 import time
 
 import numpy as np
@@ -79,3 +84,127 @@ class PhoneStream:
         now = self._clock() if now is None else now
         since = self.last_frame_at if self.last_frame_at is not None else self.mono_base
         return now - since > WATCHDOG_S
+
+
+class PhoneSource:
+    """Zelfde vorm als `live.DeviceSource`, maar de audio komt via een websocket op localhost binnen
+    (de gateway in HintMeet.app zet de verbinding van de telefoon daarheen door). Eén producent tegelijk: een nieuwe
+    verbinding sluit de vorige. PhoneStream is niet thread-safe, dus alle toegang gaat onder `lock`."""
+
+    def __init__(self, meeting: int, port: int, token: str, label: str = "Unknown"):
+        self.meeting, self.port, self.token, self.label = meeting, port, token, label
+        self.overflows = 0
+        self.stream = PhoneStream(meeting, label)
+        self.lock = threading.Lock()          # beschermt stream en _ws
+        self._send_lock = threading.Lock()    # websocket-sends van handler- en ack-thread niet door elkaar
+        self._ws = None
+        self._q: queue.Queue | None = None
+        self._server = None
+        self._stopped = threading.Event()
+
+    @property
+    def meeting_hex(self) -> str:
+        return f"{self.meeting:016x}"
+
+    @property
+    def finished(self) -> bool:
+        with self.lock:
+            return self.stream.timed_out()
+
+    def _authorized(self, ws) -> bool:
+        req = ws.request
+        if req.headers.get("Origin"):        # browsers sturen altijd Origin; de telefoon niet
+            return False
+        query = req.path.partition("?")[2]
+        params = dict(p.partition("=")[::2] for p in query.split("&") if p)
+        return secrets.compare_digest(params.get("token", ""), self.token)
+
+    def _send(self, ws, **msg) -> bool:
+        msg["meeting"] = self.meeting_hex
+        try:
+            with self._send_lock:
+                ws.send(json.dumps(msg))
+            return True
+        except Exception:  # noqa: BLE001 - een weggevallen telefoon mag de pijplijn niet stoppen
+            return False
+
+    def _send_ack(self):
+        with self.lock:
+            ws, offset = self._ws, self.stream.acked
+        if ws is not None:
+            self._send(ws, type="audio_ack", offset=offset)
+
+    def _handler(self, ws):
+        if not self._authorized(ws):
+            print("Telefoon geweigerd (verkeerde sleutel of browser)", file=sys.stderr)
+            ws.close(code=1008, reason="geen toegang")
+            return
+        with self.lock:
+            old, self._ws = self._ws, ws
+        if old is not None:
+            try:
+                old.close(code=1000, reason="vervangen door een nieuwe verbinding")
+            except Exception:  # noqa: BLE001
+                pass
+        print("Telefoon verbonden", file=sys.stderr)
+        self._send(ws, type="audio_ready")
+        try:
+            for raw in ws:
+                if not isinstance(raw, bytes):
+                    continue
+                with self.lock:
+                    if self._ws is not ws:
+                        break
+                    try:
+                        blocks = self.stream.accept(raw)
+                    except FrameError as e:
+                        blocks, reason = [], e.reason
+                    else:
+                        reason = None
+                    for b in blocks:
+                        self._q.put(b)
+                if reason is not None:
+                    self._send(ws, type="audio_reject", reason=reason)
+        except Exception:  # noqa: BLE001 - verbinding weggevallen
+            pass
+        finally:
+            with self.lock:
+                if self._ws is ws:
+                    self._ws = None
+            print("Telefoon verbinding gesloten", file=sys.stderr)
+
+    def _acker(self):
+        while not self._stopped.wait(1.0):
+            self._send_ack()
+
+    def start(self, q: queue.Queue):
+        from websockets.sync.server import serve
+        self._q = q
+        self._server = serve(self._handler, "127.0.0.1", self.port)
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        threading.Thread(target=self._acker, daemon=True).start()
+
+    def wait_acked(self, offset: int, timeout: float) -> bool:
+        self._send_ack()
+        end = time.monotonic() + timeout
+        while True:
+            with self.lock:
+                done = self.stream.acked >= offset
+            if done:
+                self._send_ack()
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(0.01)
+
+    def stop(self):
+        self._stopped.set()
+        with self.lock:
+            ws, self._ws = self._ws, None
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if self._server is not None:
+            self._server.shutdown()

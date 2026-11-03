@@ -59,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="speel een opname (wav, mp3, m4a, …) in echte tijd af in plaats van apparaten")
     lv.add_argument("--channels", default="Stefan,Gesprekspartner", help="bij --wav: spreker per kanaal")
     lv.add_argument("--speed", type=float, default=1.0, help="bij --wav: afspeelsnelheid")
+    lv.add_argument("--phone-port", type=int,
+                    help="audio van de telefoon via een websocket op localhost (met --phone-meeting); "
+                         "--mic/--system doen dan niet mee")
+    lv.add_argument("--phone-meeting", help="meeting-id van de telefoon: 16 hex-tekens")
     lv.add_argument("--devices", action="store_true", help="toon de audioapparaten en stop")
     lv.add_argument("--ui", action="store_true", help="start de server voor de overlay (HintMeet.app)")
     lv.add_argument("--port", type=int, default=8765, help="poort voor de overlay")
@@ -545,7 +549,9 @@ def live_cmd(a) -> int:
     from .confirm import make_confirmer
     from .gate import make_gate
     from .live import DeviceSource, LiveSession, WavSource
+    from .phone import PhoneSource
     from .pipeline import Pipeline, Sensitivity
+    from .server import load_or_create_token
 
     config = load_config(a.config)
     sensitivity = Sensitivity(config)   # de pijplijn leest dezelfde config, dus wijzigingen gelden meteen
@@ -679,13 +685,25 @@ def live_cmd(a) -> int:
             print(e, file=sys.stderr)
             return 2
         sources, until = [wav], (lambda: wav.finished)
+    elif a.phone_port is not None or a.phone_meeting:
+        try:
+            if a.phone_port is None or not a.phone_meeting:
+                raise ValueError("--phone-port en --phone-meeting horen bij elkaar")
+            if len(a.phone_meeting) != 16:
+                raise ValueError("--phone-meeting moet 16 hex-tekens zijn")
+            phone = PhoneSource(int(a.phone_meeting, 16), a.phone_port, load_or_create_token(),
+                                a.me or "Unknown")
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        sources, until = [phone], (lambda: phone.finished)
     else:
         sources = [DeviceSource(a.mic, mic_label(a.me, a.system))]
         if a.system:
             sources.append(DeviceSource(a.system, a.other))
         until = None
     cols = shutil.get_terminal_size((100, 20)).columns - 1
-    print(f"KB: {', '.join(map(str, roots))}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({s.device or 'standaard'})" for s in sources))
+    print(f"KB: {', '.join(map(str, roots))}\nLuistert naar: " + (a.wav or ", ".join(f"{s.label} ({getattr(s, 'device', None) or 'standaard'})" for s in sources))
           + "\nStoppen met Ctrl-C.\n")
 
     shown_hints: list[str] = []
