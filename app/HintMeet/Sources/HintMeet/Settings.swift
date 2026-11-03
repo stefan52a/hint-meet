@@ -16,8 +16,6 @@ final class Settings: ObservableObject {
     @Published var summary: Bool { didSet { d.set(summary, forKey: "summary") } }
     /// De audio van de meeting bewaren, naast het transcript in logs/ (live-….mp3; WAV tijdens de meeting).
     @Published var saveAudio: Bool { didSet { d.set(saveAudio, forKey: "saveAudio") } }
-    /// Is het verslag klaar, dan meteen vragen waar een kopie heen moet (naast die in de map van het project).
-    @Published var askSaveReport: Bool { didSet { d.set(askSaveReport, forKey: "askSaveReport") } }
     /// Taal van het gesprek (een Whisper-code zoals "nl" of "en", of "multi"); hints en verslag volgen die taal.
     @Published var language: String { didSet { d.set(language, forKey: "language") } }
     /// Gevoeligheid (0 = minder, 1 = meer, 0,5 = gate.yaml): hints en correcties rechts, onderbouwing links.
@@ -145,7 +143,6 @@ final class Settings: ObservableObject {
         system = d.string(forKey: "system") ?? ""
         summary = d.object(forKey: "summary") as? Bool ?? true
         saveAudio = d.object(forKey: "saveAudio") as? Bool ?? true
-        askSaveReport = d.bool(forKey: "askSaveReport")
         language = d.string(forKey: "language") ?? "nl"
         hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
         confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5

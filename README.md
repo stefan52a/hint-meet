@@ -29,7 +29,7 @@ Open HintMeet (Spotlight), put your Claude and Jev keys in `.env` (`cp .env.exam
    - **Hints & corrections** (right): answers and corrections from your documents, 1 to 4 bullet points with sources; ◀ ▶, scrolling or clicking takes you back to earlier hints.
 
    The left and right columns each have a Fewer ↔ More sensitivity slider; every column can be opened in its own window (button in its header). The language can be changed during the meeting; **Stop** ends it.
-4. Afterwards HintMeet shows the steps (transcript saved, report being written, with **Abort**) and then **Open Report with Action Items**. The report is in `<KB>/meetings/`, the transcript in `logs/`. Reports are not part of the knowledge base: hints and Find Documents never search them.
+4. Afterwards HintMeet shows the steps (transcript saved, report being written, with **Abort**) and then **Open Report with Action Items**, *Save a Copy…* and a player for the meeting audio: while it plays, the line you're hearing lights up in the transcript, and clicking a line jumps the audio there. The report is in `<KB>/meetings/`, the transcript in `logs/`. Reports are not part of the knowledge base: hints and Find Documents never search them.
 5. Looking for a document? *Find Documents* (⌘F) searches the knowledge base by content (words, amounts, names, topics) and opens the original file.
 
 ![The start screen: three steps, knowledge base (Ready), meeting (with whom, language) and Start Meeting](docs/images/start-screen.jpg)

@@ -89,12 +89,6 @@ struct OverlayView: View {
         }
         .onChange(of: store.summaryPath) { _, path in
             guard let path else { pointAtReport = false; return }
-            if settings.askSaveReport {   // even later: eerst het paneel bijwerken (de knop en de pijl)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    // intussen uitgezet of een ander verslag: niet meer vragen
-                    if settings.askSaveReport && store.summaryPath == path { ReportCopy.save(path) }
-                }
-            }
             pointAtReport = true
             blink = false
             DispatchQueue.main.async { blink = true }   // na de eerste weergave: dan start het knipperen
@@ -361,6 +355,9 @@ struct OverlayView: View {
             Button { store.clearMeeting() } label: { Label("New Meeting", systemImage: "plus") }
                 .help("Back to the start screen; the report stays in the meetings folder")
         }
+        if let audio = store.audioPath {   // terugluisteren, gekoppeld aan het transcript
+            PlaybackBar(playback: store.playback, path: audio)
+        }
         }
         .controlSize(.regular)
         .padding(10)
@@ -574,6 +571,8 @@ struct HintCard: View {
 /// en springt bij terugbladeren naar de uitspraak van die hint.
 struct TranscriptView: View {
     @ObservedObject var store: HintStore
+    /// De opname na afloop: de uitspraak die nu klinkt licht op, een klik springt ernaartoe.
+    @ObservedObject var playback: Playback
     /// Onderaan = live: nieuwe uitspraken scrollen mee en rechts staat de nieuwste hint.
     @State private var atBottom = true
     /// Scrollbalk helemaal onderaan (gemeten; alleen nog voor de hint-keuze bij scrollen).
@@ -593,19 +592,24 @@ struct TranscriptView: View {
         let focus = store.shown?.id
         let hinted = store.hinted
         let confirmed = Set(store.confirmations.filter(\.confirms).map(\.id))   // 📄-regels krijgen geen ✓
+        let sounding = soundingID
         GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(store.transcript) { u in
                             row(u, focused: u.id == focus, hasHint: hinted.contains(u.id),
-                                confirmed: confirmed.contains(u.id), backed: u.id == store.backedID)
+                                confirmed: confirmed.contains(u.id), backed: u.id == store.backedID,
+                                sounding: u.id == sounding)
                                 .id(u.id)
                                 .background(GeometryReader { g in
                                     Color.clear.preference(key: RowFrames.self,
                                                            value: [u.id: g.frame(in: .named("transcript"))])
                                 })
-                                .onTapGesture { store.clearBacked(); store.focus(onUtterance: u.id) }
+                                .onTapGesture {
+                                    store.clearBacked(); store.focus(onUtterance: u.id)
+                                    if playback.isLoaded { playback.seek(toUtterance: u.time) }   // audio naar dit moment
+                                }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityHint("Shows the hint for this moment in the conversation")
@@ -645,9 +649,23 @@ struct TranscriptView: View {
                         scroll(proxy, to: id, anchor: .center, animated: true)
                     }
                 }
+                .onChange(of: sounding) { _, id in   // afspelen: meelopen met wat je hoort (tenzij je net zelf scrolde)
+                    guard let id, playback.playing, Date() >= holdUntil else { return }
+                    scroll(proxy, to: id, anchor: .center, animated: true)
+                }
+                .onChange(of: playback.seekToken) { _, _ in   // gesprongen (schuifbalk of klik): meteen daarheen
+                    if let id = soundingID { scroll(proxy, to: id, anchor: .center, animated: true) }
+                }
                 .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
+    }
+
+    /// De uitspraak die bij de afspeelpositie hoort (de laatste die al begonnen is), alleen als er iets geladen is.
+    private var soundingID: Int? {
+        guard playback.isLoaded, playback.playing || playback.current > 0 else { return nil }
+        let now = playback.current + 0.3
+        return store.transcript.last { (Playback.seconds($0.time) ?? .infinity) <= now }?.id
     }
 
     /// Naar een eerdere uitspraak gebracht: even niet meescrollen. De nieuwste zelf: gewoon blijven volgen.
@@ -708,7 +726,8 @@ struct TranscriptView: View {
         store.browse(to: best, from: .transcript)
     }
 
-    private func row(_ u: Utterance, focused hintFocused: Bool, hasHint: Bool, confirmed: Bool, backed: Bool) -> some View {
+    private func row(_ u: Utterance, focused hintFocused: Bool, hasHint: Bool, confirmed: Bool, backed: Bool,
+                     sounding: Bool = false) -> some View {
         let focused = hintFocused || backed   // gekozen via ✓ of links: groen in plaats van rood
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(u.time).font(.caption2).monospacedDigit()
@@ -730,8 +749,12 @@ struct TranscriptView: View {
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
         .background(backed ? Color(red: 0.2, green: 0.62, blue: 0.32).opacity(0.9)
-                        : hintFocused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9) : Color.clear,
+                        : hintFocused ? Color(red: 0.93, green: 0.33, blue: 0.33).opacity(0.9)
+                        : sounding ? Color.accentColor.opacity(0.22) : Color.clear,   // klinkt nu (afspelen)
                     in: RoundedRectangle(cornerRadius: 5))
+        .overlay(alignment: .leading) {
+            if sounding { Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 2) }
+        }
         .contentShape(Rectangle())
         .contextMenu {   // rechtsklik: "Speaker 1" een echte naam geven ("Unknown" is geen persoon: alle korte reacties)
             if u.speaker != "Unknown" {

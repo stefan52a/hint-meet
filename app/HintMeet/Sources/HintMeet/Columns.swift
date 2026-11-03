@@ -125,7 +125,7 @@ struct MeetingColumnView: View {
         if store.transcript.isEmpty {
             placeholder("What is said appears here.")
         } else {
-            TranscriptView(store: store)
+            TranscriptView(store: store, playback: store.playback)
         }
         SayField(store: store, send: send)
     }

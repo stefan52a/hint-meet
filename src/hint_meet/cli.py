@@ -865,7 +865,9 @@ def live_cmd(a) -> int:
             audio = (to_mp3(recorder.path) or recorder.path).resolve()   # volledig pad: de app heeft een andere werkmap
             print(f"Audio: {audio}")
             if hub and audio.exists():
-                hub.send(type="audio", path=str(audio))   # de app biedt hem aan om op te slaan
+                hub.send(type="audio", path=str(audio))   # de app biedt hem aan om op te slaan en af te spelen
+        elif a.wav and hub:   # afgespeelde opname: die zelf terugluisteren (wordt niet opnieuw bewaard)
+            hub.send(type="audio", path=str(Path(a.wav).resolve()))
     if session.overflows:
         print(f"Let op: {session.overflows} audioblokken gevallen (verwerking te traag of apparaat overbelast).")
     stale = sum(1 for e in session.events if e.stale)
