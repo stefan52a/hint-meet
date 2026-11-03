@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 
 from hint_meet import envfile
 
@@ -13,7 +15,11 @@ def test_plain_env_file_is_loaded_and_existing_vars_win(tmp_path, monkeypatch):
     monkeypatch.delenv("HM_TEST_A")
 
 
-def test_pipe_env_is_skipped_without_hanging(tmp_path, monkeypatch):
+def test_pipe_env_is_skipped_without_hanging(tmp_path):
+    # in een subproces met tijdslimiet: komt de fout terug, dan faalt de test in plaats van dat de suite hangt
     os.mkfifo(tmp_path / ".env")
-    monkeypatch.chdir(tmp_path)
-    envfile.load()   # zou anders eeuwig wachten op een schrijver
+    src = os.path.join(os.path.dirname(envfile.__file__), "..")
+    r = subprocess.run([sys.executable, "-c", "from hint_meet import envfile; envfile.load()"], cwd=tmp_path,
+                       env={**os.environ, "PYTHONPATH": src}, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, r.stderr
+    assert "geen gewoon bestand" in r.stderr, r.stderr
