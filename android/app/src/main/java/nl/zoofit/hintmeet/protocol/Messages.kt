@@ -17,7 +17,8 @@ sealed interface ServerMessage {
     data class Utterance(val id: Int, val time: String, val speaker: String, val text: String) : ServerMessage
     data class Hint(val id: Int, val state: HintState, val text: String, val sources: List<String>,
                     val reason: String?) : ServerMessage
-    data class Confirm(val id: Int, val text: String) : ServerMessage
+    /** Linkerkolom op de Mac, "Backed by the knowledge base": kind "confirms" (✓) of "about" (📄). */
+    data class Confirm(val id: Int, val text: String, val kind: String, val sources: List<String>) : ServerMessage
     data class Status(val text: String) : ServerMessage
     data class Progress(val heardS: Double, val processedS: Double) : ServerMessage
     data class Summary(val markdown: String) : ServerMessage
@@ -71,7 +72,9 @@ fun parseServer(text: String): ServerMessage? {
             o.str("text") ?: "",
             (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull(::sourceRef) ?: emptyList(),
             o.str("reason"))
-        "confirm" -> ServerMessage.Confirm(o.int("id") ?: -1, o.str("text") ?: "")
+        "confirm" -> ServerMessage.Confirm(
+            o.int("id") ?: return null, o.str("text") ?: "", o.str("kind") ?: "confirms",
+            (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull(::sourceRef) ?: emptyList())
         "status" -> ServerMessage.Status(o.str("text") ?: "")
         "progress" -> ServerMessage.Progress(o.double("heard_s") ?: 0.0, o.double("processed_s") ?: 0.0)
         "summary" -> ServerMessage.Summary(o.str("markdown") ?: "")

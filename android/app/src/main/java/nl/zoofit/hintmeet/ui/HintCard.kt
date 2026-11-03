@@ -31,8 +31,8 @@ fun HintCard(hint: HintUi, rated: Int, feedback: (Int, Int) -> Unit, modifier: M
            verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             hint.text.ifEmpty { "…" },
-            fontSize = 32.sp,
-            lineHeight = 40.sp,
+            fontSize = 26.sp,
+            lineHeight = 33.sp,
             color = if (hint.struck) Color(0xFF8A8A8A) else MaterialTheme.colorScheme.onBackground,
             textDecoration = if (hint.struck) TextDecoration.LineThrough else null,
         )

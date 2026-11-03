@@ -72,10 +72,15 @@ fun MeetingScreen(
                   liveness = liveness, alarms = alarms)
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hints") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Backed") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Transcript") })
         }
         Box(Modifier.weight(1f)) {
-            if (tab == 0) Hints(meeting, feedback) else Transcript(meeting)
+            when (tab) {
+                0 -> Hints(meeting, feedback)
+                1 -> Backed(meeting)
+                else -> Transcript(meeting)
+            }
         }
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
             Button(onClick = { confirmStop = true }, enabled = meeting.phase == Phase.RUNNING,
@@ -130,16 +135,61 @@ private fun Hints(meeting: MeetingUi, feedback: (Int, Int) -> Unit) {
     }
 }
 
+/** Nieuwe regels scrollen altijd mee, behalve tot 10 s nadat je zelf omhoog scrolde (rustig teruglezen). */
+@Composable
+private fun FollowNewest(list: androidx.compose.foundation.lazy.LazyListState, size: Int) {
+    var holdUntil by remember { mutableStateOf(0L) }
+    var auto by remember { mutableStateOf(false) }
+    LaunchedEffect(list) {
+        androidx.compose.runtime.snapshotFlow { list.isScrollInProgress }.collect { scrolling ->
+            if (scrolling && !auto) {   // jouw vinger, niet ons eigen meescrollen
+                val atBottom = !list.canScrollForward
+                holdUntil = if (atBottom) 0L else System.currentTimeMillis() + 10_000
+            }
+        }
+    }
+    LaunchedEffect(list) {   // na het slepen: onderaan losgelaten = meteen weer volgen
+        androidx.compose.runtime.snapshotFlow { list.canScrollForward }.collect { more ->
+            if (!more && !auto) holdUntil = 0L
+        }
+    }
+    LaunchedEffect(size) {
+        if (size > 0 && System.currentTimeMillis() >= holdUntil) {
+            auto = true
+            try { list.animateScrollToItem(size - 1) } finally { auto = false }
+        }
+    }
+}
+
+/** "Backed by the knowledge base", zoals de linkerkolom op de Mac: ✓ klopt met het dossier, 📄 wat het dossier zegt. */
+@Composable
+private fun Backed(meeting: MeetingUi) {
+    if (meeting.backed.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text("What was said and matches your documents appears here.", style = MaterialTheme.typography.titleMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = meeting.backed.size - 1)
+    FollowNewest(list, meeting.backed.size)
+    val times = meeting.transcript.associate { it.id to it.time }
+    LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        items(meeting.backed, key = { "${it.id}-${it.text.hashCode()}" }) { b ->
+            Column(Modifier.padding(vertical = 8.dp)) {
+                Text((if (b.confirms) "✓  " else "📄  ") + b.text, style = MaterialTheme.typography.bodyLarge)
+                val meta = listOfNotNull(times[b.id], b.sources.joinToString(" · ").ifEmpty { null }).joinToString("  ·  ")
+                if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
 @Composable
 private fun Transcript(meeting: MeetingUi) {
     val list = rememberLazyListState(initialFirstVisibleItemIndex = (meeting.transcript.size - 1).coerceAtLeast(0))
-    var lastSize by remember { mutableIntStateOf(meeting.transcript.size) }
-    // alleen meelopen als je onderaan stond: wie terugleest, wordt niet weggetrokken
-    LaunchedEffect(meeting.transcript.size) {
-        val atBottom = (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) >= lastSize - 2
-        if (meeting.transcript.isNotEmpty() && atBottom) list.animateScrollToItem(meeting.transcript.size - 1)
-        lastSize = meeting.transcript.size
-    }
+    FollowNewest(list, meeting.transcript.size)
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         items(meeting.transcript, key = { it.id }) { line ->
             Column(Modifier.padding(vertical = 6.dp)) {

@@ -6,12 +6,16 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### Android companion app
 
+- **"Backed" tab:** like the left column on the Mac, what was said and matches your documents (✓) and what the documents say about it (📄), with the time and the source.
+- **Smaller hints** (26 instead of 32 sp), so longer hints fit without scrolling.
 - **Same icon as on the Mac:** the light bulb on the blue tile, also in round or squircle shapes and as a themed (monochrome) icon.
 - **The app asks for the microphone only once:** Start only asks for permissions that are still missing, and refusing notifications no longer gets in the way. Choose *While using the app* in the dialog (with *Only this time* Android asks again every meeting).
 - **Record a meeting with your phone while the Mac at home does the work:** the new HintMeet app for Android (in `android/`, install it yourself, see the README) pairs with the QR code from *Settings → Phone*, starts the meeting on the Mac, records with the phone's microphone (also with the screen off) and shows the hints large enough to read with the phone flat on the table. The transcript is in a second tab; the report appears on the phone when the meeting ends and can be shared. If the connection drops, the phone keeps recording and sends the missed audio when it's back (up to 10 minutes); those minutes appear in the transcript without hints. A red banner warns when the connection is gone for more than 30 seconds, the Mac falls more than a minute behind, the battery is low, the Mac stopped unexpectedly or the microphone hears nothing. Stop waits for the last seconds of audio. Closed by accident? Reopen it and it continues with the same meeting.
 
 ### App
 
+- **The transcript keeps up:** every new utterance scrolls the transcript down, also on the phone. Scroll up yourself (or pick a hint or a card that's further back) and it stays put for 10 seconds so you can read; scroll back to the bottom and it follows again right away. Before, it sometimes stopped following after a new line.
+- **Smaller hints** in the panel (16 instead of 19 pt).
 - **New app icon on the Mac, the same as on Android:** the light bulb is now drawn by HintMeet itself instead of Apple's SF Symbol (Apple doesn't allow SF Symbols in app icons). Same blue tile, same yellow bulb.
 - **macOS remembers the microphone permission after a new build:** run `app/make-signing-cert.sh` once; it puts a signing certificate of your own in your keychain, and `app/build-app.sh` signs HintMeet with it from then on. Before, every build was signed ad hoc, macOS saw it as a new app and asked for the microphone again. After the first build with the certificate it asks one more time, then never again.
 - **No more 1Password integration:** HintMeet reads the API keys from *Settings → API-keys* or from a normal `.env` file in the project folder. The special handling for a `.env` delivered by 1Password (Environments) is gone, and so are its messages. A `.env` that isn't a regular file (like the 1Password pipe) is now skipped, so HintMeet never waits on it. If you used 1Password for this, put the keys in *Settings → API-keys* or in a regular `.env`.

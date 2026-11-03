@@ -112,6 +112,18 @@ class MeetingReducerTest {
         assertEquals(1, ui.ratings[5])
     }
 
+    @Test fun backedByTheKnowledgeBase() {
+        var ui = running()
+        val msg = """{"type":"confirm","id":4,"text":"Rente 5,5% klopt","kind":"confirms","sources":[{"ref":"Lening §2","path":"/x"}]}"""
+        ui = reduce(ui, parse(msg))
+        ui = reduce(ui, parse(msg))                               // opnieuw afgespeeld: niet dubbel
+        ui = reduce(ui, parse("""{"type":"confirm","id":5,"text":"Het dossier noemt 2027","kind":"about","sources":[]}"""))
+        assertEquals(2, ui.backed.size)
+        assertTrue(ui.backed[0].confirms)
+        assertEquals(listOf("Lening §2"), ui.backed[0].sources)
+        assertEquals(false, ui.backed[1].confirms)
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))

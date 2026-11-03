@@ -530,7 +530,7 @@ struct HintCard: View {
         VStack(alignment: .leading, spacing: 8) {
             // wat je kunt zeggen: groot, met een accentbalk ervoor zodat het in één blik te vinden is
             Text(HintCard.bullets(hint.text) + (hint.state == .streaming ? " …" : ""))
-                .font(.system(size: 19, weight: hint.state == .final ? .semibold : .regular))
+                .font(.system(size: 16, weight: hint.state == .final ? .semibold : .regular))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -572,8 +572,12 @@ struct TranscriptView: View {
     @ObservedObject var store: HintStore
     /// Onderaan = live: nieuwe uitspraken scrollen mee en rechts staat de nieuwste hint.
     @State private var atBottom = true
-    /// Scrollbalk helemaal onderaan: nieuwe of groeiende uitspraken scrollen mee (ook als je een hint bekijkt).
+    /// Scrollbalk helemaal onderaan (gemeten; alleen nog voor de hint-keuze bij scrollen).
     @State private var pinned = true
+    /// Nieuwe uitspraken scrollen altijd mee, behalve tot 10 s nadat jij (of een gekozen hint/kaart) het transcript
+    /// naar een eerdere uitspraak bracht: dan kun je even rustig teruglezen.
+    @State private var holdUntil = Date.distantPast
+    private static let hold: TimeInterval = 10
     /// Na een scroll door de app zelf (pijltjes, Latest, nieuwe uitspraak) even niet de hint laten
     /// volgen uit de scrollpositie, anders vechten die twee met elkaar.
     @State private var ignoreScrollUntil = Date.distantPast
@@ -613,28 +617,38 @@ struct TranscriptView: View {
                     followScroll(frames, height: viewport.size.height)
                 }
                 .onChange(of: store.transcript.last) { _, last in   // nieuwe uitspraak, of de laatste werd langer
-                    guard pinned, let last else { return }
+                    guard Date() >= holdUntil, let last else { return }
                     scroll(proxy, to: last.id, anchor: .bottom)
                     // de LazyVStack kent de echte hoogte van de nieuwe regel pas na het tekenen: nog eens, precies
                     DispatchQueue.main.async {
-                        if pinned, store.transcript.last?.id == last.id { scroll(proxy, to: last.id, anchor: .bottom) }
+                        if Date() >= holdUntil, store.transcript.last?.id == last.id { scroll(proxy, to: last.id, anchor: .bottom) }
                     }
                 }
                 .onChange(of: focus) { _, id in   // hint gekozen door te scrollen in de hintlijst
                     guard store.selectionSource == .hints, let id else { return }
+                    holdAway(from: id)
                     scroll(proxy, to: id, anchor: .center, animated: true)
                 }
                 .onChange(of: store.revealToken) { _, _ in   // jouw keuze: naar de uitspraak van die hint, ook de nieuwste
-                    if let id = store.shown?.id { scroll(proxy, to: id, anchor: .center, animated: true) }
+                    if let id = store.shown?.id {
+                        holdAway(from: id)
+                        scroll(proxy, to: id, anchor: .center, animated: true)
+                    }
                 }
                 .onChange(of: store.backedToken) { _, _ in   // kaart links gekozen: naar zijn uitspraak
                     if !store.backedFromTranscript, let id = store.backedID {
+                        holdAway(from: id)
                         scroll(proxy, to: id, anchor: .center, animated: true)
                     }
                 }
                 .onAppear { if let last = store.transcript.last?.id { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
+    }
+
+    /// Naar een eerdere uitspraak gebracht: even niet meescrollen. De nieuwste zelf: gewoon blijven volgen.
+    private func holdAway(from id: Int) {
+        holdUntil = id == store.transcript.last?.id ? .distantPast : Date().addingTimeInterval(Self.hold)
     }
 
     private func scroll(_ proxy: ScrollViewProxy, to id: Int, anchor: UnitPoint, animated: Bool = false) {
@@ -672,6 +686,8 @@ struct TranscriptView: View {
         let bottom = lastTwo.contains { id in frames[id].map { $0.minY < height && $0.maxY > 0 } ?? false }
         if bottom != atBottom { atBottom = bottom }
         guard scrolled, Date() >= ignoreScrollUntil else { return }   // alleen jouw scrollen kiest een hint
+        // jij scrolde: omhoog = even teruglezen (10 s niet meescrollen), terug naar onderaan = meteen weer volgen
+        holdUntil = bottom ? .distantPast : Date().addingTimeInterval(Self.hold)
         if bottom {
             if store.isBrowsing { store.latest(from: .transcript) }
             return

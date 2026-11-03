@@ -10,6 +10,9 @@ data class HintUi(val id: Int, val text: String, val sources: List<String>, val 
 
 data class Line(val id: Int, val time: String, val speaker: String, val text: String)
 
+/** Onderbouwing uit de kennisbank bij uitspraak [id]: confirms = wat gezegd is klopt, anders wat het dossier zegt. */
+data class BackedUi(val id: Int, val text: String, val confirms: Boolean, val sources: List<String>)
+
 data class ProgressUi(val heardS: Double, val processedS: Double)
 
 data class MeetingUi(
@@ -17,6 +20,7 @@ data class MeetingUi(
     val meeting: String? = null,
     val hints: List<HintUi> = emptyList(),
     val transcript: List<Line> = emptyList(),
+    val backed: List<BackedUi> = emptyList(),
     val status: String? = null,
     val report: String? = null,
     val stoppedBy: StoppedBy? = null,
@@ -38,7 +42,7 @@ private val active = setOf(Phase.STARTING, Phase.RUNNING, Phase.STOPPING)
 /** Pure toestandsovergang: alle berichten van de Mac gaan hierdoorheen. */
 fun reduce(ui: MeetingUi, msg: ServerMessage): MeetingUi = when (msg) {
     // de hub speelt na elke (her)verbinding alles opnieuw af, beginnend met hello: dus opnieuw opbouwen
-    is ServerMessage.Hello -> ui.copy(hints = emptyList(), transcript = emptyList())
+    is ServerMessage.Hello -> ui.copy(hints = emptyList(), transcript = emptyList(), backed = emptyList())
     is ServerMessage.Utterance -> {
         val line = Line(msg.id, msg.time, msg.speaker, msg.text)
         val i = ui.transcript.indexOfFirst { it.id == msg.id }
@@ -65,7 +69,12 @@ fun reduce(ui: MeetingUi, msg: ServerMessage): MeetingUi = when (msg) {
         else -> StoppedBy.MAC
     })
     is ServerMessage.State -> reduceState(ui, msg)
-    is ServerMessage.Confirm, is ServerMessage.AudioReady, is ServerMessage.AudioAck,
+    is ServerMessage.Confirm -> {
+        val item = BackedUi(msg.id, msg.text, msg.kind == "confirms", msg.sources)
+        // dezelfde uitspraak met dezelfde tekst niet dubbel (de hub speelt na een herverbinding alles opnieuw af)
+        if (ui.backed.any { it.id == item.id && it.text == item.text }) ui else ui.copy(backed = ui.backed + item)
+    }
+    is ServerMessage.AudioReady, is ServerMessage.AudioAck,
     is ServerMessage.AudioReject, is ServerMessage.Projects -> ui
 }
 
