@@ -66,6 +66,7 @@ object Session {
     // opname
     @Volatile private var streamer: Streamer? = null
     @Volatile private var recordingMeeting: String? = null
+    @Volatile private var acceptFrames = false   // uit zodra Stop is gedrukt: final_offset ligt dan vast
     @Volatile private var lastCaptureAtMs = 0L
     @Volatile private var lastLevelAtMs = 0L
     private var lastAckAtMs = 0L
@@ -185,7 +186,7 @@ object Session {
             else -> Unit
         }
         meeting.update { reduce(it, msg) }
-        if (meeting.value.phase == Phase.ENDED && recordingMeeting != null && stopJob == null) stopRecording()
+        if (meeting.value.phase == Phase.ENDED && recordingMeeting != null) stopRecording()   // voorbij op de Mac
     }
 
     private fun onAudioReady(msg: ServerMessage.AudioReady) {
@@ -200,11 +201,16 @@ object Session {
     /** App was weg (gekilld) tijdens een meeting: weer aansluiten op dezelfde meeting. audio_ready volgt vanzelf. */
     private fun rejoinIfNeeded(s: ServerMessage.State) {
         val saved = prefs.getString("meeting", null) ?: return
-        if (recordingMeeting != null) return
-        if (s.meeting == saved && (s.phase == "running" || s.phase == "starting") && s.startedAtMs != null) {
-            startRecording(saved, s.startedAtMs, ready = false)
-        } else if (s.phase == "idle") {
-            prefs.edit().remove("meeting").apply()
+        if (recordingMeeting != null || stopJob != null) return
+        val alive = s.meeting == saved && (s.phase == "running" || s.phase == "starting" || s.phase == "stopping")
+        when {
+            // Stop was al gedrukt toen de app wegviel: niet opnieuw opnemen, alleen Stop nog eens sturen
+            alive && prefs.getBoolean("stopRequested", false) -> {
+                meeting.update(::markStopSent)
+                client?.sendText("""{"type":"stop"}""")
+            }
+            alive && s.phase != "stopping" && s.startedAtMs != null -> startRecording(saved, s.startedAtMs, ready = false)
+            s.phase == "idle" -> prefs.edit().remove("meeting").remove("stopRequested").apply()
         }
     }
 
@@ -218,7 +224,11 @@ object Session {
         recordingMeeting = meetingHex
         lastCaptureAtMs = System.currentTimeMillis()
         lastLevelAtMs = lastCaptureAtMs
-        prefs.edit().putString("meeting", meetingHex).putLong("startedAt", startedAtMs).apply()
+        lastAckAtMs = 0; lastProcessedAtMs = 0; lastProcessed = 0.0; ackedS = 0.0   // niets van een vorige meeting
+        progress = ServerMessage.Progress(0.0, 0.0)
+        lag.clear()
+        acceptFrames = true
+        prefs.edit().putString("meeting", meetingHex).putLong("startedAt", startedAtMs).putBoolean("stopRequested", false).apply()
         try {
             app.startForegroundService(Intent(app, RecordingService::class.java).putExtra(RecordingService.EXTRA_OFFSET, initial))
         } catch (e: Exception) {   // bv. geen microfoonrecht, of de app staat niet op de voorgrond
@@ -232,17 +242,28 @@ object Session {
 
     /** Uit de opnameservice (eigen draad): een frame van 100 ms met zijn offset. */
     fun onCaptured(offset: Long, pcm: ShortArray, peak: Int) {
+        if (!acceptFrames) return
         val now = System.currentTimeMillis()
         lastCaptureAtMs = now
         if (peak > 300) lastLevelAtMs = now
         streamer?.onFrame(offset, pcm)
     }
 
+    /** Alles opruimen: pas als de meeting op de Mac echt voorbij is (dan is er niets meer opnieuw te sturen). */
     private fun stopRecording() {
+        acceptFrames = false
         app.stopService(Intent(app, RecordingService::class.java))
-        prefs.edit().remove("meeting").apply()
+        prefs.edit().remove("meeting").remove("stopRequested").apply()
         recordingMeeting = null
         streamer = null
+        stopJob?.cancel()
+        stopJob = null
+    }
+
+    /** Uit de opnameservice: de microfoon gaat niet open of geeft het op. */
+    fun onRecorderFailed(why: String) {
+        acceptFrames = false
+        error.value = "Recording stopped: $why"
     }
 
     // ---------- start / stop ----------
@@ -265,20 +286,20 @@ object Session {
     /** Microfoon meteen uit; Stop gaat pas weg als de Mac alles heeft (hooguit 60 s, offline: zodra hij terug is). */
     fun stop() {
         meeting.update(::markStopSent)
+        acceptFrames = false                      // eerst dicht: daarna staat final_offset vast
         val s = streamer
         app.stopService(Intent(app, RecordingService::class.java))
-        if (s == null) {
-            client?.sendText("""{"type":"stop"}""")
-            return
-        }
-        val final = s.stop()
+        prefs.edit().putBoolean("stopRequested", true).apply()
+        val final = s?.stop() ?: 0L
+        val msg = if (final > 0) buildJsonObject { put("type", "stop"); put("final_offset", final) }.toString()
+                  else """{"type":"stop"}"""
+        stopJob?.cancel()
         stopJob = scope.launch {
+            // wachten tot de Mac alles heeft (hooguit 60 s); offline: tot hij terug is. De streamer blijft
+            // bestaan tot de meeting voorbij is, zodat een late audio_ready de rest nog opnieuw stuurt.
             val end = SystemClock.elapsedRealtime() + 60_000
-            while (SystemClock.elapsedRealtime() < end && (s.bufferedSeconds > 0 || !connected.value)) delay(200)
-            while (!connected.value) delay(500)
-            client?.sendText(buildJsonObject { put("type", "stop"); put("final_offset", final) }.toString())
-            stopRecording()
-            stopJob = null
+            while (s != null && SystemClock.elapsedRealtime() < end && (s.bufferedSeconds > 0 || !connected.value)) delay(200)
+            while (!(connected.value && client?.sendText(msg) == true)) delay(500)
         }
     }
 

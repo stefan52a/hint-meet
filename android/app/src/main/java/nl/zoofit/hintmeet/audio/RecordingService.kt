@@ -28,7 +28,13 @@ class RecordingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (running) return START_NOT_STICKY
         val initial = intent?.getLongExtra(EXTRA_OFFSET, 0L) ?: 0L
-        startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        try {
+            startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } catch (e: Exception) {   // bv. microfoonrecht ingetrokken, of de app niet op de voorgrond
+            Session.onRecorderFailed(e.message ?: "the microphone isn't available")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HintMeet:recording").apply { acquire(4 * 60 * 60 * 1000L) }
         running = true
@@ -48,18 +54,25 @@ class RecordingService : Service() {
         val rec = open(MediaRecorder.AudioSource.VOICE_RECOGNITION) ?: open(MediaRecorder.AudioSource.MIC)
         if (rec == null) {
             running = false
+            Session.onRecorderFailed("the microphone couldn't be opened")
             stopSelf()
             return
         }
-        rec.startRecording()
         val buf = ShortArray(FRAME)
         var samples = 0L
+        var failed = false
         try {
+            rec.startRecording()
             while (running) {
                 var filled = 0
                 while (filled < FRAME && running) {
                     val n = rec.read(buf, filled, FRAME - filled)
-                    if (n < 0) { running = false; break }
+                    if (n < 0) {
+                        Session.onRecorderFailed("the microphone stopped delivering audio ($n)")
+                        failed = true
+                        running = false
+                        break
+                    }
                     filled += n
                 }
                 if (filled < FRAME) break
@@ -68,9 +81,13 @@ class RecordingService : Service() {
                 Session.onCaptured(initial + samples, buf, peak)   // Streamer kopieert het frame
                 samples += FRAME
             }
+        } catch (e: Exception) {
+            Session.onRecorderFailed(e.message ?: e.javaClass.simpleName)
+            failed = true
         } finally {
-            rec.stop()
+            try { rec.stop() } catch (_: Exception) {}
             rec.release()
+            if (failed) { running = false; stopSelf() }   // fout tijdens de opname: dienst en wake lock weg
         }
     }
 

@@ -55,6 +55,9 @@ class LagHistory(private val windowMs: Long = 15_000) {
     }
 
     @Synchronized
+    fun clear() = points.clear()
+
+    @Synchronized
     fun shrinking(nowMs: Long): Boolean {
         val then = points.lastOrNull { it.first <= nowMs - windowMs } ?: return false
         val current = points.lastOrNull() ?: return false
