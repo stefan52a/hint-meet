@@ -6,7 +6,7 @@
 
 **Architecture:** The Python pipeline gets a phone audio source (`src/hint_meet/phone.py`) that listens on localhost next to the existing overlay `Hub`. HintMeet.app gets an always-on companion gateway that listens only on the Mac's Tailscale address, starts/stops meetings for the phone, and proxies the phone's socket to the `Hub` (text) and the phone source (binary audio). A new Kotlin app in `android/` pairs via QR, records in a foreground service with a resend buffer, and shows the hints.
 
-**Tech Stack:** Python 3.11 + `websockets` (sync) + pytest; Swift 6 toolchain (language mode 5), SwiftUI, Network.framework, IOKit, CoreImage, XCTest; Kotlin 2.1, Jetpack Compose, OkHttp 4.12, kotlinx.serialization, JUnit 4.
+**Tech Stack:** Python 3.11 + `websockets` (sync) + pytest; Swift 6 toolchain (language mode 5), SwiftUI, Network.framework, IOKit, CoreImage, checks via `swift run GatewayChecks` (no Xcode, so no XCTest); Kotlin 2.1, Jetpack Compose, OkHttp 4.12, kotlinx.serialization, JUnit 4.
 
 **Spec:** `docs/superpowers/specs/2026-11-03-android-companion-design.md`
 
@@ -18,7 +18,7 @@
 - Watchdog: 30 minutes without audio frames → meeting stops as if Stop was pressed, report still written.
 - Stop drains: wait for the final ack at most 60 s.
 - Frame limits: more than 1 s of audio (16 000 samples) → reject; offset more than 10 min ahead of the Mac's clock → reject.
-- Transcription more than 60 s behind live audio → alarm on the phone.
+- Transcription more than 60 s behind live audio **and not shrinking** (no gain over the last 15 s of `progress`) → alarm on the phone. A catch-up after a long gap is behind but shrinking, so it shows as a calm "catching up" line, not an alarm.
 - Phone alarms: connection lost > 30 s, buffer more than half full, Mac reports meeting stopped unexpectedly, battery < 15 % and not charging.
 - Gateway off by default; when on, it listens only on the Mac's Tailscale IPv4 (100.64.0.0/10) and accepts peers only from 100.64.0.0/10. With the switch off nothing listens.
 - Phone token: 32+ random bytes, in the Keychain, separate from the overlay `ws-token`; "New pairing" revokes it and closes all phone connections.
@@ -27,7 +27,7 @@
 - Project rules: update `CHANGELOG.md` in the same commit as every user-visible change; commit messages in English; stage only your own files (never `git add -A`); never kill a running HintMeet meeting (check `ps` first).
 - Ports: gateway 8790 (only app instance 1 runs it); phone source = hub port + 100 (8865 for instance 1).
 
-**Deviation from the spec (decided while planning):** the spec asks that live audio is transcribed before resent backlog. This plan keeps one in-order speech thread instead: resent audio is already kept out of the gate/Claude path by its stale timestamp, Whisper turbo clears a 10-minute backlog in well under a minute, and the "> 60 s behind" alarm makes any lag visible. Task 3 measures it; if catch-up after a 10-minute gap takes more than 60 s, add a priority queue then.
+**Deviation from the spec (decided while planning):** the spec asks that live audio is transcribed before resent backlog. This plan keeps one in-order speech thread instead: resent audio is already kept out of the gate/Claude path by its stale timestamp, Whisper turbo clears a 10-minute backlog in well under a minute, and the "> 60 s behind" alarm makes any lag visible. Task 3 measures it; if catch-up after a 10-minute gap takes more than 60 s, add a priority queue then. **Measured in Task 3: 86 s for a 10-minute backlog of dense speech (148 utterances). Stefan chose (2026-11-03) to keep the in-order queue: 10-minute outages are rare, gaps under a minute catch up in seconds. The test limit is 120 s, and the phone's lag alarm only fires when the lag stops shrinking (see Global Constraints).**
 
 ## Review Focus
 
@@ -64,7 +64,7 @@
 | gateway → phone | `{"type":"state","phase":"idle"\|"starting"\|"running"\|"stopping","meeting":id\|null,"started_at_ms":int\|null,"now_ms":int,"busy_elsewhere":bool,"last":{"meeting":id,"stopped_by":"user"\|"watchdog","report_md":str\|null}\|null}` sent on request and on every change |
 | phone → hub (via gateway) | `{"type":"stop","final_offset":int}` and the existing `feedback`, `language` |
 
-The phone connects to `ws://<tailscale-ip>:8790/?token=<phone token>`. Pairing QR content: `hintmeet://pair?host=<ip>&port=8790&token=<token>`.
+The phone connects to `ws://<host>:8790/` with the header `Authorization: Bearer <phone token>` (changed in Task 5: Network.framework's WebSocket server doesn't pass the request path to the handshake handler, so `?token=` can't be checked there; headers can, and a wrong token is refused before anything is sent). `<host>` is the MagicDNS name from the QR, or the 100.x address. Pairing QR content: `hintmeet://pair?host=<ip>&port=8790&token=<token>`.
 
 ---
 
@@ -249,7 +249,7 @@ git commit -m "Pipeline: phone audio source on localhost, live --phone-port/--ph
   - Hub message `progress` every 5 s while running (see the wire protocol)
   - `stop` with `final_offset`: a thread calls `phone.wait_acked(final_offset, 60)`, then waits (within the same 60 s budget) until `session.heard_s * 16000 >= final_offset`, and only then `session.stop()`. The run loop exits on `stop_flag` without draining its queue, so stopping right after the ack would drop the last blocks. `stop` without `final_offset` stops immediately (Mac overlay, unchanged)
   - meta JSON gets `"phone_meeting": HEX` and `"stopped_by": "user" | "watchdog"`
-  - when `lost_s` grows, a hub `status` message: `"Audio from the phone lost: N s"`
+  - when `lost_s` grows, a hub `status` message: `"Audio from the phone lost: N s"`. The silence that fills the gap before the phone's *first* frame (offset 0 is fixed when `PhoneSource` is built, the phone starts a moment later via `OffsetClock`) is not lost audio: keep it out of `lost_s` (found in the Task 2 smoke test)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -381,7 +381,7 @@ git commit -m "HintMeet.app: test target and the phone gateway's protocol helper
   - `final class KeepAwake { func update(enabled: Bool) }`: holds `kIOPMAssertionTypePreventUserIdleSystemSleep` while enabled and on AC power (`IOPSGetProvidingPowerSourceType == kIOPMACPowerKey`)
 
 Behaviour that must hold:
-- `NWListener` with `NWProtocolWebSocket`, `requiredLocalEndpoint` = Tailscale address:8790. Refuse a connection if the peer isn't in 100.64.0.0/10 or `?token=` doesn't match (constant-time compare). Nothing is sent before the check.
+- `NWListener` with `NWProtocolWebSocket`, `requiredLocalEndpoint` = Tailscale address:8790. Refuse a connection if the peer isn't in 100.64.0.0/10 or the `Authorization: Bearer` token doesn't match (constant-time compare, in `setClientRequestHandler`). Nothing is sent before the check.
 - `.start` while `Backend.isRunning` and not this gateway's meeting → `state` with `busy_elsewhere: true`. A repeated `request_id` returns the current state and never starts a second meeting.
 - Once the pipeline runs: one upstream `URLSessionWebSocketTask` to the hub (`ws://127.0.0.1:<port>/?token=`) and one to the phone source (`<port+100>`), each retried every 1 s until connected. Text from the hub and the source goes to the phone; `.toHub` text goes to the hub; binary goes to the source. A new phone connection replaces the previous phone's upstream audio.
 - `state` is pushed to all phone connections on every `Backend.state` change; `started_at_ms` is taken from the source's `audio_ready` (null until then); `last` comes from `LastResult.read` once the pipeline has exited.
@@ -486,14 +486,14 @@ git commit -m "Android companion: project setup, wire protocol and meeting state
 - Produces:
   - `data class Pairing(host: String, port: Int, token: String)` with `companion fun parse(uri: String): Pairing?` (only `hintmeet://pair`, host must be in 100.64.0.0/10 or end in `.ts.net`, port 1–65535, token ≥ 32 chars) and `fun wsUrl(): String`; stored with `EncryptedSharedPreferences` (`androidx.security:security-crypto:1.1.0-alpha06`)
   - `class Backoff { fun next(): Long; fun reset() }` → 1 s, 2 s, 4 s, 8 s, then 10 s capped
-  - `class GatewayClient(pairing: Pairing, scope: CoroutineScope)` with `val messages: SharedFlow<ServerMessage>`, `val connected: StateFlow<Boolean>`, `fun sendText(json: String)`, `fun sendBinary(bytes: ByteArray): Boolean` (false when not connected), `fun close()`; it reconnects with `Backoff` until closed and sends `{"type":"state"}` after every connect
+  - `class GatewayClient(pairing: Pairing, scope: CoroutineScope)` with `val messages: SharedFlow<ServerMessage>`, `val connected: StateFlow<Boolean>`, `fun sendText(json: String)`, `fun sendBinary(bytes: ByteArray): Boolean` (false when not connected), `fun close()`; it connects with the header `Authorization: Bearer <token>` (not `?token=`, see the wire protocol), reconnects with `Backoff` until closed and sends `{"type":"state"}` after every connect
   - Pairing screen scans QR with `com.journeyapps:zxing-android-embedded:4.3.0`. Start screen: Mac reachable, project multi-select from `projects`, language (same codes as the Mac's menu: `nl`, `en`, …, `multi`), "With whom, where", Start (sends `start` with a fresh UUID `request_id`); while `starting`, it shows the hub `status` text (KB loading); `busy_elsewhere` → "A meeting is already running on the Mac".
 
 - [ ] **Step 1: Write the failing tests**
 
 ```kotlin
-@Test fun parsesValidPairing() { assertEquals(Pairing("100.1.2.3", 8790, "x".repeat(40)), Pairing.parse("hintmeet://pair?host=100.1.2.3&port=8790&token=" + "x".repeat(40))) }
-@Test fun refusesNonTailnetHostAndShortToken() { assertNull(Pairing.parse("hintmeet://pair?host=192.168.1.2&port=8790&token=" + "x".repeat(40))); assertNull(Pairing.parse("hintmeet://pair?host=100.1.2.3&port=8790&token=short")) }
+@Test fun parsesValidPairing() { assertEquals(Pairing("100.101.102.103", 8790, "x".repeat(40)), Pairing.parse("hintmeet://pair?host=100.101.102.103&port=8790&token=" + "x".repeat(40))) }
+@Test fun refusesNonTailnetHostAndShortToken() { assertNull(Pairing.parse("hintmeet://pair?host=192.168.1.2&port=8790&token=" + "x".repeat(40))); assertNull(Pairing.parse("hintmeet://pair?host=100.101.102.103&port=8790&token=short")) }
 @Test fun backoffSequence() { val b = Backoff(); assertEquals(listOf(1000L, 2000, 4000, 8000, 10000, 10000), List(6) { b.next() }); b.reset(); assertEquals(1000L, b.next()) }
 ```
 
@@ -569,8 +569,8 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 - Consumes: `AudioBuffer`, `OffsetClock` (Task 10), `GatewayClient`, `Frame`, `ServerMessage` (Tasks 7–8).
 - Produces:
   - `RecordingService`: starts on `AudioReady`. It reads `AudioRecord` (`VOICE_RECOGNITION`, falling back to `MIC`, 16 kHz mono PCM16) in 1600-sample frames, holds a partial wake lock, and shows an ongoing notification with the elapsed time. It stores `meeting` + `startedAtMs` in prefs, so after a restart it rejoins via `state` and an `OffsetClock`.
-  - `class Streamer(buffer: AudioBuffer, send: (ByteArray) -> Boolean, meeting: ULong)` with `fun onFrame(offset: Long, pcm: ShortArray)`, `fun onAck(offset: Long)`, `fun onReconnected()` (resend everything unacked, oldest first). **Frames go out strictly in offset order.** While a resend is running, new live frames only go into the buffer and are sent after it. Otherwise the Mac sees a live frame first, fills the gap with silence, and then drops the resent audio as a duplicate. `fun stop(): Long` (returns `final_offset`; the caller sends `{"type":"stop","final_offset":…}` once the buffer is empty or after 60 s; if offline, on reconnect)
-  - `data class Health(capturing: Boolean, lastLevelAtMs: Long, connectedSinceMs: Long?, lastDisconnectMs: Long?, ackedS: Double, heardS: Double, processedS: Double, bufferFill: Double, droppedS: Double, batteryPct: Int, charging: Boolean, macPhase: String?, localStopSent: Boolean)` and `fun alarms(h: Health, nowMs: Long): Set<Alarm>` with `enum Alarm { CONNECTION_LOST, BUFFER_HALF_FULL, MAC_STOPPED, TRANSCRIPTION_BEHIND, BATTERY_LOW, AUDIO_LOST, MIC_SILENT }`
+  - `class Streamer(buffer: AudioBuffer, send: (ByteArray) -> Boolean, meeting: ULong)` with `fun onFrame(offset: Long, pcm: ShortArray)`, `fun onAck(offset: Long)`, `fun onReconnected()` (resend everything unacked, oldest first; built as `onAudioReady()`: the resend starts on every `audio_ready`, not on the gateway connect, because only then is the gateway's link to the phone source open again; frames sent before that would make the Mac fill a gap with silence). **Frames go out strictly in offset order.** While a resend is running, new live frames only go into the buffer and are sent after it. Otherwise the Mac sees a live frame first, fills the gap with silence, and then drops the resent audio as a duplicate. `fun stop(): Long` (returns `final_offset`; the caller sends `{"type":"stop","final_offset":…}` once the buffer is empty or after 60 s; if offline, on reconnect)
+  - `data class Health(capturing: Boolean, lastLevelAtMs: Long, connectedSinceMs: Long?, lastDisconnectMs: Long?, ackedS: Double, heardS: Double, processedS: Double, lagShrinking: Boolean, bufferFill: Double, droppedS: Double, batteryPct: Int, charging: Boolean, macPhase: String?, localStopSent: Boolean)` and `fun alarms(h: Health, nowMs: Long): Set<Alarm>` with `enum Alarm { CONNECTION_LOST, BUFFER_HALF_FULL, MAC_STOPPED, TRANSCRIPTION_BEHIND, BATTERY_LOW, AUDIO_LOST, MIC_SILENT }`
   - Status bar shows three dots: capturing / Mac received (acked) / Mac processed, each with "n s ago". An alarm shows a red banner and vibrates once per new alarm.
 
 - [ ] **Step 1: Write the failing tests**
@@ -579,6 +579,7 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 @Test fun connectionLostAfter30s() { /* lastDisconnectMs = now - 31_000, connectedSinceMs null → CONNECTION_LOST; at 29 s → not */ }
 @Test fun bufferHalfFull() { /* bufferFill 0.51 → BUFFER_HALF_FULL */ }
 @Test fun transcriptionBehind60s() { /* heardS 200, processedS 139 → TRANSCRIPTION_BEHIND; 141 → not */ }
+@Test fun catchingUpIsNotAnAlarm() { /* heardS 200, processedS 139, lagShrinking true → no TRANSCRIPTION_BEHIND. `lagShrinking` = heardS − processedS is smaller than in the `progress` message from 15 s earlier (the service keeps the last few) */ }
 @Test fun batteryLowOnlyWhenNotCharging() { /* 14 %, charging false → BATTERY_LOW; charging true → not */ }
 @Test fun macGoneWhileRecordingRaisesAlarm() { /* macPhase "idle", localStopSent false, capturing true → MAC_STOPPED */ }
 @Test fun resendAfterReconnectStartsAtFirstUnacked() { /* Streamer with fake send (false while offline): frames 0..4, ack 2, reconnect → sent offsets [3200, 4800, 6400] in order */ }

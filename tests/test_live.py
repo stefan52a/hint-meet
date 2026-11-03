@@ -562,3 +562,43 @@ def test_to_mp3_keeps_wav_when_ffmpeg_fails(tmp_path, monkeypatch):
     _write_wav(wav, 1)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"boom"))
     assert to_mp3(wav) is None and wav.exists() and not list(tmp_path.glob("*.mp3*"))
+
+
+def test_progress_tracks_heard_and_processed_audio(tmp_path, monkeypatch):
+    import hint_meet.live
+    monkeypatch.setattr(hint_meet.live, "SileroVAD", lambda: (lambda frame: 0.0))   # geen onnxruntime nodig
+    write_wav(tmp_path / "s.wav", channels=1, seconds=3.0)
+    src = WavSource(tmp_path / "s.wav", ["Unknown"], speed=100)
+    session = LiveSession([src], transcriber=lambda audio, speaker=None: ("", 1.0), pipeline=FakePipeline())
+    session.run(until=lambda: src.finished)
+    assert session.heard_s == pytest.approx(3.0, abs=0.05)
+    assert session.processed_s == pytest.approx(3.0, abs=0.05)
+
+
+@pytest.mark.slow
+def test_ten_minute_backlog_catches_up_quickly():
+    """Na 10 minuten zonder verbinding komt alles in één keer binnen: is het transcript binnen 2 minuten bij?"""
+    from pathlib import Path
+    from hint_meet.audio import read_wav
+    from hint_meet.phone import PhoneStream, encode_frame
+    wav = Path(__file__).resolve().parent.parent / "examples" / "demo-meeting.wav"
+    if not wav.exists():
+        pytest.skip("examples/demo-meeting.wav ontbreekt (examples/make_demo_audio.py)")
+    one = (np.clip(read_wav(wav).mean(axis=1), -1, 1) * 32767).astype(np.int16)
+    pcm = np.tile(one, -(-600 * 16000 // len(one)))[:600 * 16000]
+    base = time.monotonic() - 1200                 # de stroom begon 20 min geleden: alles is achterstand
+    stream = PhoneStream(7)
+    stream.mono_base = base
+    pipe = FakePipeline()
+    session = LiveSession([], Transcriber(language="en"), pipe)
+    session.transcriber(np.zeros(16000, np.float32), "Unknown")   # model laden telt niet mee
+    for i in range(0, len(pcm), 1600):
+        for b in stream.accept(encode_frame(7, i // 1600, i, pcm[i:i + 1600])):
+            session.q.put(b)
+    t = time.monotonic()
+    session.run(until=lambda: True)
+    took = time.monotonic() - t
+    print(f"\n600 s achterstand verwerkt in {took:.1f} s, {len(session.utterances)} uitspraken")
+    assert session.processed_s == pytest.approx(600, abs=1)
+    assert pipe.calls == 0                         # alles te laat: geen gate, geen Claude
+    assert took < 120                              # gemeten 86 s (M-serie); grens bewust ruim, zie het plan

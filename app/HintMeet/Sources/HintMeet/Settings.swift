@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import HintMeetCore
 
 /// Instellingen: wat in UserDefaults mag (paden, project, apparaten) en de keys via de Keychain.
 @MainActor
@@ -22,6 +23,8 @@ final class Settings: ObservableObject {
     /// Gevoeligheid (0 = minder, 1 = meer, 0,5 = gate.yaml): hints en correcties rechts, onderbouwing links.
     @Published var hintSensitivity: Double { didSet { d.set(hintSensitivity, forKey: "hintSensitivity") } }
     @Published var confirmSensitivity: Double { didSet { d.set(confirmSensitivity, forKey: "confirmSensitivity") } }
+    /// Telefoon-companion toestaan: de gateway luistert dan op het Tailscale-adres (standaard uit).
+    @Published var phoneEnabled: Bool { didSet { d.set(phoneEnabled, forKey: "phoneEnabled") } }
     /// Multilingual eerst, dan alle talen van Whisper alfabetisch (typ in het open menu de eerste letter).
     /// Gelijk aan src/hint_meet/languages.py.
     static let languages: [(code: String, name: String)] = [
@@ -144,6 +147,7 @@ final class Settings: ObservableObject {
         language = d.string(forKey: "language") ?? "nl"
         hintSensitivity = d.object(forKey: "hintSensitivity") as? Double ?? 0.5
         confirmSensitivity = d.object(forKey: "confirmSensitivity") as? Double ?? 0.5
+        phoneEnabled = d.bool(forKey: "phoneEnabled")
     }
 
     /// Voor de lopende meeting (zie "sensitivity" in src/hint_meet/server.py).
@@ -197,7 +201,26 @@ final class Settings: ObservableObject {
         return session.devices.map(\.localizedName).sorted()
     }
 
-    func key(_ name: String) -> String { Keychain.get(name) ?? "" }
+    /// Sleutel van de gekoppelde telefoon (Keychain, los van de ws-token van de overlay). Bestaat er nog geen,
+    /// dan maakt de eerste vraag er een.
+    static let phoneTokenAccount = "phone-token"
+    /// Leeg als de Keychain hem niet kan bewaren: dan komt geen enkele telefoon binnen en is er geen QR.
+    var phoneToken: String {
+        if GatewayTestMode.active { return GatewayTestMode.phoneToken }
+        if let t = Keychain.get(Self.phoneTokenAccount), !t.isEmpty { return t }
+        let t = PhoneAuth.newToken()
+        return Keychain.set(Self.phoneTokenAccount, t) ? t : ""
+    }
+
+    /// Nieuwe koppeling: de oude telefoon komt er niet meer in. nil als de Keychain hem niet bewaarde
+    /// (dan blijft de oude sleutel staan; Keychain.set werkt eerst bij, dus de oude gaat niet verloren).
+    func renewPhoneToken() -> String? {
+        if GatewayTestMode.active { return GatewayTestMode.phoneToken }
+        let t = PhoneAuth.newToken()
+        return Keychain.set(Self.phoneTokenAccount, t) ? t : nil
+    }
+
+    func key(_ name: String) -> String { GatewayTestMode.active ? "" : Keychain.get(name) ?? "" }
     @discardableResult
     func setKey(_ name: String, _ value: String) -> Bool {
         Keychain.set(name, value.trimmingCharacters(in: .whitespacesAndNewlines))

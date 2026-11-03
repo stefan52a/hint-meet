@@ -207,3 +207,11 @@ def test_backlog_keeps_the_whole_meeting_with_the_latest_version_of_each_hint():
     assert [m["id"] for m in msgs if m["type"] == "utterance"] == list(range(300))
     assert [m["text"] for m in msgs if m["type"] == "status"] == ["s299"]
     assert [(m["state"], m["text"]) for m in msgs if m["type"] == "hint"] == [("final", "Rente 3%.")]
+
+
+def test_hub_keeps_only_latest_progress():
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.send(type="progress", heard_s=1, processed_s=1)
+    hub.send(type="utterance", id=0, text="x")
+    hub.send(type="progress", heard_s=2, processed_s=2)
+    assert [json.loads(m)["heard_s"] for m in hub.backlog if '"progress"' in m] == [2]

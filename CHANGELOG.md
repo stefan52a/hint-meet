@@ -4,9 +4,18 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ## 2026-11-03
 
+### Android companion app
+
+- **Record a meeting with your phone while the Mac at home does the work:** the new HintMeet app for Android (in `android/`, install it yourself, see the README) pairs with the QR code from *Settings → Phone*, starts the meeting on the Mac, records with the phone's microphone (also with the screen off) and shows the hints large enough to read with the phone flat on the table. The transcript is in a second tab; the report appears on the phone when the meeting ends and can be shared. If the connection drops, the phone keeps recording and sends the missed audio when it's back (up to 10 minutes); those minutes appear in the transcript without hints. A red banner warns when the connection is gone for more than 30 seconds, the Mac falls more than a minute behind, the battery is low, the Mac stopped unexpectedly or the microphone hears nothing. Stop waits for the last seconds of audio. Closed by accident? Reopen it and it continues with the same meeting.
+
 ### App
 
 - **No more 1Password integration:** HintMeet reads the API keys from *Settings → API-keys* or from a normal `.env` file in the project folder. The special handling for a `.env` delivered by 1Password (Environments) is gone, and so are its messages. A `.env` that isn't a regular file (like the 1Password pipe) is now skipped, so HintMeet never waits on it. If you used 1Password for this, put the keys in *Settings → API-keys* or in a regular `.env`.
+- **Phone companion:** *Settings → Phone → Allow phone companion* lets the Android app start and stop meetings on this Mac over Tailscale, send the audio and get the hints and the report. HintMeet only listens on the Mac's Tailscale address and only lets in the phone with the key from the QR code in that section; with the switch off (the default) nothing listens. *New pairing…* makes a new key, and the old phone stops working at once. While the switch is on and the Mac is on power, the Mac doesn't go to sleep. See *Phone companion* in the README.
+
+### Command line
+
+- **The pipeline can take audio from a phone** (groundwork for the coming Android companion): `hint-meet live --phone-port PORT --phone-meeting ID` listens on localhost instead of the microphone. Audio that arrives late after a dropout lands at the right moment in the transcript, without hints. *Stop* from the phone waits up to a minute for its last seconds of audio, so the end of the conversation isn't cut off. With no audio from the phone for 30 minutes, the meeting stops by itself and the report is still written; the meeting info records whether you or the timeout stopped it. Try it without a phone with `tools/phone_client.py`.
 
 ## 2026-11-02
 

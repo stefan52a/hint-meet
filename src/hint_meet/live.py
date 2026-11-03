@@ -267,6 +267,19 @@ class LiveSession:
         self.save_lock = threading.Lock()   # spraakdraad (uitspraak) en server (hernoemen) schrijven allebei
         self.add_lock = threading.Lock()
         self.finished = False   # run() is klaar: de pijplijn wordt gesloten, niets getypts meer aannemen
+        # samples per kanaal: uit de wachtrij gehaald, en door segmenter + spraakherkenning (zelfde draad)
+        self._heard: dict[str, int] = {}
+        self._processed: dict[str, int] = {}
+
+    @property
+    def heard_s(self) -> float:
+        """Seconden audio uit de wachtrij gehaald (het langste kanaal)."""
+        return max(dict(self._heard).values(), default=0) / RATE   # kopie: andere draden lezen mee
+
+    @property
+    def processed_s(self) -> float:
+        """Seconden audio door segmenter en spraakherkenning: zo ver is het transcript."""
+        return max(dict(self._processed).values(), default=0) / RATE
 
     def _segmenter(self, label: str) -> Segmenter:
         if label not in self.segmenters:
@@ -292,6 +305,8 @@ class LiveSession:
                         if until and until() and self.q.empty():
                             break
                         continue
+                    n = len(block.samples)
+                    self._heard[block.channel] = self._heard.get(block.channel, 0) + n
                     if self.recorder:
                         self.recorder.add(block)
                     buf = np.concatenate([pending.get(block.channel, np.zeros(0, np.float32)), block.samples])
@@ -301,6 +316,7 @@ class LiveSession:
                             self._handle(segment, ready_at=block.t)
                         buf = buf[FRAME:]
                     pending[block.channel] = buf
+                    self._processed[block.channel] = self._processed.get(block.channel, 0) + n
             except KeyboardInterrupt:
                 interrupted = True
             finally:

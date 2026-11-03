@@ -31,3 +31,15 @@ enum Instance {
         return 1   // geen slot te krijgen: gewoon als eerste instantie verder
     }
 }
+
+/// Testmodus voor de telefoon-gateway op deze Mac zonder Tailscale (HINT_MEET_GATEWAY_HOST=127.0.0.1): de gateway
+/// luistert op 127.0.0.1, de Keychain blijft dicht (geen dialoog bij een ongetekende build; geen items die de echte
+/// app daarna niet kan lezen) en de telefoon-sleutel komt uit HINT_MEET_PHONE_TOKEN.
+enum GatewayTestMode {
+    static let host: String? = {
+        let h = ProcessInfo.processInfo.environment["HINT_MEET_GATEWAY_HOST"]
+        return h == "127.0.0.1" ? h : nil
+    }()
+    static var active: Bool { host != nil }
+    static var phoneToken: String { ProcessInfo.processInfo.environment["HINT_MEET_PHONE_TOKEN"] ?? "" }
+}
