@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gloeilamp zoals op het Mac-icoon, zelf getekend (het SF Symbol van de Mac mag niet buiten Apple-platforms).
+     Binnen de veilige zone van 66 dp in het midden, zodat elke launcher-vorm hem heel laat. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFD640"
+        android:pathData="M46,63.5 C46,57.5 38,53 38,41 A16,16 0 1,1 70,41 C70,53 62,57.5 62,63.5 Z" />
+    <path android:fillColor="#FFFFD640"
+        android:pathData="M46,66.8 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
+    <path android:fillColor="#FFFFD640"
+        android:pathData="M46,72 h16 a1.7,1.7 0 0,1 0,3.4 h-16 a1.7,1.7 0 0,1 0,-3.4 z" />
+    <path android:fillColor="#FFFFD640"
+        android:pathData="M47,77.2 h14 a7,4.8 0 0,1 -14,0 z" />
+</vector>
