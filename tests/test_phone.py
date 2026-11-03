@@ -273,7 +273,18 @@ def demo_speech(seconds):
     return pcm[:int(16000 * seconds)]
 
 
-def test_stop_keeps_the_last_seconds():
+class EnergyVAD:
+    """Zonder onnxruntime in de snelle tests (dat breekt soms af bij het afsluiten van Python)."""
+    def reset(self):
+        pass
+
+    def __call__(self, frame):
+        return 1.0 if float(np.abs(frame).mean()) > 0.01 else 0.0
+
+
+def test_stop_keeps_the_last_seconds(monkeypatch):
+    import hint_meet.live
+    monkeypatch.setattr(hint_meet.live, "SileroVAD", EnergyVAD)
     seen = []
 
     def transcriber(audio, channel=None):

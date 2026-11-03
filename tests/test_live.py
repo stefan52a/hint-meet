@@ -564,7 +564,9 @@ def test_to_mp3_keeps_wav_when_ffmpeg_fails(tmp_path, monkeypatch):
     assert to_mp3(wav) is None and wav.exists() and not list(tmp_path.glob("*.mp3*"))
 
 
-def test_progress_tracks_heard_and_processed_audio(tmp_path):
+def test_progress_tracks_heard_and_processed_audio(tmp_path, monkeypatch):
+    import hint_meet.live
+    monkeypatch.setattr(hint_meet.live, "SileroVAD", lambda: (lambda frame: 0.0))   # geen onnxruntime nodig
     write_wav(tmp_path / "s.wav", channels=1, seconds=3.0)
     src = WavSource(tmp_path / "s.wav", ["Unknown"], speed=100)
     session = LiveSession([src], transcriber=lambda audio, speaker=None: ("", 1.0), pipeline=FakePipeline())
