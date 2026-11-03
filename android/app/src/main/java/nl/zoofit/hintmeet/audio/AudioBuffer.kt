@@ -10,9 +10,12 @@ class AudioBuffer(private val capacitySamples: Int = 9_600_000) {
 
     @Synchronized
     fun append(offset: Long, pcm: ShortArray) {
-        if (pcm.isEmpty()) return
-        frames.addLast(offset to pcm)
-        total += pcm.size
+        // al bevestigd: niet opnieuw bewaren; deels bevestigd: alleen het nieuwe stuk
+        val skip = (acked - offset).coerceIn(0, pcm.size.toLong()).toInt()
+        if (skip == pcm.size) return
+        // altijd een kopie: AudioRecord hergebruikt zijn leesbuffer
+        frames.addLast(offset + skip to pcm.copyOfRange(skip, pcm.size))
+        total += pcm.size - skip
         while (total > capacitySamples && frames.isNotEmpty()) {
             val (o, p) = frames.removeFirst()
             total -= p.size

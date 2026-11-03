@@ -48,4 +48,19 @@ class AudioBufferTest {
         assertEquals(listOf(0L..3199L), b.dropped)
         assertTrue(b.droppedSeconds > 0.19)
     }
+
+    @Test fun appendCopiesTheCallersArray() {
+        val b = AudioBuffer()
+        val reused = frame(v = 7)
+        b.append(0, reused)
+        reused.fill(0)                                   // AudioRecord leest de volgende keer in hetzelfde array
+        assertEquals(7.toShort(), b.unacked().first().second[0])
+    }
+
+    @Test fun audioBelowTheAckIsNotStoredAgain() {
+        val b = AudioBuffer()
+        b.append(0, frame()); b.ack(1600)
+        b.append(800, frame())                           // half al bevestigd
+        assertEquals(listOf(1600L to 800), b.unacked().map { it.first to it.second.size }.toList())
+    }
 }
