@@ -35,8 +35,10 @@ final class Playback: ObservableObject {
         }
         endWatch = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.playing = false } }
-        Task { [weak self] in   // de lengte alvast, voor de schuifbalk
-            if let d = try? await item.asset.load(.duration).seconds, d.isFinite { self?.duration = d }
+        Task { [weak self] in   // de lengte alvast, voor de schuifbalk; alleen als dit nog de geladen opname is
+            if let d = try? await item.asset.load(.duration).seconds, d.isFinite, self?.loadedPath == path {
+                self?.duration = d
+            }
         }
     }
 
@@ -96,6 +98,10 @@ struct PlaybackBar: View {
     let path: String
 
     var body: some View {
+        if FileManager.default.fileExists(atPath: path) { controls }   // opname weg (verplaatst): geen speler
+    }
+
+    private var controls: some View {
         HStack(spacing: 8) {
             Button {
                 playback.load(path)
