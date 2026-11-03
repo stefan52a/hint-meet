@@ -11,6 +11,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### App
 
+- **macOS remembers the microphone permission after a new build:** run `app/make-signing-cert.sh` once; it puts a signing certificate of your own in your keychain, and `app/build-app.sh` signs HintMeet with it from then on. Before, every build was signed ad hoc, macOS saw it as a new app and asked for the microphone again. After the first build with the certificate it asks one more time, then never again.
 - **No more 1Password integration:** HintMeet reads the API keys from *Settings → API-keys* or from a normal `.env` file in the project folder. The special handling for a `.env` delivered by 1Password (Environments) is gone, and so are its messages. A `.env` that isn't a regular file (like the 1Password pipe) is now skipped, so HintMeet never waits on it. If you used 1Password for this, put the keys in *Settings → API-keys* or in a regular `.env`.
 - **Phone companion:** *Settings → Phone → Allow phone companion* lets the Android app start and stop meetings on this Mac over Tailscale, send the audio and get the hints and the report. HintMeet only listens on the Mac's Tailscale address and only lets in the phone with the key from the QR code in that section; with the switch off (the default) nothing listens. *New pairing…* makes a new key, and the old phone stops working at once. While the switch is on and the Mac is on power, the Mac doesn't go to sleep. See *Phone companion* in the README.
 

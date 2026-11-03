@@ -33,8 +33,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 # via plutil, zodat tekens als & of < in het pad de plist niet breken
 plutil -insert HintMeetRepo -string "$REPO" "$APP/Contents/Info.plist"
-# ad-hoc ondertekenen: nodig voor microfoontoestemming; Developer ID en notarisatie volgen later
-codesign --force --deep --sign - "$APP"
+# ondertekenen: met het eigen certificaat (app/make-signing-cert.sh) als dat er is, zodat macOS de
+# microfoontoestemming na een nieuwe build onthoudt; anders ad-hoc (dan vraagt macOS na elke build opnieuw).
+# Developer ID en notarisatie volgen later.
+SIGN_ID="HintMeet Local Signing"
+if security find-certificate -c "$SIGN_ID" >/dev/null 2>&1; then
+  codesign --force --deep --sign "$SIGN_ID" "$APP"
+else
+  codesign --force --deep --sign - "$APP"
+  echo "Let op: ad-hoc ondertekend. Draai eenmalig app/make-signing-cert.sh, dan vraagt macOS niet na elke build opnieuw om de microfoon."
+fi
 echo "Gebouwd: $(cd ../build && pwd)/HintMeet.app"
 
 # installeren: een draaiende HintMeet blijft draaien; Herstarten in het 💡-menu pakt de nieuwe versie op
