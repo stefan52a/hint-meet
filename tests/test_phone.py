@@ -185,9 +185,19 @@ def test_connection_after_stop_is_refused():
     with src.lock:
         src._stopped.set()          # stop() is bezig, de server nog niet dicht
     with connect(url(src)) as ws:
-        assert json.loads(ws.recv(timeout=2))["type"] == "audio_ready"
-        with pytest.raises(Exception) as e:
+        with pytest.raises(Exception) as e:     # geen audio_ready, meteen dicht
             ws.recv(timeout=2)
         assert e.value.rcvd.code == 1001
     assert src._ws is None
     src.stop()
+
+
+def test_ready_comes_before_any_ack(source):
+    src, q = source
+    with connect(url(src)) as a:
+        a.recv(timeout=2)
+        a.send(encode_frame(7, 0, 0, tone(1600)))
+        q.get(timeout=2)
+        for _ in range(5):                      # reconnects terwijl de ack-draad elke seconde stuurt
+            with connect(url(src)) as b:
+                assert json.loads(b.recv(timeout=2))["type"] == "audio_ready"

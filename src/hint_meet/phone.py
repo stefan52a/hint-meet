@@ -139,12 +139,15 @@ class PhoneSource:
             print("Telefoon geweigerd (verkeerde sleutel of browser)", file=sys.stderr)
             ws.close(code=1008, reason="geen toegang")
             return
-        self._send(ws, type="audio_ready")   # eerst ready, pas daarna ziet de ack-draad deze verbinding
+        if not self._stopped.is_set():
+            self._send(ws, type="audio_ready")   # eerst ready, pas daarna ziet de ack-draad deze verbinding
         with self.lock:
-            if self._stopped.is_set():       # stop() liep al: niet meer aannemen
-                ws.close(code=1001, reason="meeting gestopt")
-                return
-            old, self._ws = self._ws, ws
+            stopped = self._stopped.is_set()     # stop() liep al: niet meer aannemen
+            if not stopped:
+                old, self._ws = self._ws, ws
+        if stopped:                              # sluiten buiten het slot: close() wacht op de handshake
+            ws.close(code=1001, reason="meeting gestopt")
+            return
         if old is not None:
             try:
                 old.close(code=1000, reason="vervangen door een nieuwe verbinding")
