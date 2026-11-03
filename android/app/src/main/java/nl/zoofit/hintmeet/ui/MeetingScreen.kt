@@ -39,7 +39,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import nl.zoofit.hintmeet.health.Alarm
 import nl.zoofit.hintmeet.protocol.MeetingUi
+import nl.zoofit.hintmeet.session.Liveness
 import nl.zoofit.hintmeet.protocol.Phase
 
 /** Scherm aan zolang de meeting loopt (de telefoon ligt op tafel). */
@@ -57,6 +59,8 @@ fun MeetingScreen(
     meeting: MeetingUi,
     connected: Boolean,
     startedAtMs: Long?,
+    liveness: Liveness?,
+    alarms: Set<Alarm>,
     feedback: (Int, Int) -> Unit,
     stop: () -> Unit,
 ) {
@@ -64,7 +68,8 @@ fun MeetingScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var confirmStop by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        StatusBar(connected, startedAtMs, meeting.status, stopping = meeting.phase == Phase.STOPPING)
+        StatusBar(connected, startedAtMs, meeting.status, stopping = meeting.phase == Phase.STOPPING,
+                  liveness = liveness, alarms = alarms)
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hints") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Transcript") })

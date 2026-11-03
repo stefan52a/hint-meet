@@ -1,6 +1,12 @@
 package nl.zoofit.hintmeet.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,12 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import nl.zoofit.hintmeet.health.Alarm
+import nl.zoofit.hintmeet.session.Liveness
 
 /** Bovenbalk tijdens de meeting: REC met de tijd, verbinding met de Mac, en wat de Mac doet.
  *  De gezondheid van de opname (Task 11) komt er later bij. */
 @Composable
 fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, stopping: Boolean = false,
-              modifier: Modifier = Modifier) {
+              liveness: Liveness? = null, alarms: Set<Alarm> = emptySet(), modifier: Modifier = Modifier) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -37,6 +45,33 @@ fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, stopping:
         ConnectionDot(connected)
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1,
                            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    liveness?.let { l ->   // drie stippen: neemt op · Mac ontvangt · Mac verwerkt
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Dot("Recording", l.capturedAgoS, okWithin = 3)
+            Dot("Mac received", l.ackedAgoS, okWithin = 5)
+            Dot("Transcribed", l.processedAgoS, okWithin = 90)
+        }
+    }
+    if (alarms.isNotEmpty()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+                   .background(Color(0xFFB71C1C), RoundedCornerShape(8.dp)).padding(12.dp)) {
+            alarms.forEach { Text(it.text, color = Color.White, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
+
+@Composable
+private fun Dot(label: String, agoS: Long?, okWithin: Long) {
+    val color = when {
+        agoS == null -> Color(0xFF616161)
+        agoS <= okWithin -> Color(0xFF4CAF50)
+        else -> Color(0xFFFFA000)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).background(color, CircleShape))
+        Text(" $label" + (agoS?.let { if (it > okWithin) " ${it}s ago" else "" } ?: ""),
+             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

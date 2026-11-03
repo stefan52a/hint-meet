@@ -1,5 +1,9 @@
 package nl.zoofit.hintmeet.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +65,14 @@ fun StartScreen(
     var language by rememberSaveable { mutableStateOf("nl") }
     var info by rememberSaveable { mutableStateOf("") }
     var languageMenu by remember { mutableStateOf(false) }
+    var micRefused by remember { mutableStateOf(false) }
+    // microfoon (en meldingen voor de opname) pas vragen bij Start: dan is duidelijk waarvoor
+    val askPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.RECORD_AUDIO] == true) {
+            micRefused = false
+            start(chosen, language, info.trim())
+        } else micRefused = true
+    }
     LaunchedEffect(projects) {   // eerste keer: wat op de Mac gekozen is
         if (chosen.isEmpty() && projects != null) chosen = projects.selected.filter { it in projects.items }
     }
@@ -97,10 +109,18 @@ fun StartScreen(
         OutlinedTextField(value = info, onValueChange = { info = it }, label = { Text("With whom, where") },
                           singleLine = true, modifier = Modifier.fillMaxWidth())
 
-        Button(onClick = { start(chosen, language, info.trim()) },
+        Button(onClick = {
+                   val wanted = buildList {
+                       add(Manifest.permission.RECORD_AUDIO)
+                       if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                   }
+                   askPermissions.launch(wanted.toTypedArray())
+               },
                enabled = connected && chosen.isNotEmpty() && !busy && !starting,
                modifier = Modifier.fillMaxWidth()) { Text(if (starting) "Starting…" else "Start Meeting") }
         if (starting) Text(meeting.status ?: "Starting the pipeline on the Mac…", style = MaterialTheme.typography.bodyMedium)
+        if (micRefused) Text("HintMeet needs the microphone to record the meeting (Android settings → Apps → HintMeet).",
+                             color = MaterialTheme.colorScheme.error)
 
         Spacer(Modifier.size(24.dp))
         TextButton(onClick = unpair) { Text("Unpair this phone") }

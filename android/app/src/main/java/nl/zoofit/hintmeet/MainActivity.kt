@@ -63,6 +63,8 @@ fun App(vm: AppViewModel) {
     val meeting by vm.meeting.collectAsStateWithLifecycle()
     val pending by vm.pendingPairing.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val alarms by vm.alarms.collectAsStateWithLifecycle()
+    val liveness by vm.liveness.collectAsStateWithLifecycle()
     pending?.let { p ->
         AlertDialog(
             onDismissRequest = { vm.confirmPairing(p, false) },
@@ -80,7 +82,7 @@ fun App(vm: AppViewModel) {
     when {
         pairing == null -> PairingScreen(vm::pair)
         meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING ->
-            MeetingScreen(meeting, connected, gateway?.startedAtMs, vm::feedback) { vm.stop() }
+            MeetingScreen(meeting, connected, gateway?.startedAtMs, liveness, alarms, vm::feedback) { vm.stop() }
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         else -> StartScreen(connected, gateway, projects, meeting, vm::start, vm::unpair)
     }
