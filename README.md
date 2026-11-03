@@ -150,8 +150,8 @@ hint-meet/
 pip install -e ".[kb-prep,dev]"
 pytest                      # fast tests
 pytest -m slow              # with the real speech model (minutes)
-cd app/HintMeet && swift run GatewayChecks   # the app's phone gateway logic (no Xcode needed)
-cd android && ./gradlew testDebugUnitTest    # the Android app's logic (protocol, buffer, alarms, pairing)
+(cd app/HintMeet && swift run GatewayChecks)   # the app's phone gateway logic (no Xcode needed)
+(cd android && ./gradlew testDebugUnitTest)    # the Android app's logic (protocol, buffer, alarms, pairing)
 ```
 
 ## Installation
@@ -169,7 +169,7 @@ cp .env.example .env        # fill in keys and paths
 
 HintMeet is a single-user setup: the app runs from this repository on your own Mac, the Android app is installed by hand. There is no App Store, Play Store or server.
 
-**The Mac app.** `app/build-app.sh` builds `app/build/HintMeet.app`, signs it and copies it to `~/Applications`. The app remembers where this repository is (written into the app at build time) and starts the pipeline from `.venv` here; build again after moving the repository, and always build from the main checkout, not from a git worktree. A running HintMeet keeps running; *Restart HintMeet* (⌘R) switches to the new build. Signing: with the certificate from `app/make-signing-cert.sh` (once) macOS recognizes the app across builds and asks for the microphone only once; without it the app is signed ad hoc and macOS asks again after every build. Developer ID signing and notarization aren't set up yet, so the app isn't meant to be handed to other Macs.
+**The Mac app.** `app/build-app.sh` builds `app/build/HintMeet.app`, signs it and copies it to `~/Applications`. The app remembers where this repository is (written into the app at build time) and starts the pipeline from `.venv` here; build again after moving the repository, and always build from the main checkout, not from a git worktree. A running HintMeet keeps running; *Restart HintMeet* (⌘R) switches to the new build. Signing: with the certificate from `app/make-signing-cert.sh` (once) macOS recognizes the app across builds, so it should ask for the microphone only after the first build with the certificate; without it the app is signed ad hoc and macOS asks again after every build. Developer ID signing and notarization aren't set up yet, so the app isn't meant to be handed to other Macs.
 
 **Where things are.** API keys: the Keychain (*Settings → API-keys*), or `.env` for the command line. Knowledge bases: `KB_ROOT` (default `~/KB_md/<project>`). Reports: `<KB>/meetings/`. Transcripts and meeting audio: `logs/` in this repository. Pipeline log: `~/Library/Logs/HintMeet/backend.log`.
 
