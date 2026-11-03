@@ -1,4 +1,4 @@
-// Tekent het app-icoon (gloeilamp op een rond vierkant) als iconset; build-app.sh maakt er AppIcon.icns van.
+// Tekent het app-icoon (gloeilamp op een rond vierkant, zelfde vormen als het Android-icoon) als iconset; build-app.sh maakt er AppIcon.icns van.
 // Gebruik: swift make-icon.swift <uitvoer.iconset>
 import AppKit
 
@@ -19,14 +19,28 @@ func render(_ px: Int) -> Data {
     NSGradient(starting: NSColor(calibratedRed: 0.16, green: 0.36, blue: 0.85, alpha: 1),
                ending: NSColor(calibratedRed: 0.36, green: 0.68, blue: 0.98, alpha: 1))!.draw(in: shape, angle: 90)
 
-    let config = NSImage.SymbolConfiguration(pointSize: tile.height * 0.55, weight: .regular)
-        .applying(.init(paletteColors: [NSColor(calibratedRed: 1, green: 0.84, blue: 0.25, alpha: 1)]))
-    if let bulb = NSImage(systemSymbolName: "lightbulb.fill", accessibilityDescription: nil)?
-        .withSymbolConfiguration(config) {
-        let size = bulb.size
-        bulb.draw(in: NSRect(x: tile.midX - size.width / 2, y: tile.midY - size.height / 2,
-                             width: size.width, height: size.height))
+    // gloeilamp zelf getekend (geen SF Symbol: dat mag niet in een app-icoon), dezelfde vormen als het
+    // Android-icoon (android/app/src/main/res/drawable/ic_launcher_foreground.xml): een raster van 108 eenheden
+    // over het vlak, y naar beneden zoals daar
+    let bulb = CGMutablePath()
+    bulb.move(to: CGPoint(x: 46, y: 63.5))
+    bulb.addCurve(to: CGPoint(x: 38, y: 41), control1: CGPoint(x: 46, y: 57.5), control2: CGPoint(x: 38, y: 53))
+    bulb.addArc(center: CGPoint(x: 54, y: 41), radius: 16, startAngle: .pi, endAngle: 2 * .pi, clockwise: false)
+    bulb.addCurve(to: CGPoint(x: 62, y: 63.5), control1: CGPoint(x: 70, y: 53), control2: CGPoint(x: 62, y: 57.5))
+    bulb.closeSubpath()
+    for y in [66.8, 72.0] {   // twee ringen van de fitting
+        bulb.addRoundedRect(in: CGRect(x: 44.3, y: y, width: 19.4, height: 3.4), cornerWidth: 1.7, cornerHeight: 1.7)
     }
+    bulb.move(to: CGPoint(x: 61, y: 77.2))   // het dopje: halve ellips onderaan
+    bulb.addArc(center: .zero, radius: 1, startAngle: 0, endAngle: .pi, clockwise: false,
+                transform: CGAffineTransform(translationX: 54, y: 77.2).scaledBy(x: 7, y: 4.8))
+    bulb.closeSubpath()
+    let toTile = CGAffineTransform(translationX: tile.minX, y: tile.maxY)
+        .scaledBy(x: tile.width / 108, y: -tile.height / 108)
+    let ctx = NSGraphicsContext.current!.cgContext
+    ctx.addPath(bulb.copy(using: [toTile])!)
+    ctx.setFillColor(NSColor(calibratedRed: 1, green: 0.84, blue: 0.25, alpha: 1).cgColor)
+    ctx.fillPath()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }
