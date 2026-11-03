@@ -255,8 +255,10 @@ final class Settings: ObservableObject {
             guard let eq = line.firstIndex(of: "=") else { continue }
             guard line[..<eq].trimmingCharacters(in: .whitespaces) == name else { continue }
             var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-            if value.count >= 2, let q = value.first, q == "\"" || q == "'", value.last == q {
-                value = String(value.dropFirst().dropLast())
+            if let q = value.first, q == "\"" || q == "'" {
+                // tussen aanhalingstekens: tot het sluitende teken, een opmerking erachter telt niet mee
+                let rest = value.dropFirst()
+                value = rest.firstIndex(of: q).map { String(rest[..<$0]) } ?? String(rest)
             } else if let hash = value.range(of: " #") {   // KEY=waarde  # opmerking (zoals python-dotenv)
                 value = value[..<hash.lowerBound].trimmingCharacters(in: .whitespaces)
             }
