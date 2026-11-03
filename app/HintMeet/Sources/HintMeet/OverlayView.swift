@@ -534,7 +534,7 @@ struct HintCard: View {
         VStack(alignment: .leading, spacing: 8) {
             // wat je kunt zeggen: groot, met een accentbalk ervoor zodat het in één blik te vinden is
             Text(HintCard.bullets(hint.text) + (hint.state == .streaming ? " …" : ""))
-                .font(.system(size: 16, weight: hint.state == .final ? .semibold : .regular))
+                .font(.callout.weight(hint.state == .final ? .semibold : .regular))   // zelfde maat als het transcript
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
