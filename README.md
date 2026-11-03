@@ -2,6 +2,20 @@
 
 HintMeet is a meeting copilot for the Mac. It listens along during a conversation, recognizes the moment you need something from your own files, and within a few seconds puts a short hint on your screen: 1 to 4 bullet points, with the source. Afterwards it writes a report with action items.
 
+## Quick install
+
+On a Mac with Apple Silicon, Python 3.11+, the Xcode Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh):
+
+```bash
+git clone git@github.com:stefan52a/hint-meet.git && cd hint-meet
+python3 -m venv .venv && .venv/bin/pip install -e ".[kb-prep]"
+brew install tesseract tesseract-lang ffmpeg          # OCR of scans, MP3 of the meeting audio
+app/make-signing-cert.sh                              # once: macOS then keeps the microphone permission
+app/build-app.sh                                      # builds HintMeet.app and installs it in ~/Applications
+```
+
+Open HintMeet (Spotlight), put your Claude and Jev keys in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
+
 **What it's for.** Conversations where details from a large dossier matter: with a tax advisor, notary, bank, buyer or shareholder. Someone mentions an amount, date or agreement that isn't right, or asks a question whose answer is somewhere in your documents. HintMeet finds that document and briefly says what actually applies, so you don't have to search or guess.
 
 **How to use it.**
@@ -37,20 +51,6 @@ Speech recognition (Whisper via MLX), the knowledge base and search run locally.
 Conversations can be in any of the 100 languages Whisper knows (Dutch, English, German, French, Spanish, Chinese, …), or multilingual (language recognized per speaker). Hints and the report follow the language of the conversation.
 
 > Status: working prototype (Python pipeline + macOS app + Android companion). Changes per day are in [CHANGELOG.md](CHANGELOG.md).
-
-## Quick install
-
-On a Mac with Apple Silicon, Python 3.11+, the Xcode Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh):
-
-```bash
-git clone git@github.com:stefan52a/hint-meet.git && cd hint-meet
-python3 -m venv .venv && .venv/bin/pip install -e ".[kb-prep]"
-brew install tesseract tesseract-lang ffmpeg          # OCR of scans, MP3 of the meeting audio
-app/make-signing-cert.sh                              # once: macOS then keeps the microphone permission
-app/build-app.sh                                      # builds HintMeet.app and installs it in ~/Applications
-```
-
-Open HintMeet (Spotlight), put your Claude and Jev keys in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
 
 ## How it works
 
