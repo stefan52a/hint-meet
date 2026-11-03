@@ -46,10 +46,9 @@ private struct PhoneGatewayView: View {
                 HStack {
                     Spacer()
                     if let image = QRCode.image(url, side: 200) {
-                        Image(nsImage: image)
+                        Image(nsImage: image)   // op eigen maat: hele pixels per module, niet bijgeschaald
                             .interpolation(.none)
-                            .resizable()
-                            .frame(width: 200, height: 200)
+                            .frame(width: image.size.width, height: image.size.height)
                             .accessibilityLabel("Pairing QR code")
                     }
                     Spacer()
