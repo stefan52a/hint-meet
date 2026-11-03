@@ -39,7 +39,7 @@ func render(_ px: Int) -> Data {
     let shrink = CGAffineTransform(translationX: 54, y: 22).scaledBy(x: 0.8, y: 0.8).translatedBy(x: -54, y: -22)
     let mark = CGMutablePath()
     mark.addPath(bulb, transform: shrink)
-    mark.addEllipse(in: CGRect(x: 49.5, y: 74.5, width: 9, height: 9))
+    mark.addEllipse(in: CGRect(x: 48, y: 74, width: 12, height: 12))
     let toTile = CGAffineTransform(translationX: tile.minX, y: tile.maxY)
         .scaledBy(x: tile.width / 108, y: -tile.height / 108)
     let ctx = NSGraphicsContext.current!.cgContext
