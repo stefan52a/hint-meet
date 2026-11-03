@@ -257,6 +257,8 @@ final class Settings: ObservableObject {
             var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
             if value.count >= 2, let q = value.first, q == "\"" || q == "'", value.last == q {
                 value = String(value.dropFirst().dropLast())
+            } else if let hash = value.range(of: " #") {   // KEY=waarde  # opmerking (zoals python-dotenv)
+                value = value[..<hash.lowerBound].trimmingCharacters(in: .whitespaces)
             }
             return value.isEmpty ? nil : value
         }
