@@ -16,6 +16,8 @@ app/build-app.sh                                      # builds HintMeet.app and 
 
 Open HintMeet (Spotlight), put your Claude and Jev keys in *Settings → API-keys*, choose a folder with documents (*Add Folder…*), and start a meeting. For online meetings (Teams, Zoom, Meet) also install BlackHole, see [Installation](#installation). For the phone app, see [Deployment](#deployment).
 
+## What it does
+
 **What it's for.** Conversations where details from a large dossier matter: with a tax advisor, notary, bank, buyer or shareholder. Someone mentions an amount, date or agreement that isn't right, or asks a question whose answer is somewhere in your documents. HintMeet finds that document and briefly says what actually applies, so you don't have to search or guess.
 
 **How to use it.**
