@@ -162,6 +162,9 @@ def via_gateway(a, pcm) -> int:
     if not wait(lambda g: g["state"] is not None, 5):
         print("geen state van de gateway", file=sys.stderr)
         return 1
+    if got["state"]["phase"] != "idle":   # niet in een lopende meeting (van de Mac of een andere telefoon) praten
+        print(f"de Mac is bezig ({got['state']['phase']}); niets gestart", file=sys.stderr)
+        return 1
     ws.send(json.dumps({"type": "start", "request_id": uuid.uuid4().hex, "projects": a.start.split(","),
                         "language": a.language, "info": "phone_client"}))
     if not wait(lambda g: g["ready"] is not None, 120):

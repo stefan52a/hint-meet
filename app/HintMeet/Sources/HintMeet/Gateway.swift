@@ -197,6 +197,7 @@ final class Gateway: ObservableObject {
                     case .ready:
                         self.listening = "\(address):\(Self.port)"
                         self.problem = nil
+                        self.refreshDNSName()
                     case .failed(let error):
                         self.problem = "Couldn't listen on \(address):\(Self.port): \(error.localizedDescription)"
                         self.unbind()   // volgende ronde opnieuw proberen
@@ -230,35 +231,52 @@ final class Gateway: ObservableObject {
 
     /// Inhoud van de koppel-QR. Met de MagicDNS-naam als die er is: die blijft gelijk als het adres wisselt.
     func pairingURL() -> String? {
-        guard let host = magicDNSName() ?? bound else { return nil }
-        return Pairing.url(host: host, port: Int(Self.port), token: settings.phoneToken)
+        let token = settings.phoneToken
+        guard !token.isEmpty, let host = magicDNSName() ?? bound else { return nil }
+        return Pairing.url(host: host, port: Int(Self.port), token: token)
     }
 
     /// Nieuwe sleutel: de oude telefoon komt er niet meer in, en open verbindingen gaan meteen dicht.
+    /// Kan de Keychain de nieuwe sleutel niet bewaren, dan blijft de oude geldig en geeft dit nil.
     @discardableResult
     func newPairing() -> String? {
-        settings.renewPhoneToken()
+        guard settings.renewPhoneToken() != nil else {
+            problem = "Couldn't save a new phone key in the Keychain"
+            return nil
+        }
         closeAllPhones()
         return pairingURL()
     }
 
-    private func magicDNSName() -> String? {
-        if testHost != nil { return nil }
-        if let dnsName { return dnsName }
+    /// Uit de cache; refreshDNSName() vult hem op de achtergrond (een vastgelopen tailscale mag de app niet ophouden).
+    private func magicDNSName() -> String? { testHost == nil ? dnsName : nil }
+
+    private func refreshDNSName() {
+        guard testHost == nil else { return }
         let candidates = ["/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
                           "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]
-        guard let cli = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: cli)
-        p.arguments = ["status", "--json"]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        dnsName = Tailnet.dnsName(fromStatusJSON: data)
-        return dnsName
+        guard let cli = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: cli)
+            p.arguments = ["status", "--json"]
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return }
+            let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: killer)   // hooguit 5 s
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            killer.cancel()
+            let name = Tailnet.dnsName(fromStatusJSON: data)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if self.dnsName != name { self.dnsName = name; self.objectWillChange.send() }
+                }
+            }
+        }
     }
 
     // MARK: telefoons
@@ -298,7 +316,9 @@ final class Gateway: ObservableObject {
 
     private func joined(_ link: PhoneLink) {
         let id = ObjectIdentifier(link)
-        phones[id] = link
+        // één telefoon tegelijk: de nieuwste wint (de oude verbinding is meestal half-open na een netwerkwissel)
+        for (other, old) in phones where other != id { old.close() }
+        phones = [id: link]
         link.receive(onText: { [weak self, weak link] text in
             guard let self, let link else { return }
             self.handle(text, from: link)
@@ -337,7 +357,6 @@ final class Gateway: ObservableObject {
             link.send(state().json())
             return
         }
-        seenRequests = Array((seenRequests + [requestID]).suffix(50))
         let known = Set(settings.projects)
         guard projects.allSatisfy(known.contains) else {
             sendStatus("Unknown project: \(projects.filter { !known.contains($0) }.joined(separator: ", "))", to: link)
@@ -350,6 +369,7 @@ final class Gateway: ObservableObject {
         last = nil
         backend.start(phone: .init(meeting: id, projects: projects, language: language, info: info))
         if backend.isRunning {
+            seenRequests = Array((seenRequests + [requestID]).suffix(50))   // pas na een geslaagde start
             startUpstreams()
         } else {
             meeting = nil

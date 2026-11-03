@@ -204,21 +204,20 @@ final class Settings: ObservableObject {
     /// Sleutel van de gekoppelde telefoon (Keychain, los van de ws-token van de overlay). Bestaat er nog geen,
     /// dan maakt de eerste vraag er een.
     static let phoneTokenAccount = "phone-token"
+    /// Leeg als de Keychain hem niet kan bewaren: dan komt geen enkele telefoon binnen en is er geen QR.
     var phoneToken: String {
         if GatewayTestMode.active { return GatewayTestMode.phoneToken }
         if let t = Keychain.get(Self.phoneTokenAccount), !t.isEmpty { return t }
         let t = PhoneAuth.newToken()
-        Keychain.set(Self.phoneTokenAccount, t)
-        return t
+        return Keychain.set(Self.phoneTokenAccount, t) ? t : ""
     }
 
-    /// Nieuwe koppeling: de oude telefoon komt er niet meer in.
-    @discardableResult
-    func renewPhoneToken() -> String {
+    /// Nieuwe koppeling: de oude telefoon komt er niet meer in. nil als de Keychain hem niet bewaarde
+    /// (dan blijft de oude sleutel staan; Keychain.set werkt eerst bij, dus de oude gaat niet verloren).
+    func renewPhoneToken() -> String? {
         if GatewayTestMode.active { return GatewayTestMode.phoneToken }
         let t = PhoneAuth.newToken()
-        Keychain.set(Self.phoneTokenAccount, t)
-        return t
+        return Keychain.set(Self.phoneTokenAccount, t) ? t : nil
     }
 
     func key(_ name: String) -> String { GatewayTestMode.active ? "" : Keychain.get(name) ?? "" }
