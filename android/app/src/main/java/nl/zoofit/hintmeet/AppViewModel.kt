@@ -63,10 +63,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         pendingPairing.value = p
     }
 
-    fun confirmPairing(accept: Boolean) {
-        val p = pendingPairing.value ?: return
+    /** shown: de koppeling die in de dialoog stond. Kwam er intussen een andere link, dan geldt deze niet. */
+    fun confirmPairing(shown: Pairing, accept: Boolean) {
+        if (pendingPairing.value != shown) return
         pendingPairing.value = null
-        if (accept && !meetingActive()) apply(p)
+        if (accept && !meetingActive()) apply(shown)
     }
 
     private fun meetingActive() = meeting.value.phase.let { it == nl.zoofit.hintmeet.protocol.Phase.STARTING ||

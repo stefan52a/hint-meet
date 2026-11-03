@@ -59,12 +59,12 @@ fun App(vm: AppViewModel) {
     val error by vm.error.collectAsStateWithLifecycle()
     pending?.let { p ->
         AlertDialog(
-            onDismissRequest = { vm.confirmPairing(false) },
+            onDismissRequest = { vm.confirmPairing(p, false) },
             title = { Text("Pair with this Mac?") },
             text = { Text("A link asks to connect HintMeet to ${p.host}. Only accept if you just opened it from "
                           + "HintMeet on your own Mac.") },
-            confirmButton = { TextButton(onClick = { vm.confirmPairing(true) }) { Text("Pair") } },
-            dismissButton = { TextButton(onClick = { vm.confirmPairing(false) }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { vm.confirmPairing(p, true) }) { Text("Pair") } },
+            dismissButton = { TextButton(onClick = { vm.confirmPairing(p, false) }) { Text("Cancel") } },
         )
     }
     error?.let { e ->
