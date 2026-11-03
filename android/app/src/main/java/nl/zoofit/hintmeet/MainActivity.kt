@@ -4,7 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -21,6 +23,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import nl.zoofit.hintmeet.protocol.Phase
 import nl.zoofit.hintmeet.ui.HintMeetTheme
 import nl.zoofit.hintmeet.ui.PairingScreen
+import nl.zoofit.hintmeet.ui.MeetingScreen
+import nl.zoofit.hintmeet.ui.ReportScreen
 import nl.zoofit.hintmeet.ui.StartScreen
 
 class MainActivity : ComponentActivity() {
@@ -31,7 +35,9 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) pairFrom(intent)
         setContent {
             HintMeetTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { App(vm) }
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Box(Modifier.safeDrawingPadding()) { App(vm) }   // Android 15 tekent tot de rand: niet onder de statusbalk
+                }
             }
         }
     }
@@ -73,17 +79,9 @@ fun App(vm: AppViewModel) {
     }
     when {
         pairing == null -> PairingScreen(vm::pair)
-        meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING -> MeetingPlaceholder(meeting.hints.lastOrNull()?.text) { vm.stop() }
-        meeting.phase == Phase.ENDED -> MeetingPlaceholder(meeting.report ?: "Meeting ended (${meeting.stoppedBy})") { vm.dismissMeeting() }
+        meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING ->
+            MeetingScreen(meeting, connected, gateway?.startedAtMs, vm::feedback) { vm.stop() }
+        meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         else -> StartScreen(connected, gateway, projects, meeting, vm::start, vm::unpair)
-    }
-}
-
-/** Tijdelijk, tot het meetingscherm er is (Task 9). */
-@Composable
-private fun MeetingPlaceholder(text: String?, action: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text(text ?: "Listening…", style = MaterialTheme.typography.headlineMedium)
-        Button(onClick = action) { Text("Stop / Close") }
     }
 }

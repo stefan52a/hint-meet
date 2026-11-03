@@ -81,7 +81,8 @@ private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {
                     stoppedBy = when {
                         last.stoppedBy == "watchdog" -> StoppedBy.WATCHDOG
                         ui.localStopSent -> StoppedBy.PHONE
-                        else -> ui.stoppedBy?.takeIf { it != StoppedBy.UNEXPECTED } ?: StoppedBy.MAC
+                        // alleen een live "stopped" zonder eigen Stop zegt "op de Mac"; na een herstart weten we het niet
+                        else -> ui.stoppedBy?.takeIf { it != StoppedBy.UNEXPECTED }
                     })
                 ui.phase in active -> ui.copy(phase = Phase.ENDED, stoppedBy = StoppedBy.UNEXPECTED)
                 else -> ui

@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.zxing.embedded)
     implementation(libs.security.crypto)
+    implementation(libs.markwon.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

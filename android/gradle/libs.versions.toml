@@ -11,6 +11,7 @@ coroutines = "1.9.0"
 junit = "4.13.2"
 zxing = "4.3.0"
 securityCrypto = "1.1.0-alpha06"
+markwon = "4.6.2"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -27,6 +28,7 @@ coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+markwon-core = { group = "io.noties.markwon", name = "core", version.ref = "markwon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
