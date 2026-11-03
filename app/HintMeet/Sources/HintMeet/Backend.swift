@@ -137,19 +137,34 @@ final class Backend: ObservableObject {
         return p
     }
 
+    /// Een meeting die de telefoon start (via de gateway): audio van de telefoon, met zijn eigen keuzes.
+    struct PhoneLaunch {
+        var meeting: String          // 16 hex-tekens
+        var projects: [String]
+        var language: String
+        var info: String
+    }
+
+    /// Poort van de audiobron voor de telefoon (zie src/hint_meet/phone.py): naast die van de overlay.
+    var phonePort: Int { port + 100 }
+
     /// recording: een opname (mp3, m4a, wav, …) in echte tijd afspelen in plaats van de apparaten.
-    func start(recording: String? = nil) {
+    /// phone: audio van de telefoon in plaats van de apparaten; project, taal en info van de telefoon.
+    func start(recording: String? = nil, phone: PhoneLaunch? = nil) {
         guard !isRunning else { return }
         guard settings.backendReady else {
             state = .failed("No Python environment in \(settings.repoPath)/.venv")
             return
         }
-        guard !settings.project.isEmpty else {
+        let project = phone.map { $0.projects.joined(separator: ",") } ?? settings.project
+        guard !project.isEmpty else {
             state = .failed("Choose a project first")
             return
         }
-        var args = ["-m", "hint_meet.cli", "--project", settings.project, "live", "--ui", "--port", String(port)]
-        if let recording {
+        var args = ["-m", "hint_meet.cli", "--project", project, "live", "--ui", "--port", String(port)]
+        if let phone {
+            args += ["--phone-port", String(phonePort), "--phone-meeting", phone.meeting]
+        } else if let recording {
             args += ["--audio", recording]
         } else if let wav = ProcessInfo.processInfo.environment["HINT_MEET_TEST_WAV"] {
             args += ["--wav", wav, "--speed", "4"]   // test: opname i.p.v. apparaten
@@ -162,8 +177,8 @@ final class Backend: ObservableObject {
         }
         if !settings.summary { args.append("--no-summary") }
         if !settings.saveAudio { args.append("--no-audio") }
-        args += ["--language", settings.language]
-        let info = settings.meetingInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+        args += ["--language", phone?.language ?? settings.language]
+        let info = (phone?.info ?? settings.meetingInfo).trimmingCharacters(in: .whitespacesAndNewlines)
         if !info.isEmpty { args += ["--info", info] }
 
         let p = Backend.pythonProcess(settings, args)

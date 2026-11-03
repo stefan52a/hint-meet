@@ -159,6 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let settings = Settings()
     let layout = PanelLayout()
     var backend: Backend!
+    /// Telefoon-companion (alleen instantie 1: poort 8790 kan maar één keer open).
+    var gateway: Gateway?
     var preparer: ProgressTask!
     let kbPrep = ProgressTask(logName: "kb_prep")
     var kbPrepWindow: NSWindow?
@@ -190,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let port = Instance.port
         connection = Connection(port: port, store: store)
         backend = Backend(settings: settings, port: port)
+        if Instance.number == 1 { gateway = Gateway(settings: settings, backend: backend) }
         preparer = ProgressTask(logName: "prepare")
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,

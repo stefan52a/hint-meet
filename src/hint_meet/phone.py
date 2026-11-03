@@ -141,7 +141,7 @@ class PhoneSource:
             ws.close(code=1008, reason="geen toegang")
             return
         if not self._stopped.is_set():
-            self._send(ws, type="audio_ready")   # eerst ready, pas daarna ziet de ack-draad deze verbinding
+            self._send(ws, type="audio_ready", started_at_ms=self.stream.started_at_ms)   # eerst ready, pas daarna ziet de ack-draad deze verbinding
         with self.lock:
             stopped = self._stopped.is_set()     # stop() liep al: niet meer aannemen
             if not stopped:

@@ -119,6 +119,7 @@ def test_phone_source_accepts_audio_and_acks(source):
     with connect(url(src)) as ws:
         ready = json.loads(ws.recv(timeout=2))
         assert ready["type"] == "audio_ready" and ready["meeting"] == "0000000000000007"
+        assert abs(ready["started_at_ms"] - time.time() * 1000) < 60_000   # Mac-klok bij offset 0
         ws.send(encode_frame(7, 0, 0, tone(1600)))
         assert q.get(timeout=2).channel == "Unknown"
         assert src.wait_acked(1600, timeout=2)

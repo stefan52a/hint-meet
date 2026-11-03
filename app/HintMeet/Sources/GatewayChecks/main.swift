@@ -98,12 +98,36 @@ section("last result finds report for meeting") {
     check(LastResult.read(logs: dir, meeting: "00000000000000aa") != nil)
     check(LastResult.read(logs: dir, meeting: "00000000000000aa")?.reportMD == nil)
     check(LastResult.read(logs: dir, meeting: "00000000000000cc") == nil)
+    try meta("live-20261103-130000.meta.json", ["phone_meeting": "00000000000000dd"])   // gecrasht: geen stopped_by
+    check(LastResult.read(logs: dir, meeting: "00000000000000dd") == nil, "crash geeft geen resultaat")
 }
 
 section("meeting ID is 16 hex") {
     let a = meetingID(), b = meetingID()
     check(a.count == 16 && a.allSatisfy { "0123456789abcdef".contains($0) })
     check(a != b)
+}
+
+section("tailnet monitor rebinds on change") {
+    var m = TailnetMonitor()
+    check(m.decide(current: "100.1.1.1", bound: nil) == .bind("100.1.1.1"))
+    check(m.decide(current: "100.1.1.1", bound: "100.1.1.1") == .none)
+    check(m.decide(current: "100.2.2.2", bound: "100.1.1.1") == .bind("100.2.2.2"))
+    check(m.decide(current: nil, bound: "100.2.2.2") == .unbind)
+    check(m.decide(current: nil, bound: nil) == .none)
+}
+
+section("phone auth header") {
+    let t = "abc123"
+    check(PhoneAuth.authorized(headers: [("Authorization", "Bearer abc123")], token: t))
+    check(PhoneAuth.authorized(headers: [("authorization", "Bearer abc123")], token: t))
+    check(!PhoneAuth.authorized(headers: [("Authorization", "Bearer abc124")], token: t))
+    check(!PhoneAuth.authorized(headers: [("Authorization", "Bearer abc12")], token: t))
+    check(!PhoneAuth.authorized(headers: [("Authorization", "abc123")], token: t))
+    check(!PhoneAuth.authorized(headers: [], token: t))
+    check(!PhoneAuth.authorized(headers: [("Authorization", "Bearer ")], token: ""), "lege sleutel nooit goed")
+    let n = PhoneAuth.newToken()
+    check(n.count >= 43 && !n.contains("+") && !n.contains("/") && !n.contains("="))
 }
 
 print(failures == 0 ? "\nAlle controles geslaagd" : "\n\(failures) controle(s) mislukt")

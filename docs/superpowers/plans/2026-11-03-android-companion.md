@@ -6,7 +6,7 @@
 
 **Architecture:** The Python pipeline gets a phone audio source (`src/hint_meet/phone.py`) that listens on localhost next to the existing overlay `Hub`. HintMeet.app gets an always-on companion gateway that listens only on the Mac's Tailscale address, starts/stops meetings for the phone, and proxies the phone's socket to the `Hub` (text) and the phone source (binary audio). A new Kotlin app in `android/` pairs via QR, records in a foreground service with a resend buffer, and shows the hints.
 
-**Tech Stack:** Python 3.11 + `websockets` (sync) + pytest; Swift 6 toolchain (language mode 5), SwiftUI, Network.framework, IOKit, CoreImage, XCTest; Kotlin 2.1, Jetpack Compose, OkHttp 4.12, kotlinx.serialization, JUnit 4.
+**Tech Stack:** Python 3.11 + `websockets` (sync) + pytest; Swift 6 toolchain (language mode 5), SwiftUI, Network.framework, IOKit, CoreImage, checks via `swift run GatewayChecks` (no Xcode, so no XCTest); Kotlin 2.1, Jetpack Compose, OkHttp 4.12, kotlinx.serialization, JUnit 4.
 
 **Spec:** `docs/superpowers/specs/2026-11-03-android-companion-design.md`
 
@@ -64,7 +64,7 @@
 | gateway → phone | `{"type":"state","phase":"idle"\|"starting"\|"running"\|"stopping","meeting":id\|null,"started_at_ms":int\|null,"now_ms":int,"busy_elsewhere":bool,"last":{"meeting":id,"stopped_by":"user"\|"watchdog","report_md":str\|null}\|null}` sent on request and on every change |
 | phone → hub (via gateway) | `{"type":"stop","final_offset":int}` and the existing `feedback`, `language` |
 
-The phone connects to `ws://<tailscale-ip>:8790/?token=<phone token>`. Pairing QR content: `hintmeet://pair?host=<ip>&port=8790&token=<token>`.
+The phone connects to `ws://<host>:8790/` with the header `Authorization: Bearer <phone token>` (changed in Task 5: Network.framework's WebSocket server doesn't pass the request path to the handshake handler, so `?token=` can't be checked there; headers can, and a wrong token is refused before anything is sent). `<host>` is the MagicDNS name from the QR, or the 100.x address. Pairing QR content: `hintmeet://pair?host=<ip>&port=8790&token=<token>`.
 
 ---
 
@@ -381,7 +381,7 @@ git commit -m "HintMeet.app: test target and the phone gateway's protocol helper
   - `final class KeepAwake { func update(enabled: Bool) }`: holds `kIOPMAssertionTypePreventUserIdleSystemSleep` while enabled and on AC power (`IOPSGetProvidingPowerSourceType == kIOPMACPowerKey`)
 
 Behaviour that must hold:
-- `NWListener` with `NWProtocolWebSocket`, `requiredLocalEndpoint` = Tailscale address:8790. Refuse a connection if the peer isn't in 100.64.0.0/10 or `?token=` doesn't match (constant-time compare). Nothing is sent before the check.
+- `NWListener` with `NWProtocolWebSocket`, `requiredLocalEndpoint` = Tailscale address:8790. Refuse a connection if the peer isn't in 100.64.0.0/10 or the `Authorization: Bearer` token doesn't match (constant-time compare, in `setClientRequestHandler`). Nothing is sent before the check.
 - `.start` while `Backend.isRunning` and not this gateway's meeting → `state` with `busy_elsewhere: true`. A repeated `request_id` returns the current state and never starts a second meeting.
 - Once the pipeline runs: one upstream `URLSessionWebSocketTask` to the hub (`ws://127.0.0.1:<port>/?token=`) and one to the phone source (`<port+100>`), each retried every 1 s until connected. Text from the hub and the source goes to the phone; `.toHub` text goes to the hub; binary goes to the source. A new phone connection replaces the previous phone's upstream audio.
 - `state` is pushed to all phone connections on every `Backend.state` change; `started_at_ms` is taken from the source's `audio_ready` (null until then); `last` comes from `LastResult.read` once the pipeline has exited.
@@ -486,7 +486,7 @@ git commit -m "Android companion: project setup, wire protocol and meeting state
 - Produces:
   - `data class Pairing(host: String, port: Int, token: String)` with `companion fun parse(uri: String): Pairing?` (only `hintmeet://pair`, host must be in 100.64.0.0/10 or end in `.ts.net`, port 1–65535, token ≥ 32 chars) and `fun wsUrl(): String`; stored with `EncryptedSharedPreferences` (`androidx.security:security-crypto:1.1.0-alpha06`)
   - `class Backoff { fun next(): Long; fun reset() }` → 1 s, 2 s, 4 s, 8 s, then 10 s capped
-  - `class GatewayClient(pairing: Pairing, scope: CoroutineScope)` with `val messages: SharedFlow<ServerMessage>`, `val connected: StateFlow<Boolean>`, `fun sendText(json: String)`, `fun sendBinary(bytes: ByteArray): Boolean` (false when not connected), `fun close()`; it reconnects with `Backoff` until closed and sends `{"type":"state"}` after every connect
+  - `class GatewayClient(pairing: Pairing, scope: CoroutineScope)` with `val messages: SharedFlow<ServerMessage>`, `val connected: StateFlow<Boolean>`, `fun sendText(json: String)`, `fun sendBinary(bytes: ByteArray): Boolean` (false when not connected), `fun close()`; it connects with the header `Authorization: Bearer <token>` (not `?token=`, see the wire protocol), reconnects with `Backoff` until closed and sends `{"type":"state"}` after every connect
   - Pairing screen scans QR with `com.journeyapps:zxing-android-embedded:4.3.0`. Start screen: Mac reachable, project multi-select from `projects`, language (same codes as the Mac's menu: `nl`, `en`, …, `multi`), "With whom, where", Start (sends `start` with a fresh UUID `request_id`); while `starting`, it shows the hub `status` text (KB loading); `busy_elsewhere` → "A meeting is already running on the Mac".
 
 - [ ] **Step 1: Write the failing tests**

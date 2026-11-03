@@ -160,6 +160,8 @@ public struct GatewayState: Codable, Equatable {
 
 public enum LastResult {
     /// De nieuwste `live-*.meta.json` van deze telefoon-meeting, met het verslag erbij als dat er al is.
+    /// Zonder `stopped_by` is de pijplijn niet netjes geëindigd (crash, Mac sliep): dan nil, zodat de
+    /// telefoon "Mac stopped unexpectedly" meldt.
     public static func read(logs: URL, meeting: String) -> GatewayState.Last? {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: logs.path)) ?? []
         let metas = names.filter { $0.hasPrefix("live-") && $0.hasSuffix(".meta.json") }.sorted(by: >)
@@ -167,8 +169,9 @@ public enum LastResult {
             guard let data = try? Data(contentsOf: logs.appendingPathComponent(name)),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   obj["phone_meeting"] as? String == meeting else { continue }
+            guard let stoppedBy = obj["stopped_by"] as? String else { return nil }
             let report = (obj["report"] as? String).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
-            return .init(meeting: meeting, stoppedBy: obj["stopped_by"] as? String ?? "user", reportMD: report)
+            return .init(meeting: meeting, stoppedBy: stoppedBy, reportMD: report)
         }
         return nil
     }
@@ -181,4 +184,48 @@ public func meetingID() -> String {
         bytes = (0..<8).map { _ in UInt8.random(in: 0...255) }
     }
     return bytes.map { String(format: "%02x", $0) }.joined()
+}
+
+/// Op welk adres de gateway moet luisteren (elke 5 s gevraagd): het Tailscale-adres kan wisselen of verdwijnen.
+public struct TailnetMonitor {
+    public enum Action: Equatable { case none, bind(String), unbind }
+
+    public init() {}
+
+    public mutating func decide(current: String?, bound: String?) -> Action {
+        switch (current, bound) {
+        case (nil, nil): return .none
+        case (nil, _?): return .unbind
+        case let (c?, b): return c == b ? .none : .bind(c)
+        }
+    }
+}
+
+/// Telefoon-sleutel in de koptekst `Authorization: Bearer <token>` (Network.framework geeft het pad van het
+/// verzoek niet door, dus ?token= kan niet). Tijdsconstant vergelijken.
+public enum PhoneAuth {
+    public static func authorized(headers: [(name: String, value: String)], token: String) -> Bool {
+        guard !token.isEmpty,
+              let value = headers.first(where: { $0.name.lowercased() == "authorization" })?.value,
+              value.hasPrefix("Bearer ") else { return false }
+        return constantTimeEqual(String(value.dropFirst(7)), token)
+    }
+
+    public static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
+        let x = Array(a.utf8), y = Array(b.utf8)
+        var diff = UInt8(x.count == y.count ? 0 : 1)
+        for i in 0..<max(x.count, y.count) {
+            diff |= (i < x.count ? x[i] : 0) ^ (i < y.count ? y[i] : 0)
+        }
+        return diff == 0
+    }
+
+    /// Nieuwe telefoon-sleutel: 32 willekeurige bytes, base64url zonder opvulling.
+    public static func newToken() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        precondition(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }
