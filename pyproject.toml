@@ -38,3 +38,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["slow: echte modellen, duurt lang (draaien met -m slow)"]
+addopts = "-m 'not slow'"

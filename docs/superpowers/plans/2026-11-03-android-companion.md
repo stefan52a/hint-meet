@@ -18,7 +18,7 @@
 - Watchdog: 30 minutes without audio frames → meeting stops as if Stop was pressed, report still written.
 - Stop drains: wait for the final ack at most 60 s.
 - Frame limits: more than 1 s of audio (16 000 samples) → reject; offset more than 10 min ahead of the Mac's clock → reject.
-- Transcription more than 60 s behind live audio → alarm on the phone.
+- Transcription more than 60 s behind live audio **and not shrinking** (no gain over the last 15 s of `progress`) → alarm on the phone. A catch-up after a long gap is behind but shrinking, so it shows as a calm "catching up" line, not an alarm.
 - Phone alarms: connection lost > 30 s, buffer more than half full, Mac reports meeting stopped unexpectedly, battery < 15 % and not charging.
 - Gateway off by default; when on, it listens only on the Mac's Tailscale IPv4 (100.64.0.0/10) and accepts peers only from 100.64.0.0/10. With the switch off nothing listens.
 - Phone token: 32+ random bytes, in the Keychain, separate from the overlay `ws-token`; "New pairing" revokes it and closes all phone connections.
@@ -27,7 +27,7 @@
 - Project rules: update `CHANGELOG.md` in the same commit as every user-visible change; commit messages in English; stage only your own files (never `git add -A`); never kill a running HintMeet meeting (check `ps` first).
 - Ports: gateway 8790 (only app instance 1 runs it); phone source = hub port + 100 (8865 for instance 1).
 
-**Deviation from the spec (decided while planning):** the spec asks that live audio is transcribed before resent backlog. This plan keeps one in-order speech thread instead: resent audio is already kept out of the gate/Claude path by its stale timestamp, Whisper turbo clears a 10-minute backlog in well under a minute, and the "> 60 s behind" alarm makes any lag visible. Task 3 measures it; if catch-up after a 10-minute gap takes more than 60 s, add a priority queue then.
+**Deviation from the spec (decided while planning):** the spec asks that live audio is transcribed before resent backlog. This plan keeps one in-order speech thread instead: resent audio is already kept out of the gate/Claude path by its stale timestamp, Whisper turbo clears a 10-minute backlog in well under a minute, and the "> 60 s behind" alarm makes any lag visible. Task 3 measures it; if catch-up after a 10-minute gap takes more than 60 s, add a priority queue then. **Measured in Task 3: 86 s for a 10-minute backlog of dense speech (148 utterances). Stefan chose (2026-11-03) to keep the in-order queue: 10-minute outages are rare, gaps under a minute catch up in seconds. The test limit is 120 s, and the phone's lag alarm only fires when the lag stops shrinking (see Global Constraints).**
 
 ## Review Focus
 
@@ -570,7 +570,7 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 - Produces:
   - `RecordingService`: starts on `AudioReady`. It reads `AudioRecord` (`VOICE_RECOGNITION`, falling back to `MIC`, 16 kHz mono PCM16) in 1600-sample frames, holds a partial wake lock, and shows an ongoing notification with the elapsed time. It stores `meeting` + `startedAtMs` in prefs, so after a restart it rejoins via `state` and an `OffsetClock`.
   - `class Streamer(buffer: AudioBuffer, send: (ByteArray) -> Boolean, meeting: ULong)` with `fun onFrame(offset: Long, pcm: ShortArray)`, `fun onAck(offset: Long)`, `fun onReconnected()` (resend everything unacked, oldest first). **Frames go out strictly in offset order.** While a resend is running, new live frames only go into the buffer and are sent after it. Otherwise the Mac sees a live frame first, fills the gap with silence, and then drops the resent audio as a duplicate. `fun stop(): Long` (returns `final_offset`; the caller sends `{"type":"stop","final_offset":…}` once the buffer is empty or after 60 s; if offline, on reconnect)
-  - `data class Health(capturing: Boolean, lastLevelAtMs: Long, connectedSinceMs: Long?, lastDisconnectMs: Long?, ackedS: Double, heardS: Double, processedS: Double, bufferFill: Double, droppedS: Double, batteryPct: Int, charging: Boolean, macPhase: String?, localStopSent: Boolean)` and `fun alarms(h: Health, nowMs: Long): Set<Alarm>` with `enum Alarm { CONNECTION_LOST, BUFFER_HALF_FULL, MAC_STOPPED, TRANSCRIPTION_BEHIND, BATTERY_LOW, AUDIO_LOST, MIC_SILENT }`
+  - `data class Health(capturing: Boolean, lastLevelAtMs: Long, connectedSinceMs: Long?, lastDisconnectMs: Long?, ackedS: Double, heardS: Double, processedS: Double, lagShrinking: Boolean, bufferFill: Double, droppedS: Double, batteryPct: Int, charging: Boolean, macPhase: String?, localStopSent: Boolean)` and `fun alarms(h: Health, nowMs: Long): Set<Alarm>` with `enum Alarm { CONNECTION_LOST, BUFFER_HALF_FULL, MAC_STOPPED, TRANSCRIPTION_BEHIND, BATTERY_LOW, AUDIO_LOST, MIC_SILENT }`
   - Status bar shows three dots: capturing / Mac received (acked) / Mac processed, each with "n s ago". An alarm shows a red banner and vibrates once per new alarm.
 
 - [ ] **Step 1: Write the failing tests**
@@ -579,6 +579,7 @@ git commit -m "Android companion: resend buffer with cumulative acks and Mac-bas
 @Test fun connectionLostAfter30s() { /* lastDisconnectMs = now - 31_000, connectedSinceMs null → CONNECTION_LOST; at 29 s → not */ }
 @Test fun bufferHalfFull() { /* bufferFill 0.51 → BUFFER_HALF_FULL */ }
 @Test fun transcriptionBehind60s() { /* heardS 200, processedS 139 → TRANSCRIPTION_BEHIND; 141 → not */ }
+@Test fun catchingUpIsNotAnAlarm() { /* heardS 200, processedS 139, lagShrinking true → no TRANSCRIPTION_BEHIND. `lagShrinking` = heardS − processedS is smaller than in the `progress` message from 15 s earlier (the service keeps the last few) */ }
 @Test fun batteryLowOnlyWhenNotCharging() { /* 14 %, charging false → BATTERY_LOW; charging true → not */ }
 @Test fun macGoneWhileRecordingRaisesAlarm() { /* macPhase "idle", localStopSent false, capturing true → MAC_STOPPED */ }
 @Test fun resendAfterReconnectStartsAtFirstUnacked() { /* Streamer with fake send (false while offline): frames 0..4, ack 2, reconnect → sent offsets [3200, 4800, 6400] in order */ }
