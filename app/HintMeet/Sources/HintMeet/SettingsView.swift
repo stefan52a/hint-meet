@@ -66,8 +66,8 @@ struct SettingsView: View {
                 }
             }
             Section("API-keys (Keychain)") {
-                Text("Paste a key in the field and click Save. Stored in the macOS Keychain; it goes before a "
-                     + ".env (also one from 1Password). Leave a field empty to use the .env.")
+                Text("Paste a key in the field and click Save. Stored in the macOS Keychain; it goes before "
+                     + "the .env. Leave a field empty to use the .env.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(Settings.keyNames, id: \.self) { name in
                     LabeledContent {
