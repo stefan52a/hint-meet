@@ -314,7 +314,7 @@ The Android app in `android/` lets the phone record the meeting and show the hin
 3. Scan the QR code in that section with the HintMeet app on the phone. *New pairing…* makes a new key; the old phone then stops working until it scans again.
 4. Keep the Mac on power with the lid open during phone meetings. While the switch is on and the Mac is on power, HintMeet keeps it from sleeping.
 
-Install the app on the phone (USB debugging on, phone connected): `cd android && JAVA_HOME=<a JDK 17–21> ./gradlew installDebug`. Or build `./gradlew assembleDebug` and copy `android/app/build/outputs/apk/debug/app-debug.apk` to the phone.
+Install the app on the phone (USB debugging on, phone connected): `cd android && ./gradlew installDebug` (the build needs a JDK 21 somewhere on the Mac; Gradle finds it itself, also when your default Java is newer). Or build `./gradlew assembleDebug` and copy `android/app/build/outputs/apk/debug/app-debug.apk` to the phone.
 
 The phone starts and stops the meeting; the report lands in the project's meetings folder as usual. It records with the screen off and keeps up to 10 minutes of audio when the connection drops, sent as soon as it's back. Only the first HintMeet (without a number in the menu bar) does this. Without a phone: `tools/phone_client.py recording.wav --gateway ws://<tailscale-ip>:8790 --token <key> --start <project>` plays a recording through the same path.
 

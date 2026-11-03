@@ -1,4 +1,4 @@
-# Gradle 8.10.2 draait op JDK 17–21 (niet op 26): JAVA_HOME naar een JDK 21 bij ./gradlew
+# Gradle 8.10.2 draait de build op JDK 21: gradle/gradle-daemon-jvm.properties zoekt die zelf
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
