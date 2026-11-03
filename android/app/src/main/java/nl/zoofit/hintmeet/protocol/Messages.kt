@@ -84,7 +84,7 @@ fun parseServer(text: String): ServerMessage? {
             val last = (o["last"] as? JsonObject)?.let {
                 ServerMessage.State.Last(it.str("meeting") ?: return null, it.str("stopped_by") ?: "user", it.str("report_md"))
             }
-            ServerMessage.State(o.str("phase") ?: "idle", o.str("meeting"), o.long("started_at_ms"), o.long("now_ms") ?: 0,
+            ServerMessage.State(o.str("phase") ?: return null, o.str("meeting"), o.long("started_at_ms"), o.long("now_ms") ?: 0,
                                 o.bool("busy_elsewhere") ?: false, last)
         }
         "projects" -> ServerMessage.Projects(o.strings("items"), o.strings("selected"))

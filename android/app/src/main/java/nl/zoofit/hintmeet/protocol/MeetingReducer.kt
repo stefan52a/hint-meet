@@ -52,20 +52,26 @@ fun reduce(ui: MeetingUi, msg: ServerMessage): MeetingUi = when (msg) {
     is ServerMessage.ApiError -> ui.copy(status = msg.text)
     is ServerMessage.Progress -> ui.copy(progress = ProgressUi(msg.heardS, msg.processedS))
     is ServerMessage.Summary -> ui.copy(report = msg.markdown)
-    is ServerMessage.Stopped -> ui.copy(phase = Phase.ENDED,
-                                        stoppedBy = ui.stoppedBy ?: if (ui.localStopSent) StoppedBy.PHONE else StoppedBy.MAC)
+    // "stopped" is een nette afloop: wint van een eerdere "unexpected"
+    is ServerMessage.Stopped -> ui.copy(phase = Phase.ENDED, stoppedBy = when {
+        ui.localStopSent -> StoppedBy.PHONE
+        ui.stoppedBy == StoppedBy.WATCHDOG -> StoppedBy.WATCHDOG
+        else -> StoppedBy.MAC
+    })
     is ServerMessage.State -> reduceState(ui, msg)
     is ServerMessage.Confirm, is ServerMessage.AudioReady, is ServerMessage.AudioAck,
     is ServerMessage.AudioReject, is ServerMessage.Projects -> ui
 }
 
-private fun reduceState(ui: MeetingUi, s: ServerMessage.State): MeetingUi {
-    if (s.busyElsewhere) return ui
+private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {
+    if (s.busyElsewhere) return current
+    // een andere meeting dan die we tonen: met een schone lei beginnen (geen oud verslag, geen oude stop)
+    val ui = if (s.meeting != null && current.meeting != null && s.meeting != current.meeting) MeetingUi() else current
     return when (s.phase) {
         "starting" -> ui.copy(phase = Phase.STARTING, meeting = s.meeting)
         "running" -> ui.copy(phase = if (ui.localStopSent) Phase.STOPPING else Phase.RUNNING, meeting = s.meeting)
         "stopping" -> ui.copy(phase = Phase.STOPPING, meeting = s.meeting ?: ui.meeting)
-        else -> {   // idle
+        "idle" -> {
             val last = s.last
             when {
                 last != null && (ui.meeting == null || ui.meeting == last.meeting) -> ui.copy(
@@ -81,5 +87,9 @@ private fun reduceState(ui: MeetingUi, s: ServerMessage.State): MeetingUi {
                 else -> ui
             }
         }
+        else -> current   // onbekende fase (nieuwere Mac): niets aan de meeting veranderen
     }
 }
+
+/** Nieuwe meeting starten vanaf de telefoon: alles van de vorige weg. */
+fun startingFresh(): MeetingUi = MeetingUi(phase = Phase.STARTING)

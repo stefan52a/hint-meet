@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- usesCleartextTraffic: ws:// naar de Mac. De app praat alleen met de gekoppelde host in het tailnet
+         (Pairing laat alleen 100.64.0.0/10 en *.ts.net toe), en Tailscale versleutelt die verbinding (WireGuard). -->
     <application
         android:label="@string/app_name"
         android:supportsRtl="true"

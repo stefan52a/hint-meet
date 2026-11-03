@@ -74,6 +74,31 @@ class MeetingReducerTest {
         assertEquals(12.5, progress.heardS, 0.0)
     }
 
+    private fun state(phase: String, meeting: String?, last: String = "null") = parse(
+        """{"type":"state","phase":"$phase","meeting":${meeting?.let { "\"$it\"" } ?: "null"},"started_at_ms":1,"now_ms":2,
+           "busy_elsewhere":false,"last":$last}""")
+
+    @Test fun nextMeetingStartsClean() {
+        var ui = markStopSent(running())
+        ui = reduce(ui, parse("""{"type":"summary","markdown":"# A"}"""))
+        ui = reduce(ui, state("running", "00000000000000bb"))
+        assertEquals(Phase.RUNNING, ui.phase)
+        assertNull(ui.report)
+        assertEquals(false, ui.localStopSent)
+    }
+
+    @Test fun unknownOrMissingPhaseKeepsTheMeeting() {
+        assertEquals(Phase.RUNNING, reduce(running(), state("paused", "00000000000000aa")).phase)
+        assertNull(parseServer("""{"type":"state","meeting":null,"now_ms":1,"busy_elsewhere":false,"last":null}"""))
+    }
+
+    @Test fun cleanStopWinsOverUnexpected() {
+        var ui = reduce(running(), state("idle", null))
+        assertEquals(StoppedBy.UNEXPECTED, ui.stoppedBy)
+        ui = reduce(ui, parse("""{"type":"stopped"}"""))
+        assertEquals(StoppedBy.MAC, ui.stoppedBy)
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))
