@@ -26,6 +26,9 @@ final class PhoneSearch {
     static let idleSeconds: TimeInterval = 15 * 60
     static let heartbeatSeconds: TimeInterval = 10
     static let maxQueued = 5
+    /// Zo lang mag het laden stil blijven (geen enkele regel) voordat het als vastgelopen geldt.
+    static let stallSeconds: TimeInterval = 10 * 60
+    private var lastOutput = Date()
 
     init(settings: Settings, send: @escaping (String) -> Void) {
         self.settings = settings
@@ -45,8 +48,8 @@ final class PhoneSearch {
             guard process != nil else { return refuse(id, "failed") }
         }
         requests.append(Request(id: id, query: query))
-        while requests.filter({ !$0.sent }).count > Self.maxQueued, let i = requests.firstIndex(where: { !$0.sent }) {
-            refuse(requests.remove(at: i).id, "failed")
+        while requests.count > Self.maxQueued {   // de telefoon vraagt er één tegelijk; meer is een oude die bleef hangen
+            refuse(requests.removeFirst().id, "failed")
         }
         touch()
         if ready { flush() } else { status(id, loadingText) }
@@ -81,6 +84,7 @@ final class PhoneSearch {
     private func launch(_ key: String, label: String) {
         projects = key
         loadingText = "Loading \(label)…"
+        lastOutput = Date()
         let p = Backend.pythonProcess(settings, ["-m", "hint_meet.cli", "--project", key, "search", "--serve"])
         let out = Pipe(), inp = Pipe()
         p.standardOutput = out
@@ -131,6 +135,7 @@ final class PhoneSearch {
     }
 
     private func read(_ line: String) {
+        lastOutput = Date()
         if line.hasPrefix("@ready") {
             ready = true
             heartbeat?.invalidate(); heartbeat = nil
@@ -159,10 +164,15 @@ final class PhoneSearch {
 
     private func touch() {
         idleTimer?.invalidate()
-        idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idleSeconds, repeats: false) { [weak self] _ in
+        idleTimer = Timer.scheduledTimer(withTimeInterval: ready ? Self.idleSeconds : Self.stallSeconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if self.ready { self.stop() } else { self.touch() }   // nooit midden in het laden afbreken
+                if self.ready { self.stop(); return }
+                // nooit midden in het laden afbreken, wel als het laden al 10 minuten niets meer zegt (vastgelopen)
+                if Date().timeIntervalSince(self.lastOutput) > Self.stallSeconds {
+                    Gateway.log("phone search: loading stalled, stopping")
+                    self.stop()
+                } else { self.touch() }
             }
         }
     }
