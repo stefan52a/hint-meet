@@ -51,7 +51,8 @@ final class PhoneSearch {
         while requests.count > Self.maxQueued {   // de telefoon vraagt er één tegelijk; meer is een oude die bleef hangen
             refuse(requests.removeFirst().id, "failed")
         }
-        touch()
+        // tijdens het laden de vastloopcontrole niet verschuiven: die telt vanaf de laatste regel van het proces
+        if ready || idleTimer == nil { touch() }
         if ready { flush() } else { status(id, loadingText) }
     }
 
