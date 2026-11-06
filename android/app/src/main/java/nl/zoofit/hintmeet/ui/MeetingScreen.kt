@@ -273,7 +273,7 @@ private fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             placeholder = { Text("Search the documents…") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { search(query) }),
+            keyboardActions = KeyboardActions(onSearch = { if (!find.searching) search(query) }),
             trailingIcon = {
                 TextButton(onClick = { search(query) }, enabled = enabled && query.isNotBlank() && !find.searching) {
                     Text("Find")

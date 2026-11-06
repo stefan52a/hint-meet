@@ -279,6 +279,7 @@ object Session {
     // ---------- start / stop ----------
 
     fun start(projects: List<String>, language: String, info: String) {
+        find.value = FindUi()
         meeting.value = startingFresh()
         val msg = buildJsonObject {
             put("type", "start")
@@ -373,16 +374,16 @@ object Session {
     /** Zoeken in de kennisbank die de meeting op de Mac al geladen heeft (zoals Find Documents op de Mac). */
     fun search(query: String) {
         val q = query.trim().replace('\n', ' ')
-        if (q.isEmpty()) return
+        if (q.isEmpty() || find.value.searching) return
         if (meeting.value.phase != Phase.RUNNING) {
             find.value = FindUi(query = q, note = "Searching works while the meeting is listening."); return
         }
         val id = "phone-" + UUID.randomUUID().toString()   // tekst: botst niet met de getallen van de Mac
         val msg = buildJsonObject { put("type", "search"); put("id", id); put("query", q) }
         if (client?.sendText(msg.toString()) != true) {
-            find.value = find.value.copy(query = q, searching = false, note = "The Mac isn't reachable. Try again."); return
+            find.value = FindUi(query = q, note = "The Mac isn't reachable. Try again."); return   // geen oude vraag meer open
         }
-        find.value = find.value.copy(query = q, requestId = id, searching = true, note = null)
+        find.value = FindUi(query = q, requestId = id, searching = true)   // oude resultaten weg: die horen bij een andere vraag
         findTimeout?.cancel()
         findTimeout = scope.launch {
             delay(FIND_TIMEOUT_MS)
@@ -395,9 +396,11 @@ object Session {
         val f = find.value
         if (msg.id != f.requestId) return   // antwoord op een eerdere vraag, of op de Mac
         findTimeout?.cancel()
-        find.value = if (msg.error == "loading")
-            f.copy(searching = false, results = emptyList(), note = "The Mac is still loading the knowledge base; try again in a moment.")
-        else f.copy(searching = false, results = msg.results, reranked = msg.reranked, searched = true, note = null)
+        find.value = when (msg.error) {
+            null -> f.copy(searching = false, results = msg.results, reranked = msg.reranked, searched = true, note = null)
+            "loading" -> f.copy(searching = false, note = "The Mac is still loading the knowledge base; try again in a moment.")
+            else -> f.copy(searching = false, note = "Searching failed on the Mac. Try again.")
+        }
     }
 
     fun dismissMeeting() {
