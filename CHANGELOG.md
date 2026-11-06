@@ -7,6 +7,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 ### Android companion app
 
 - **Find tab:** search the documents by what they say, during the meeting, like *Find Documents* on the Mac. It searches the knowledge base the meeting on the Mac already loaded, so the answer comes in a few seconds; each result shows the document, the heading, how relevant it is and the passage (tap for all of it). Documents with text that looks like instructions to an AI get a ⚠. Needs the updated Mac app.
+- **Find from the start screen too:** *Find in Documents…* under *Start Meeting* searches the projects you ticked, without starting a meeting. The first search loads the knowledge base on the Mac (you see how far it is); after that answers come in under a second. The Mac stops that search process after 15 minutes without a question, or when a meeting starts. Needs the updated Mac app.
 - **Type as if you said it, like on the Mac:** at the bottom of the meeting screen on the phone there is a text field. What you type there (send with ↑ or the keyboard's send key) goes into the transcript as something you said, and gets the same hints and checks against your documents as speech. The text only disappears from the field once the Mac confirms it's in the transcript; if the Mac doesn't answer within 8 seconds or the meeting isn't listening, the text stays with the reason underneath, so you can send it again. Needs the updated Mac app.
 
 ## 2026-11-03

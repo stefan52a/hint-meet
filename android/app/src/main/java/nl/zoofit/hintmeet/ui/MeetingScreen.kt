@@ -97,7 +97,8 @@ fun MeetingScreen(
                 0 -> Hints(meeting, feedback)
                 1 -> Backed(meeting)
                 2 -> Transcript(meeting)
-                else -> Find(find, meeting.phase == Phase.RUNNING, search)
+                else -> Find(find, enabled = meeting.phase == Phase.RUNNING, search = { search(it) },
+                             intro = "Find a document by what it says, in the knowledge base of this meeting.")
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
@@ -260,61 +261,5 @@ private fun Transcript(meeting: MeetingUi) {
                 Text(line.text, style = MaterialTheme.typography.bodyLarge)
             }
         }
-    }
-}
-
-/** Find, zoals Find Documents op de Mac: documenten op inhoud zoeken in de kennisbank van de meeting. */
-@Composable
-private fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit) {
-    var query by rememberSaveable { mutableStateOf(find.query) }
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        OutlinedTextField(
-            value = query, onValueChange = { query = it }, enabled = enabled, singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            placeholder = { Text("Search the documents…") },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { if (!find.searching) search(query) }),
-            trailingIcon = {
-                TextButton(onClick = { search(query) }, enabled = enabled && query.isNotBlank() && !find.searching) {
-                    Text("Find")
-                }
-            },
-            supportingText = when {
-                find.searching -> ({ Text("Searching on the Mac…") })
-                find.note != null -> ({ Text(find.note) })
-                else -> null
-            },
-        )
-        when {
-            find.results.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
-                items(find.results, key = { it.ref }) { DocRow(it) }
-            }
-            find.searched && !find.searching -> Text(
-                if (find.reranked) "Nothing relevant found." else "Nothing found.",
-                Modifier.padding(top = 24.dp), style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            !find.searching -> Text("Find a document by what it says, in the knowledge base of this meeting.",
-                Modifier.padding(top = 24.dp), style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun DocRow(hit: DocHit) {
-    var open by remember(hit.ref) { mutableStateOf(false) }   // tik: het hele stukje
-    Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 10.dp)) {
-        Text(hit.name + (if (hit.heading.isNotEmpty()) "  ›  ${hit.heading}" else ""),
-             style = MaterialTheme.typography.titleMedium, maxLines = 2)
-        val meta = listOfNotNull(
-            hit.ref.substringBeforeLast('/', "").ifEmpty { null },
-            hit.relevance?.let { "${(it * 100).toInt()}% relevant" },
-            if (hit.injection) "⚠ contains instructions to an AI" else null,
-        ).joinToString("  ·  ")
-        if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium,
-                                    color = if (hit.injection) MaterialTheme.colorScheme.error
-                                            else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = if (open) Int.MAX_VALUE else 3,
-             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }

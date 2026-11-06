@@ -181,6 +181,7 @@ object Session {
             is ServerMessage.Projects -> projects.value = msg
             is ServerMessage.Said -> { onSaid(msg); return }   // geen meetingstand
             is ServerMessage.SearchResults -> { onSearchResults(msg); return }
+            is ServerMessage.SearchStatus -> { onSearchStatus(msg); return }
             is ServerMessage.AudioReady -> onAudioReady(msg)
             is ServerMessage.AudioAck -> if (msg.meeting == recordingMeeting) {
                 streamer?.onAck(msg.offset)
@@ -371,25 +372,38 @@ object Session {
                          else SayState.Failed(msg.sayId, text, "The Mac didn't take it: the meeting isn't listening.")
     }
 
-    /** Zoeken in de kennisbank die de meeting op de Mac al geladen heeft (zoals Find Documents op de Mac). */
-    fun search(query: String) {
+    /** Zoeken in de kennisbank, zoals Find Documents op de Mac. Tijdens een meeting van de telefoon in de KB die de
+     *  meeting al geladen heeft; anders laadt de Mac `projects` zelf (de eerste keer duurt dat even). */
+    fun search(query: String, projects: List<String> = emptyList()) {
         val q = query.trim().replace('\n', ' ')
         if (q.isEmpty() || find.value.searching) return
-        if (meeting.value.phase != Phase.RUNNING) {
-            find.value = FindUi(query = q, note = "Searching works while the meeting is listening."); return
-        }
         val id = "phone-" + UUID.randomUUID().toString()   // tekst: botst niet met de getallen van de Mac
-        val msg = buildJsonObject { put("type", "search"); put("id", id); put("query", q) }
+        val msg = buildJsonObject {
+            put("type", "search"); put("id", id); put("query", q)
+            if (meeting.value.phase != Phase.RUNNING) put("projects", JsonArray(projects.map { JsonPrimitive(it) }))
+        }
         if (client?.sendText(msg.toString()) != true) {
             find.value = FindUi(query = q, note = "The Mac isn't reachable. Try again."); return   // geen oude vraag meer open
         }
         find.value = FindUi(query = q, requestId = id, searching = true)   // oude resultaten weg: die horen bij een andere vraag
+        armFindTimeout(id)
+    }
+
+    private fun armFindTimeout(id: String) {
         findTimeout?.cancel()
         findTimeout = scope.launch {
             delay(FIND_TIMEOUT_MS)
             val f = find.value
             if (f.searching && f.requestId == id) find.value = f.copy(searching = false, note = "No answer from the Mac. Search again.")
         }
+    }
+
+    /** De Mac laadt de kennisbank nog: voortgang tonen en langer wachten. */
+    private fun onSearchStatus(msg: ServerMessage.SearchStatus) {
+        val f = find.value
+        if (msg.id != f.requestId || !f.searching) return
+        find.value = f.copy(note = msg.text)
+        armFindTimeout(msg.id)
     }
 
     private fun onSearchResults(msg: ServerMessage.SearchResults) {
@@ -399,6 +413,7 @@ object Session {
         find.value = when (msg.error) {
             null -> f.copy(searching = false, results = msg.results, reranked = msg.reranked, searched = true, note = null)
             "loading" -> f.copy(searching = false, note = "The Mac is still loading the knowledge base; try again in a moment.")
+            "no_project" -> f.copy(searching = false, note = "Choose a project first.")
             else -> f.copy(searching = false, note = "Searching failed on the Mac. Try again.")
         }
     }

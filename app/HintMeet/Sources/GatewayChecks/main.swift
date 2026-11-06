@@ -60,8 +60,12 @@ section("routing") {
           == .start(requestID: "r1", projects: ["acme"], language: "nl", info: ""))
     check(PhoneRequest.parse(#"{"type":"start","projects":["acme"]}"#) == .invalid, "start zonder request_id")
     check(PhoneRequest.parse(#"{"type":"say","text":"hallo"}"#) == .toHub(#"{"type":"say","text":"hallo"}"#))
-    check(PhoneRequest.parse(#"{"type":"search","id":"phone-1","query":"lening"}"#)
-          == .toHub(#"{"type":"search","id":"phone-1","query":"lening"}"#))
+    let find = #"{"type":"search","id":"phone-1","query":" lening ","projects":["acme"]}"#
+    check(PhoneRequest.parse(find) == .search(raw: find, id: "phone-1", query: "lening", projects: ["acme"]))
+    check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"x"}"#)
+          == .search(raw: #"{"type":"search","id":"p","query":"x"}"#, id: "p", query: "x", projects: []))
+    check(PhoneRequest.parse(#"{"type":"search","id":3,"query":"x"}"#) == .invalid, "id moet tekst zijn")
+    check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"  "}"#) == .invalid)
     check(PhoneRequest.parse("not json") == .invalid)
     check(PhoneRequest.parse(#"{"type":"shutdown"}"#) == .invalid)
 }

@@ -17,6 +17,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import nl.zoofit.hintmeet.ui.FindScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +71,7 @@ fun App(vm: AppViewModel) {
     val liveness by vm.liveness.collectAsStateWithLifecycle()
     val sayState by vm.sayState.collectAsStateWithLifecycle()
     val find by vm.find.collectAsStateWithLifecycle()
+    var findProjects by rememberSaveable { mutableStateOf<List<String>?>(null) }   // Find vanaf het startscherm
     pending?.let { p ->
         AlertDialog(
             onDismissRequest = { vm.confirmPairing(p, false) },
@@ -87,6 +92,7 @@ fun App(vm: AppViewModel) {
             MeetingScreen(meeting, connected, gateway?.startedAtMs, liveness, alarms, vm::feedback, sayState, vm::say, vm::clearSayError,
                           find, vm::search) { vm.stop() }
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
-        else -> StartScreen(connected, gateway, projects, meeting, vm::start, vm::unpair)
+        findProjects != null -> FindScreen(find, findProjects!!, connected, { vm.search(it, findProjects!!) }) { findProjects = null }
+        else -> StartScreen(connected, gateway, projects, meeting, vm::start, { findProjects = it }, vm::unpair)
     }
 }

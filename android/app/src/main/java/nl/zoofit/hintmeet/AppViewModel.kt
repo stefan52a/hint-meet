@@ -27,6 +27,6 @@ class AppViewModel : ViewModel() {
     fun feedback(id: Int, rating: Int) = Session.feedback(id, rating)
     fun say(text: String): String? = Session.say(text)
     fun clearSayError() = Session.clearSayError()
-    fun search(query: String) = Session.search(query)
+    fun search(query: String, projects: List<String> = emptyList()) = Session.search(query, projects)
     fun dismissMeeting() = Session.dismissMeeting()
 }

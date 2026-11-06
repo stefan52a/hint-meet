@@ -144,6 +144,7 @@ class MeetingReducerTest {
         assertTrue(r.results[1].injection)
         assertNull(parseServer("""{"type":"search_results","id":3,"results":[]}"""))   // die van de Mac
         assertEquals("loading", (parse("""{"type":"search_results","id":"p","error":"loading"}""") as ServerMessage.SearchResults).error)
+        assertEquals(ServerMessage.SearchStatus("p", "Loading acme…"), parse("""{"type":"search_status","id":"p","text":"Loading acme…"}"""))
     }
 
     @Test fun unknownMessageIsIgnored() {

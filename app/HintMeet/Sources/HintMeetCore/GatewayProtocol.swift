@@ -60,14 +60,16 @@ public enum Pairing {
     }
 }
 
-/// Wat de telefoon vraagt. stop, feedback, language, say en search gaan ongewijzigd door naar de hub van de pijplijn.
+/// Wat de telefoon vraagt. stop, feedback, language en say gaan ongewijzigd door naar de hub van de pijplijn; search
+/// tijdens een meeting van de telefoon ook (raw), anders zoekt de gateway zelf in `projects`.
 public enum PhoneRequest: Equatable {
     case projects, state
     case start(requestID: String, projects: [String], language: String, info: String)
     case toHub(String)
+    case search(raw: String, id: String, query: String, projects: [String])
     case invalid
 
-    public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say", "search"]
+    public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say"]
 
     public static func parse(_ text: String) -> PhoneRequest {
         guard let obj = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
@@ -80,6 +82,11 @@ public enum PhoneRequest: Equatable {
                   let projects = obj["projects"] as? [String], !projects.isEmpty else { return .invalid }
             return .start(requestID: id, projects: projects,
                           language: obj["language"] as? String ?? "nl", info: obj["info"] as? String ?? "")
+        case "search":
+            guard let id = obj["id"] as? String, !id.isEmpty, id.count <= 80,
+                  let query = (obj["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else { return .invalid }
+            return .search(raw: text, id: id, query: query, projects: obj["projects"] as? [String] ?? [])
         default:
             return hubTypes.contains(type) ? .toHub(text) : .invalid
         }

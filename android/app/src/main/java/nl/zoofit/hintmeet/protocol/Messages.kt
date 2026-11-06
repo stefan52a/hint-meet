@@ -35,6 +35,8 @@ sealed interface ServerMessage {
     /** Antwoord van de Mac op getypte tekst (`say`): ok = in het transcript gezet. */
     data class Said(val sayId: String, val ok: Boolean) : ServerMessage
     /** Antwoord op een zoekvraag (Find): per document het best passende stukje. error "loading": KB nog niet klaar. */
+    /** Voortgang terwijl de Mac de kennisbank voor een zoekvraag laadt (buiten een meeting). */
+    data class SearchStatus(val id: String, val text: String) : ServerMessage
     data class SearchResults(val id: String, val results: List<DocHit>, val reranked: Boolean, val error: String?) : ServerMessage
 }
 
@@ -109,6 +111,7 @@ fun parseServer(text: String): ServerMessage? {
                 }
             } ?: emptyList(),
             o.bool("reranked") ?: false, o.str("error"))
+        "search_status" -> ServerMessage.SearchStatus(o.str("id") ?: return null, o.str("text") ?: "")
         "said" -> ServerMessage.Said(o.str("say_id") ?: return null, o.bool("ok") ?: false)
         else -> null
     }

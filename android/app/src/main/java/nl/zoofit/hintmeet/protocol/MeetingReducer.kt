@@ -75,7 +75,7 @@ fun reduce(ui: MeetingUi, msg: ServerMessage): MeetingUi = when (msg) {
         if (ui.backed.any { it.id == item.id && it.text == item.text }) ui else ui.copy(backed = ui.backed + item)
     }
     is ServerMessage.AudioReady, is ServerMessage.AudioAck,
-    is ServerMessage.AudioReject, is ServerMessage.Projects, is ServerMessage.Said, is ServerMessage.SearchResults -> ui
+    is ServerMessage.AudioReject, is ServerMessage.Projects, is ServerMessage.Said, is ServerMessage.SearchResults, is ServerMessage.SearchStatus -> ui
 }
 
 private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {

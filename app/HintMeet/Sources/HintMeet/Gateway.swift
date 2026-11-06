@@ -123,6 +123,8 @@ final class Gateway: ObservableObject {
     private var last: GatewayState.Last?
     private var seenRequests: [String] = []   // request_id's: een herhaalde start start nooit een tweede meeting
     private var hub: Upstream?
+    /// Find op de telefoon buiten een meeting: een eigen zoekproces, los van Find Documents op de Mac.
+    private lazy var phoneSearch = PhoneSearch(settings: settings) { [weak self] text in self?.broadcast(text) }
     private var source: Upstream?
     private let keepAwake = KeepAwake()
     private var watch: AnyCancellable?
@@ -367,6 +369,9 @@ final class Gateway: ObservableObject {
             start(requestID: requestID, projects: projects, language: language, info: info, from: link)
         case .toHub(let raw):
             hub?.send(raw)
+        case let .search(raw, id, query, projects):
+            if let hub { hub.send(raw) }   // meeting van de telefoon: in de KB die de pijplijn al geladen heeft
+            else { phoneSearch.search(id: id, query: query, projects: projects) }
         case .invalid:
             break
         }
@@ -390,6 +395,7 @@ final class Gateway: ObservableObject {
         backend.start(phone: .init(meeting: id, projects: projects, language: language, info: info))
         if backend.isRunning {
             seenRequests = Array((seenRequests + [requestID]).suffix(50))   // pas na een geslaagde start
+            phoneSearch.stop()   // de meeting laadt de KB zelf; geen tweede kopie in het geheugen
             startUpstreams()
         } else {
             meeting = nil
