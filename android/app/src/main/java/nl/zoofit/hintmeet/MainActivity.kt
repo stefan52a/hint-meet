@@ -82,7 +82,7 @@ fun App(vm: AppViewModel) {
     when {
         pairing == null -> PairingScreen(vm::pair)
         meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING ->
-            MeetingScreen(meeting, connected, gateway?.startedAtMs, liveness, alarms, vm::feedback) { vm.stop() }
+            MeetingScreen(meeting, connected, gateway?.startedAtMs, liveness, alarms, vm::feedback, vm::say) { vm.stop() }
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         else -> StartScreen(connected, gateway, projects, meeting, vm::start, vm::unpair)
     }

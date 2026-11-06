@@ -2,6 +2,12 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-11-06
+
+### Android companion app
+
+- **Type as if you said it, like on the Mac:** at the bottom of the meeting screen on the phone there is a text field. What you type there (send with ↑ or the keyboard's send key) goes into the transcript as something you said, and gets the same hints and checks against your documents as speech. Needs the updated Mac app.
+
 ## 2026-11-03
 
 ### Android companion app

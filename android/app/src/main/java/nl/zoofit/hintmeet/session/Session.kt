@@ -309,6 +309,14 @@ object Session {
         if (client?.sendText(msg.toString()) == true) meeting.update { rate(it, id, rating) }
     }
 
+    /** Getypt alsof je het zei: de Mac verwerkt het als een uitspraak van jou (zoals het invoerveld op de Mac). */
+    fun say(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty() || meeting.value.phase != Phase.RUNNING) return false
+        val msg = buildJsonObject { put("type", "say"); put("text", t) }
+        return client?.sendText(msg.toString()) == true
+    }
+
     fun dismissMeeting() {
         meeting.value = MeetingUi()
     }

@@ -59,6 +59,7 @@ section("routing") {
     check(PhoneRequest.parse(#"{"type":"start","request_id":"r1","projects":["acme"],"language":"nl","info":""}"#)
           == .start(requestID: "r1", projects: ["acme"], language: "nl", info: ""))
     check(PhoneRequest.parse(#"{"type":"start","projects":["acme"]}"#) == .invalid, "start zonder request_id")
+    check(PhoneRequest.parse(#"{"type":"say","text":"hallo"}"#) == .toHub(#"{"type":"say","text":"hallo"}"#))
     check(PhoneRequest.parse("not json") == .invalid)
     check(PhoneRequest.parse(#"{"type":"shutdown"}"#) == .invalid)
 }
