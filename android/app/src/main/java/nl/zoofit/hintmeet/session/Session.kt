@@ -383,9 +383,9 @@ object Session {
             if (meeting.value.phase != Phase.RUNNING) put("projects", JsonArray(projects.map { JsonPrimitive(it) }))
         }
         if (client?.sendText(msg.toString()) != true) {
-            find.value = FindUi(query = q, note = "The Mac isn't reachable. Try again."); return   // geen oude vraag meer open
+            find.value = FindUi(query = q, note = "The Mac isn't reachable. Try again.", projects = find.value.projects); return   // geen oude vraag meer open
         }
-        find.value = FindUi(query = q, requestId = id, searching = true)   // oude resultaten weg: die horen bij een andere vraag
+        find.value = FindUi(query = q, requestId = id, searching = true, projects = find.value.projects)   // oude resultaten weg: die horen bij een andere vraag
         armFindTimeout(id)
     }
 
@@ -396,6 +396,11 @@ object Session {
             val f = find.value
             if (f.searching && f.requestId == id) find.value = f.copy(searching = false, note = "No answer from the Mac. Search again.")
         }
+    }
+
+    /** Find openen voor andere projecten: geen resultaten (of open vraag) van de vorige laten staan. */
+    fun openFind(projects: List<String>) {
+        if (find.value.projects != projects) { findTimeout?.cancel(); find.value = FindUi(projects = projects) }
     }
 
     /** De Mac laadt de kennisbank nog: voortgang tonen en langer wachten. */
@@ -486,4 +491,6 @@ data class FindUi(
     val results: List<nl.zoofit.hintmeet.protocol.DocHit> = emptyList(),
     val reranked: Boolean = false,
     val note: String? = null,
+    /** Voor welke projecten (Find vanaf het startscherm); leeg tijdens een meeting. */
+    val projects: List<String> = emptyList(),
 )

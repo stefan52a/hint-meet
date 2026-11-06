@@ -84,6 +84,7 @@ public enum PhoneRequest: Equatable {
                           language: obj["language"] as? String ?? "nl", info: obj["info"] as? String ?? "")
         case "search":
             guard let id = obj["id"] as? String, !id.isEmpty, id.count <= 80,
+                  id.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
                   let query = (obj["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else { return .invalid }
             return .search(raw: text, id: id, query: query, projects: obj["projects"] as? [String] ?? [])

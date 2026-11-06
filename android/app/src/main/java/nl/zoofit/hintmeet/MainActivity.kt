@@ -93,6 +93,6 @@ fun App(vm: AppViewModel) {
                           find, vm::search) { vm.stop() }
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         findProjects != null -> FindScreen(find, findProjects!!, connected, { vm.search(it, findProjects!!) }) { findProjects = null }
-        else -> StartScreen(connected, gateway, projects, meeting, vm::start, { findProjects = it }, vm::unpair)
+        else -> StartScreen(connected, gateway, projects, meeting, vm::start, { vm.openFind(it); findProjects = it }, vm::unpair)
     }
 }

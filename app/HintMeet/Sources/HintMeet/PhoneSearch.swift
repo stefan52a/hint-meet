@@ -24,18 +24,23 @@ final class PhoneSearch {
 
     func search(id: String, query: String, projects asked: [String]) {
         let known = Set(settings.projects)
-        let chosen = asked.filter(known.contains)
-        let list = chosen.isEmpty ? settings.selectedProjects : chosen   // niets (geldigs) gevraagd: wat de Mac koos
-        guard !list.isEmpty else { return reply(id, error: "no_project") }
+        // niets gevraagd: wat de Mac koos; wel gevraagd maar onbekend: een fout, niet stilletjes ergens anders zoeken
+        let list = asked.isEmpty ? settings.selectedProjects : asked
+        guard !list.isEmpty, list.allSatisfy(known.contains) else { return reply(id, error: "no_project") }
         guard settings.backendReady else { return reply(id, error: "failed") }
         let key = list.joined(separator: ",")
-        touch()
         if process?.isRunning == true && key == projects && ready {
             write(id, query)
+            touch()
             return
         }
-        if process?.isRunning != true || key != projects { restart(key) }
-        waiting = Array((waiting + [(id, query)]).suffix(5))
+        if process?.isRunning != true || key != projects {
+            restart(key)
+            guard process != nil else { return reply(id, error: "failed") }   // kon niet starten
+        }
+        waiting.append((id, query))
+        while waiting.count > 5 { reply(waiting.removeFirst().id, error: "failed") }
+        touch()   // na restart(): die zet de timer stil
         status(id, "Loading \(list.joined(separator: " + "))…")
     }
 
@@ -54,10 +59,11 @@ final class PhoneSearch {
     // MARK: -
 
     private func restart(_ key: String) {
-        let pending = waiting
+        let pending = key == projects ? waiting : []   // zelfde project (proces viel weg): de vragen blijven staan
+        if key != projects { for w in waiting { reply(w.id, error: "failed") } }
         waiting = []
         stop()
-        waiting = pending.filter { _ in key == projects }   // vragen voor een ander project vervallen
+        waiting = pending
         projects = key
         let p = Backend.pythonProcess(settings, ["-m", "hint_meet.cli", "--project", key, "search", "--serve"])
         let out = Pipe(), inp = Pipe()
@@ -101,6 +107,8 @@ final class PhoneSearch {
             Gateway.log("phone search: loading \(key)")
         } catch {
             Gateway.log("phone search: could not start: \(error.localizedDescription)")
+            for w in waiting { reply(w.id, error: "failed") }
+            waiting = []
         }
     }
 
@@ -124,7 +132,7 @@ final class PhoneSearch {
 
     private func write(_ id: String, _ query: String) {
         let q = query.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\t", with: " ")
-        let rid = id.replacingOccurrences(of: "\t", with: " ")
+        let rid = id.filter { !$0.isNewline && $0 != "\t" }
         input?.write(Data("\(rid)\t\(q)\n".utf8))
     }
 

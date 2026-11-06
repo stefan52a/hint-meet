@@ -66,6 +66,7 @@ section("routing") {
           == .search(raw: #"{"type":"search","id":"p","query":"x"}"#, id: "p", query: "x", projects: []))
     check(PhoneRequest.parse(#"{"type":"search","id":3,"query":"x"}"#) == .invalid, "id moet tekst zijn")
     check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"  "}"#) == .invalid)
+    check(PhoneRequest.parse(#"{"type":"search","id":"p\n@ready","query":"x"}"#) == .invalid, "geen regeleinde in de id")
     check(PhoneRequest.parse("not json") == .invalid)
     check(PhoneRequest.parse(#"{"type":"shutdown"}"#) == .invalid)
 }

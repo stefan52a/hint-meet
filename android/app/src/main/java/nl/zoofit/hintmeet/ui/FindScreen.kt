@@ -61,7 +61,7 @@ fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit, intro: String
                 }
             },
             supportingText = when {
-                find.searching -> ({ Text("Searching on the Mac…") })
+                find.searching -> ({ Text(find.note ?: "Searching on the Mac…") })   // voortgang van het laden
                 find.note != null -> ({ Text(find.note) })
                 else -> null
             },

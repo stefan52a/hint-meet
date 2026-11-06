@@ -28,5 +28,6 @@ class AppViewModel : ViewModel() {
     fun say(text: String): String? = Session.say(text)
     fun clearSayError() = Session.clearSayError()
     fun search(query: String, projects: List<String> = emptyList()) = Session.search(query, projects)
+    fun openFind(projects: List<String>) = Session.openFind(projects)
     fun dismissMeeting() = Session.dismissMeeting()
 }
