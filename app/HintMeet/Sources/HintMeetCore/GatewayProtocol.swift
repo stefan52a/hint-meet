@@ -60,14 +60,14 @@ public enum Pairing {
     }
 }
 
-/// Wat de telefoon vraagt. stop, feedback, language en say gaan ongewijzigd door naar de hub van de pijplijn.
+/// Wat de telefoon vraagt. stop, feedback, language, say en search gaan ongewijzigd door naar de hub van de pijplijn.
 public enum PhoneRequest: Equatable {
     case projects, state
     case start(requestID: String, projects: [String], language: String, info: String)
     case toHub(String)
     case invalid
 
-    public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say"]
+    public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say", "search"]
 
     public static func parse(_ text: String) -> PhoneRequest {
         guard let obj = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],

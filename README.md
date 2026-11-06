@@ -133,7 +133,7 @@ hint-meet/
 │       ├── audio/          recording service, resend buffer, offsets on the Mac's clock
 │       ├── health/         alarms (connection, buffer, battery, Mac stopped, …)
 │       ├── session/        one session per process: connection, meeting, recording
-│       └── ui/             start, meeting (Hints / Backed / Transcript), report
+│       └── ui/             start, meeting (Hints / Backed / Transcript / Find), report
 ├── tools/
 │   ├── kb_prep.py          KB folder (docx, xlsx, pptx, pdf, …) → Markdown
 │   ├── phone_client.py     plays a recording like the phone does (directly, or via the gateway)
@@ -386,7 +386,7 @@ The Android app in `android/` lets the phone record the meeting and show the hin
 
 Install the app on the phone (USB debugging on, phone connected): `cd android && ./gradlew installDebug` (the build needs a JDK 21 somewhere on the Mac; Gradle finds it itself, also when your default Java is newer). Or build `./gradlew assembleDebug` and copy `android/app/build/outputs/apk/debug/app-debug.apk` to the phone.
 
-The phone starts and stops the meeting; the report lands in the project's meetings folder as usual. It records with the screen off and keeps up to 10 minutes of audio when the connection drops, sent as soon as it's back. Only the first HintMeet (without a number in the menu bar) does this. Without a phone: `tools/phone_client.py recording.wav --gateway ws://<tailscale-ip>:8790 --token <key> --start <project>` plays a recording through the same path.
+The phone starts and stops the meeting; the report lands in the project's meetings folder as usual. It records with the screen off and keeps up to 10 minutes of audio when the connection drops, sent as soon as it's back. Only the first HintMeet (without a number in the menu bar) does this. During the meeting the phone has four tabs: *Hints*, *Backed*, *Transcript* and *Find* (search the documents by what they say, in the knowledge base the meeting on the Mac has loaded, like *Find Documents* there). The field at the bottom adds typed text to the transcript as if you said it. Without a phone: `tools/phone_client.py recording.wav --gateway ws://<tailscale-ip>:8790 --token <key> --start <project>` plays a recording through the same path.
 
 ## Gatekeeper
 

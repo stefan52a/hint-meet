@@ -34,6 +34,13 @@ sealed interface ServerMessage {
     data class Projects(val items: List<String>, val selected: List<String>) : ServerMessage
     /** Antwoord van de Mac op getypte tekst (`say`): ok = in het transcript gezet. */
     data class Said(val sayId: String, val ok: Boolean) : ServerMessage
+    /** Antwoord op een zoekvraag (Find): per document het best passende stukje. error "loading": KB nog niet klaar. */
+    data class SearchResults(val id: String, val results: List<DocHit>, val reranked: Boolean, val error: String?) : ServerMessage
+}
+
+/** Eén gevonden document. relevance (0…1) als Jev meebeoordeelde; injection: lijkt instructies aan een AI te bevatten. */
+data class DocHit(val ref: String, val heading: String, val snippet: String, val relevance: Double?, val injection: Boolean) {
+    val name: String get() = ref.substringAfterLast('/')
 }
 
 private val json = Json { ignoreUnknownKeys = true }
@@ -93,6 +100,15 @@ fun parseServer(text: String): ServerMessage? {
                                 o.bool("busy_elsewhere") ?: false, last)
         }
         "projects" -> ServerMessage.Projects(o.strings("items"), o.strings("selected"))
+        "search_results" -> ServerMessage.SearchResults(
+            o.str("id") ?: return null,   // de Mac zoekt met getallen als id; de telefoon met tekst
+            (o["results"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { e ->
+                (e as? JsonObject)?.let {
+                    DocHit(it.str("ref") ?: return@let null, it.str("heading") ?: "", it.str("snippet") ?: "",
+                           it.double("relevance"), it.bool("injection") ?: false)
+                }
+            } ?: emptyList(),
+            o.bool("reranked") ?: false, o.str("error"))
         "said" -> ServerMessage.Said(o.str("say_id") ?: return null, o.bool("ok") ?: false)
         else -> null
     }

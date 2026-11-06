@@ -54,6 +54,10 @@ object Session {
     /** Getypte tekst onderweg naar de Mac, of waarom hij niet aankwam. */
     val sayState = MutableStateFlow<SayState>(SayState.Idle())
     private var sayTimeout: Job? = null
+    /** Find: de laatste zoekvraag in de KB van de meeting en wat die opleverde. */
+    val find = MutableStateFlow(FindUi())
+    private var findTimeout: Job? = null
+    private const val FIND_TIMEOUT_MS = 30_000L
     private const val SAY_TIMEOUT_MS = 8_000L
     val connected = MutableStateFlow(false)
     val gateway = MutableStateFlow<ServerMessage.State?>(null)
@@ -176,6 +180,7 @@ object Session {
             }
             is ServerMessage.Projects -> projects.value = msg
             is ServerMessage.Said -> { onSaid(msg); return }   // geen meetingstand
+            is ServerMessage.SearchResults -> { onSearchResults(msg); return }
             is ServerMessage.AudioReady -> onAudioReady(msg)
             is ServerMessage.AudioAck -> if (msg.meeting == recordingMeeting) {
                 streamer?.onAck(msg.offset)
@@ -365,7 +370,38 @@ object Session {
                          else SayState.Failed(msg.sayId, text, "The Mac didn't take it: the meeting isn't listening.")
     }
 
+    /** Zoeken in de kennisbank die de meeting op de Mac al geladen heeft (zoals Find Documents op de Mac). */
+    fun search(query: String) {
+        val q = query.trim().replace('\n', ' ')
+        if (q.isEmpty()) return
+        if (meeting.value.phase != Phase.RUNNING) {
+            find.value = FindUi(query = q, note = "Searching works while the meeting is listening."); return
+        }
+        val id = "phone-" + UUID.randomUUID().toString()   // tekst: botst niet met de getallen van de Mac
+        val msg = buildJsonObject { put("type", "search"); put("id", id); put("query", q) }
+        if (client?.sendText(msg.toString()) != true) {
+            find.value = find.value.copy(query = q, searching = false, note = "The Mac isn't reachable. Try again."); return
+        }
+        find.value = find.value.copy(query = q, requestId = id, searching = true, note = null)
+        findTimeout?.cancel()
+        findTimeout = scope.launch {
+            delay(FIND_TIMEOUT_MS)
+            val f = find.value
+            if (f.searching && f.requestId == id) find.value = f.copy(searching = false, note = "No answer from the Mac. Search again.")
+        }
+    }
+
+    private fun onSearchResults(msg: ServerMessage.SearchResults) {
+        val f = find.value
+        if (msg.id != f.requestId) return   // antwoord op een eerdere vraag, of op de Mac
+        findTimeout?.cancel()
+        find.value = if (msg.error == "loading")
+            f.copy(searching = false, results = emptyList(), note = "The Mac is still loading the knowledge base; try again in a moment.")
+        else f.copy(searching = false, results = msg.results, reranked = msg.reranked, searched = true, note = null)
+    }
+
     fun dismissMeeting() {
+        find.value = FindUi()
         sayState.value = SayState.Idle()
         meeting.value = MeetingUi()
     }
@@ -422,3 +458,14 @@ sealed interface SayState {
     data class Sent(val id: String) : SayState
     data class Failed(val id: String, val text: String, val reason: String) : SayState
 }
+
+/** Find-tab: zoekvraag, of er gezocht wordt, de resultaten en een eventuele melding. */
+data class FindUi(
+    val query: String = "",
+    val requestId: String? = null,
+    val searching: Boolean = false,
+    val searched: Boolean = false,
+    val results: List<nl.zoofit.hintmeet.protocol.DocHit> = emptyList(),
+    val reranked: Boolean = false,
+    val note: String? = null,
+)

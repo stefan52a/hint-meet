@@ -60,6 +60,8 @@ section("routing") {
           == .start(requestID: "r1", projects: ["acme"], language: "nl", info: ""))
     check(PhoneRequest.parse(#"{"type":"start","projects":["acme"]}"#) == .invalid, "start zonder request_id")
     check(PhoneRequest.parse(#"{"type":"say","text":"hallo"}"#) == .toHub(#"{"type":"say","text":"hallo"}"#))
+    check(PhoneRequest.parse(#"{"type":"search","id":"phone-1","query":"lening"}"#)
+          == .toHub(#"{"type":"search","id":"phone-1","query":"lening"}"#))
     check(PhoneRequest.parse("not json") == .invalid)
     check(PhoneRequest.parse(#"{"type":"shutdown"}"#) == .invalid)
 }

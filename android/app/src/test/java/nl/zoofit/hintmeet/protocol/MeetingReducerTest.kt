@@ -133,6 +133,19 @@ class MeetingReducerTest {
         assertEquals(ui, reduce(ui, said))
     }
 
+    @Test fun searchResultsParse() {
+        val r = parse("""{"type":"search_results","id":"phone-1","reranked":true,"results":[
+            {"ref":"acme/lening.md","heading":"§2","snippet":"Rente 4%","path":"/x","score":0.8,"relevance":0.91,"injection":false},
+            {"ref":"b.md","heading":"","snippet":"…","injection":true}]}""") as ServerMessage.SearchResults
+        assertEquals("phone-1", r.id)
+        assertTrue(r.reranked)
+        assertEquals("lening.md", r.results[0].name)
+        assertEquals(0.91, r.results[0].relevance!!, 1e-9)
+        assertTrue(r.results[1].injection)
+        assertNull(parseServer("""{"type":"search_results","id":3,"results":[]}"""))   // die van de Mac
+        assertEquals("loading", (parse("""{"type":"search_results","id":"p","error":"loading"}""") as ServerMessage.SearchResults).error)
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))
