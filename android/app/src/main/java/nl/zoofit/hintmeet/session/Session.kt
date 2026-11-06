@@ -419,6 +419,7 @@ object Session {
             null -> f.copy(searching = false, results = msg.results, reranked = msg.reranked, searched = true, note = null)
             "loading" -> f.copy(searching = false, note = "The Mac is still loading the knowledge base; try again in a moment.")
             "no_project" -> f.copy(searching = false, note = "Choose a project first.")
+            "busy" -> f.copy(searching = false, note = "A meeting is running on the Mac. Search when it's over.")
             else -> f.copy(searching = false, note = "Searching failed on the Mac. Try again.")
         }
     }

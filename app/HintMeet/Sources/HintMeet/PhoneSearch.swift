@@ -1,10 +1,15 @@
 import Foundation
+import HintMeetCore
 
 /// Find op de telefoon buiten een meeting: houdt `hint-meet search --serve` open voor de projecten die de telefoon
 /// vraagt (zoals Find Documents op de Mac), en stuurt de antwoorden als `search_results` naar de telefoon. Tijdens
-/// het laden meldt hij de voortgang met `search_status`. Na 15 minuten zonder vraag stopt het proces weer.
+/// het laden meldt hij elke 10 s hoe ver het is (`search_status`), zodat de telefoon blijft wachten. Elke vraag krijgt
+/// een antwoord: resultaten, of een fout als het proces stopt. Na 15 minuten zonder vraag stopt het proces (niet
+/// tijdens het laden), en ook zodra er een meeting draait (de Gateway roept dan `stop()`).
 @MainActor
 final class PhoneSearch {
+    private struct Request { let id: String; let query: String; var sent = false }
+
     private let settings: Settings
     private let send: (String) -> Void
     private var process: Process?
@@ -12,59 +17,70 @@ final class PhoneSearch {
     private var projects = ""
     private var ready = false
     private var generation = 0
-    /// Vragen die wachten tot de kennisbank geladen is (alleen de laatste telt voor de telefoon, maar ze kosten weinig).
-    private var waiting: [(id: String, query: String)] = []
+    /// Alle vragen zonder antwoord: nog niet verstuurd (de KB laadt nog) of verstuurd en wachtend op @results.
+    private var requests: [Request] = []
+    /// Laatste voortgang van het laden, voor de telefoon.
+    private var loadingText = ""
     private var idleTimer: Timer?
+    private var heartbeat: Timer?
     static let idleSeconds: TimeInterval = 15 * 60
+    static let heartbeatSeconds: TimeInterval = 10
+    static let maxQueued = 5
 
     init(settings: Settings, send: @escaping (String) -> Void) {
         self.settings = settings
         self.send = send
     }
 
+    /// `asked`: de projecten die op de telefoon aangevinkt zijn. Onbekend of leeg is een fout: nooit stilletjes in
+    /// iets anders zoeken.
     func search(id: String, query: String, projects asked: [String]) {
         let known = Set(settings.projects)
-        // niets gevraagd: wat de Mac koos; wel gevraagd maar onbekend: een fout, niet stilletjes ergens anders zoeken
-        let list = asked.isEmpty ? settings.selectedProjects : asked
-        guard !list.isEmpty, list.allSatisfy(known.contains) else { return reply(id, error: "no_project") }
-        guard settings.backendReady else { return reply(id, error: "failed") }
-        let key = list.joined(separator: ",")
-        if process?.isRunning == true && key == projects && ready {
-            write(id, query)
-            touch()
-            return
+        guard !asked.isEmpty, asked.allSatisfy(known.contains) else { return refuse(id, "no_project") }
+        guard settings.backendReady else { return refuse(id, "failed") }
+        let key = asked.joined(separator: ",")
+        if process == nil || key != projects {
+            stop()   // ander project (of geen proces): open vragen krijgen een fout, die horen bij het vorige
+            launch(key, label: asked.joined(separator: " + "))
+            guard process != nil else { return refuse(id, "failed") }
         }
-        if process?.isRunning != true || key != projects {
-            restart(key)
-            guard process != nil else { return reply(id, error: "failed") }   // kon niet starten
+        requests.append(Request(id: id, query: query))
+        while requests.filter({ !$0.sent }).count > Self.maxQueued, let i = requests.firstIndex(where: { !$0.sent }) {
+            refuse(requests.remove(at: i).id, "failed")
         }
-        waiting.append((id, query))
-        while waiting.count > 5 { reply(waiting.removeFirst().id, error: "failed") }
-        touch()   // na restart(): die zet de timer stil
-        status(id, "Loading \(list.joined(separator: " + "))…")
+        touch()
+        if ready { flush() } else { status(id, loadingText) }
     }
 
+    /// Proces weg; elke open vraag krijgt een fout.
     func stop() {
-        generation += 1
-        idleTimer?.invalidate()
-        idleTimer = nil
-        input = nil
-        if let p = process, p.isRunning { p.terminate() }
-        process = nil
-        ready = false
-        for w in waiting { reply(w.id, error: "failed") }
-        waiting = []
+        let open = requests
+        requests = []
+        terminate()
+        for r in open { refuse(r.id, "failed") }
+    }
+
+    /// Antwoord zonder resultaten, met een reden: no_project, busy (er draait een meeting), failed.
+    func refuse(_ id: String, _ error: String) {
+        sendJSON(["type": "search_results", "id": id, "results": [], "reranked": false, "error": error])
     }
 
     // MARK: -
 
-    private func restart(_ key: String) {
-        let pending = key == projects ? waiting : []   // zelfde project (proces viel weg): de vragen blijven staan
-        if key != projects { for w in waiting { reply(w.id, error: "failed") } }
-        waiting = []
-        stop()
-        waiting = pending
+    private func terminate() {
+        generation += 1   // wat het oude proces nog stuurt, telt niet meer
+        idleTimer?.invalidate(); idleTimer = nil
+        heartbeat?.invalidate(); heartbeat = nil
+        input = nil
+        if let p = process, p.isRunning { p.terminate() }
+        process = nil
+        ready = false
+        loadingText = ""
+    }
+
+    private func launch(_ key: String, label: String) {
         projects = key
+        loadingText = "Loading \(label)…"
         let p = Backend.pythonProcess(settings, ["-m", "hint_meet.cli", "--project", key, "search", "--serve"])
         let out = Pipe(), inp = Pipe()
         p.standardOutput = out
@@ -92,11 +108,8 @@ final class PhoneSearch {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.process === proc else { return }
-                    self.process = nil
-                    self.input = nil
-                    self.ready = false
-                    for w in self.waiting { self.reply(w.id, error: "failed") }
-                    self.waiting = []
+                    Gateway.log("phone search: process ended (\(proc.terminationStatus))")
+                    self.stop()
                 }
             }
         }
@@ -105,46 +118,53 @@ final class PhoneSearch {
             process = p
             input = inp.fileHandleForWriting
             Gateway.log("phone search: loading \(key)")
+            heartbeat = Timer.scheduledTimer(withTimeInterval: Self.heartbeatSeconds, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {   // ook in fasen zonder @progress: de telefoon weet dat het nog loopt
+                    guard let self, !self.ready, let last = self.requests.last else { return }
+                    self.status(last.id, self.loadingText)
+                }
+            }
         } catch {
             Gateway.log("phone search: could not start: \(error.localizedDescription)")
-            for w in waiting { reply(w.id, error: "failed") }
-            waiting = []
+            terminate()
         }
     }
 
     private func read(_ line: String) {
         if line.hasPrefix("@ready") {
             ready = true
-            let todo = waiting
-            waiting = []
-            for w in todo { write(w.id, w.query) }
+            heartbeat?.invalidate(); heartbeat = nil
+            touch()   // de 15 minuten tellen vanaf nu, niet vanaf het begin van het laden
+            flush()
         } else if line.hasPrefix("@results "), let data = line.dropFirst(9).data(using: .utf8),
                   var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let id = json["id"] as? String { requests.removeAll { $0.id == id } }
             json["type"] = "search_results"
             json.removeValue(forKey: "query")
             sendJSON(json)
-        } else if line.hasPrefix("@step ") || line.hasPrefix("@progress "), let last = waiting.last {
-            // "@step <sleutel> <tekst>" of "@progress <klaar> <totaal> <tekst>": alleen de tekst
-            let parts = line.split(separator: " ", maxSplits: line.hasPrefix("@step ") ? 2 : 3)
-            if let text = parts.last, parts.count >= 3 { status(last.id, String(text)) }
+        } else if let text = SearchServe.progressText(line) {
+            loadingText = text
+            // een nieuwe fase of de waarschuwing dat het lang duurt meteen; @progress via de hartslag (elke 10 s)
+            if !line.hasPrefix("@progress "), let last = requests.last { status(last.id, text) }
         }
     }
 
-    private func write(_ id: String, _ query: String) {
-        let q = query.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\t", with: " ")
-        let rid = id.filter { !$0.isNewline && $0 != "\t" }
-        input?.write(Data("\(rid)\t\(q)\n".utf8))
+    private func flush() {
+        for i in requests.indices where !requests[i].sent {
+            let q = requests[i].query.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\t", with: " ")
+            input?.write(Data("\(requests[i].id)\t\(q)\n".utf8))   // id: zonder stuurtekens (PhoneRequest.parse)
+            requests[i].sent = true
+        }
     }
 
     private func touch() {
         idleTimer?.invalidate()
         idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idleSeconds, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stop() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.ready { self.stop() } else { self.touch() }   // nooit midden in het laden afbreken
+            }
         }
-    }
-
-    private func reply(_ id: String, error: String) {
-        sendJSON(["type": "search_results", "id": id, "results": [], "reranked": false, "error": error])
     }
 
     private func status(_ id: String, _ text: String) {

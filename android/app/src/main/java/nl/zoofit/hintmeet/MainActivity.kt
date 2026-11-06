@@ -72,6 +72,8 @@ fun App(vm: AppViewModel) {
     val sayState by vm.sayState.collectAsStateWithLifecycle()
     val find by vm.find.collectAsStateWithLifecycle()
     var findProjects by rememberSaveable { mutableStateOf<List<String>?>(null) }   // Find vanaf het startscherm
+    // een meeting neemt het scherm over: daarna terug naar het startscherm, niet naar een oud Find-scherm
+    androidx.compose.runtime.LaunchedEffect(meeting.phase) { if (meeting.phase != Phase.IDLE) findProjects = null }
     pending?.let { p ->
         AlertDialog(
             onDismissRequest = { vm.confirmPairing(p, false) },

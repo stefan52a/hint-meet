@@ -127,7 +127,7 @@ fun StartScreen(
                enabled = connected && chosen.isNotEmpty() && !busy && !starting,
                modifier = Modifier.fillMaxWidth()) { Text(if (starting) "Starting…" else "Start Meeting") }
         if (starting) Text(meeting.status ?: "Starting the pipeline on the Mac…", style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick = { openFind(chosen) }, enabled = connected && chosen.isNotEmpty(),
+        OutlinedButton(onClick = { openFind(chosen) }, enabled = connected && chosen.isNotEmpty() && !busy && !starting,
                        modifier = Modifier.fillMaxWidth()) { Text("Find in Documents…") }
         if (micRefused) Text("HintMeet needs the microphone to record the meeting (Android settings → Apps → HintMeet).",
                              color = MaterialTheme.colorScheme.error)

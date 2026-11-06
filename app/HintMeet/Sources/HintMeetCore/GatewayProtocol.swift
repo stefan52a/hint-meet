@@ -66,7 +66,8 @@ public enum PhoneRequest: Equatable {
     case projects, state
     case start(requestID: String, projects: [String], language: String, info: String)
     case toHub(String)
-    case search(raw: String, id: String, query: String, projects: [String])
+    /// projects nil: uit de Find-tab van een meeting (zoekt in de KB van de meeting); anders het startscherm.
+    case search(raw: String, id: String, query: String, projects: [String]?)
     case invalid
 
     public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say"]
@@ -87,7 +88,12 @@ public enum PhoneRequest: Equatable {
                   id.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
                   let query = (obj["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else { return .invalid }
-            return .search(raw: text, id: id, query: query, projects: obj["projects"] as? [String] ?? [])
+            let projects: [String]?
+            if let value = obj["projects"] {   // wel meegestuurd maar geen lijst met tekst: fout, niet negeren
+                guard let list = value as? [String] else { return .invalid }
+                projects = list
+            } else { projects = nil }
+            return .search(raw: text, id: id, query: query, projects: projects)
         default:
             return hubTypes.contains(type) ? .toHub(text) : .invalid
         }
@@ -235,5 +241,21 @@ public enum PhoneAuth {
         return Data(bytes).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// Regels van `hint-meet search --serve` tijdens het laden.
+public enum SearchServe {
+    /// De tekst uit "@step <sleutel> <tekst>", "@progress <klaar> <totaal> <tekst>" of "@note <tekst>"; anders nil.
+    public static func progressText(_ line: String) -> String? {
+        let fields: Int
+        if line.hasPrefix("@step ") { fields = 3 }
+        else if line.hasPrefix("@progress ") { fields = 4 }
+        else if line.hasPrefix("@note ") { fields = 2 }
+        else { return nil }
+        let parts = line.split(separator: " ", maxSplits: fields - 1)
+        guard parts.count == fields else { return nil }
+        let text = parts[fields - 1].trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
     }
 }

@@ -63,7 +63,9 @@ section("routing") {
     let find = #"{"type":"search","id":"phone-1","query":" lening ","projects":["acme"]}"#
     check(PhoneRequest.parse(find) == .search(raw: find, id: "phone-1", query: "lening", projects: ["acme"]))
     check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"x"}"#)
-          == .search(raw: #"{"type":"search","id":"p","query":"x"}"#, id: "p", query: "x", projects: []))
+          == .search(raw: #"{"type":"search","id":"p","query":"x"}"#, id: "p", query: "x", projects: nil))
+    check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"x","projects":["a",1]}"#) == .invalid, "projects met een getal")
+    check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"x","projects":"a"}"#) == .invalid)
     check(PhoneRequest.parse(#"{"type":"search","id":3,"query":"x"}"#) == .invalid, "id moet tekst zijn")
     check(PhoneRequest.parse(#"{"type":"search","id":"p","query":"  "}"#) == .invalid)
     check(PhoneRequest.parse(#"{"type":"search","id":"p\n@ready","query":"x"}"#) == .invalid, "geen regeleinde in de id")
@@ -136,6 +138,17 @@ section("phone auth header") {
     check(!PhoneAuth.authorized(headers: [("Authorization", "Bearer ")], token: ""), "lege sleutel nooit goed")
     let n = PhoneAuth.newToken()
     check(n.count >= 43 && !n.contains("+") && !n.contains("/") && !n.contains("="))
+}
+
+section("search --serve progress lines") {
+    check(SearchServe.progressText("@step model Loading embedding model") == "Loading embedding model")
+    check(SearchServe.progressText("@progress 10 200 Embeddings: 10 of 200 new chunks · ~3 min left")
+          == "Embeddings: 10 of 200 new chunks · ~3 min left")
+    check(SearchServe.progressText("@note The first time takes about 20 minutes") == "The first time takes about 20 minutes")
+    check(SearchServe.progressText("@ready 120") == nil)
+    check(SearchServe.progressText("@results {}") == nil)
+    check(SearchServe.progressText("@step model") == nil)
+    check(SearchServe.progressText("@plan [[\"a\",\"b\"]]") == nil)
 }
 
 print(failures == 0 ? "\nAlle controles geslaagd" : "\n\(failures) controle(s) mislukt")
