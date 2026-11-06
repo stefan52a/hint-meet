@@ -6,7 +6,7 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### Android companion app
 
-- **Type as if you said it, like on the Mac:** at the bottom of the meeting screen on the phone there is a text field. What you type there (send with ↑ or the keyboard's send key) goes into the transcript as something you said, and gets the same hints and checks against your documents as speech. Needs the updated Mac app.
+- **Type as if you said it, like on the Mac:** at the bottom of the meeting screen on the phone there is a text field. What you type there (send with ↑ or the keyboard's send key) goes into the transcript as something you said, and gets the same hints and checks against your documents as speech. The text only disappears from the field once the Mac confirms it's in the transcript; if the Mac doesn't answer within 8 seconds or the meeting isn't listening, the text stays with the reason underneath, so you can send it again. Needs the updated Mac app.
 
 ## 2026-11-03
 

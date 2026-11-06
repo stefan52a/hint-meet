@@ -32,6 +32,8 @@ sealed interface ServerMessage {
         data class Last(val meeting: String, val stoppedBy: String, val reportMd: String?)
     }
     data class Projects(val items: List<String>, val selected: List<String>) : ServerMessage
+    /** Antwoord van de Mac op getypte tekst (`say`): ok = in het transcript gezet. */
+    data class Said(val sayId: String, val ok: Boolean) : ServerMessage
 }
 
 private val json = Json { ignoreUnknownKeys = true }
@@ -91,6 +93,7 @@ fun parseServer(text: String): ServerMessage? {
                                 o.bool("busy_elsewhere") ?: false, last)
         }
         "projects" -> ServerMessage.Projects(o.strings("items"), o.strings("selected"))
+        "said" -> ServerMessage.Said(o.str("say_id") ?: return null, o.bool("ok") ?: false)
         else -> null
     }
 }

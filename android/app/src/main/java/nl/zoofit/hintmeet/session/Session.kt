@@ -51,6 +51,10 @@ object Session {
     private lateinit var store: PairingStore
 
     val pairing = MutableStateFlow<Pairing?>(null)
+    /** Getypte tekst onderweg naar de Mac, of waarom hij niet aankwam. */
+    val sayState = MutableStateFlow<SayState>(SayState.Idle)
+    private var sayTimeout: Job? = null
+    private const val SAY_TIMEOUT_MS = 8_000L
     val connected = MutableStateFlow(false)
     val gateway = MutableStateFlow<ServerMessage.State?>(null)
     val projects = MutableStateFlow<ServerMessage.Projects?>(null)
@@ -171,6 +175,7 @@ object Session {
                 rejoinIfNeeded(msg)
             }
             is ServerMessage.Projects -> projects.value = msg
+            is ServerMessage.Said -> { onSaid(msg); return }   // geen meetingstand
             is ServerMessage.AudioReady -> onAudioReady(msg)
             is ServerMessage.AudioAck -> if (msg.meeting == recordingMeeting) {
                 streamer?.onAck(msg.offset)
@@ -309,12 +314,39 @@ object Session {
         if (client?.sendText(msg.toString()) == true) meeting.update { rate(it, id, rating) }
     }
 
-    /** Getypt alsof je het zei: de Mac verwerkt het als een uitspraak van jou (zoals het invoerveld op de Mac). */
-    fun say(text: String): Boolean {
+    /** Getypt alsof je het zei: de Mac verwerkt het als een uitspraak van jou (zoals het invoerveld op de Mac).
+     *  Pas als de Mac antwoordt (`said`) is het binnen; zonder antwoord binnen 8 s blijft de tekst staan met een melding. */
+    fun say(text: String) {
         val t = text.trim()
-        if (t.isEmpty() || meeting.value.phase != Phase.RUNNING) return false
-        val msg = buildJsonObject { put("type", "say"); put("text", t) }
-        return client?.sendText(msg.toString()) == true
+        if (t.isEmpty() || sayState.value is SayState.Sending) return
+        if (meeting.value.phase != Phase.RUNNING) { sayState.value = SayState.Failed(t, "The meeting isn't listening."); return }
+        val id = UUID.randomUUID().toString()
+        sayState.value = SayState.Sending(id, t)
+        val msg = buildJsonObject { put("type", "say"); put("text", t); put("say_id", id) }
+        if (client?.sendText(msg.toString()) != true) {
+            sayState.value = SayState.Failed(t, "The Mac isn't reachable. Try again.")
+            return
+        }
+        sayTimeout?.cancel()
+        sayTimeout = scope.launch {
+            delay(SAY_TIMEOUT_MS)
+            val s = sayState.value
+            if (s is SayState.Sending && s.id == id) {
+                sayState.value = SayState.Failed(t, "The Mac didn't confirm it. Try again.")
+            }
+        }
+    }
+
+    fun clearSayError() {
+        if (sayState.value is SayState.Failed) sayState.value = SayState.Idle
+    }
+
+    private fun onSaid(msg: ServerMessage.Said) {
+        val s = sayState.value
+        if (s !is SayState.Sending || s.id != msg.sayId) return   // al verlopen of van een eerdere poging
+        sayTimeout?.cancel()
+        sayState.value = if (msg.ok) SayState.Idle
+                         else SayState.Failed(s.text, "The Mac didn't take it: the meeting isn't listening.")
     }
 
     fun dismissMeeting() {
@@ -363,4 +395,11 @@ object Session {
             liveness.value = Liveness(ago(lastCaptureAtMs), ago(lastAckAtMs), ago(lastProcessedAtMs))
         }
     }
+}
+
+/** Getypte tekst: niets onderweg, wacht op de Mac, of niet aangekomen (de tekst blijft dan staan). */
+sealed interface SayState {
+    data object Idle : SayState
+    data class Sending(val id: String, val text: String) : SayState
+    data class Failed(val text: String, val reason: String) : SayState
 }

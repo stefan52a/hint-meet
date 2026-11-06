@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import nl.zoofit.hintmeet.health.Alarm
 import nl.zoofit.hintmeet.protocol.MeetingUi
 import nl.zoofit.hintmeet.session.Liveness
+import nl.zoofit.hintmeet.session.SayState
 import nl.zoofit.hintmeet.protocol.Phase
 
 /** Scherm aan zolang de meeting loopt (de telefoon ligt op tafel). */
@@ -69,7 +70,9 @@ fun MeetingScreen(
     liveness: Liveness?,
     alarms: Set<Alarm>,
     feedback: (Int, Int) -> Unit,
-    say: (String) -> Boolean,
+    sayState: SayState,
+    say: (String) -> Unit,
+    clearSayError: () -> Unit,
     stop: () -> Unit,
 ) {
     KeepScreenOn()
@@ -92,7 +95,7 @@ fun MeetingScreen(
         }
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            SayField(enabled = meeting.phase == Phase.RUNNING, say = say, modifier = Modifier.weight(1f))
+            SayField(meeting.phase == Phase.RUNNING, sayState, say, clearSayError, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             Button(onClick = { confirmStop = true }, enabled = meeting.phase == Phase.RUNNING,
                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White)) {
@@ -111,19 +114,39 @@ fun MeetingScreen(
     }
 }
 
-/** Typen alsof je het zei, zoals onderaan het transcript op de Mac: de Mac verwerkt het als een uitspraak van jou. */
+/** Typen alsof je het zei, zoals onderaan het transcript op de Mac: de Mac verwerkt het als een uitspraak van jou.
+ *  De tekst gaat pas weg als de Mac hem bevestigt; anders blijft hij staan met de reden eronder. */
 @Composable
-private fun SayField(enabled: Boolean, say: (String) -> Boolean, modifier: Modifier = Modifier) {
+private fun SayField(enabled: Boolean, state: SayState, say: (String) -> Unit, clearError: () -> Unit,
+                     modifier: Modifier = Modifier) {
     var text by rememberSaveable { mutableStateOf("") }
-    val send = { if (say(text)) text = "" }   // niet weg als het niet aankwam: dan kun je het opnieuw sturen
+    var waiting by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        when (state) {
+            is SayState.Idle -> if (waiting) { text = ""; waiting = false }   // bevestigd door de Mac
+            is SayState.Failed -> waiting = false
+            is SayState.Sending -> Unit
+        }
+    }
+    val sending = state is SayState.Sending
+    val send = { if (text.isNotBlank() && !sending) { waiting = true; say(text) } }
     OutlinedTextField(
-        value = text, onValueChange = { text = it }, enabled = enabled, modifier = modifier,
+        value = text,
+        onValueChange = { text = it; clearError() },
+        enabled = enabled && !sending,
+        modifier = modifier,
         placeholder = { Text(if (enabled) "Type as if you said it…" else "Typing works while the meeting is listening") },
         singleLine = true,
+        isError = state is SayState.Failed,
+        supportingText = when (state) {
+            is SayState.Sending -> ({ Text("Sending to the Mac…") })
+            is SayState.Failed -> ({ Text(state.reason) })
+            is SayState.Idle -> null
+        },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { send() }),
         trailingIcon = {
-            TextButton(onClick = send, enabled = enabled && text.isNotBlank(),
+            TextButton(onClick = send, enabled = enabled && !sending && text.isNotBlank(),
                        modifier = Modifier.semantics { contentDescription = "Add to the transcript as if you said it" }) {
                 Text("↑", style = MaterialTheme.typography.titleLarge)
             }

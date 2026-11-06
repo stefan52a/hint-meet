@@ -124,6 +124,15 @@ class MeetingReducerTest {
         assertEquals(false, ui.backed[1].confirms)
     }
 
+    @Test fun saidParsesAndLeavesMeetingAlone() {
+        val said = parse("""{"type":"said","say_id":"x1","ok":true,"session":"s"}""")
+        assertEquals(ServerMessage.Said("x1", true), said)
+        assertEquals(ServerMessage.Said("x2", false), parse("""{"type":"said","say_id":"x2","ok":false}"""))
+        assertNull(parseServer("""{"type":"said","ok":true}"""))
+        val ui = MeetingUi()
+        assertEquals(ui, reduce(ui, said))
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))

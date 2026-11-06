@@ -624,8 +624,12 @@ def live_cmd(a) -> int:
                           " (stem niet onthouden)" if msg.get("remember") else ""), file=sys.stderr)
             elif msg.get("type") == "say" and msg.get("session") in (None, hub.session):   # getypt alsof gezegd
                 live = pipeline_ref.get("session")
-                if live is None or live.say(msg["text"] if isinstance(msg.get("text"), str) else "", a.me or "Stefan") is None:
+                ok = live is not None and live.say(msg["text"] if isinstance(msg.get("text"), str) else "",
+                                                   a.me or "Stefan") is not None
+                if not ok:
                     print("Getypte tekst genegeerd (meeting nog niet of niet meer bezig)", file=sys.stderr)
+                if isinstance(msg.get("say_id"), str):   # de telefoon wacht op dit antwoord voor hij de tekst wist
+                    hub.send(type="said", say_id=msg["say_id"][:64], ok=ok)
             elif msg.get("type") == "language":   # taalmenu in de app: geldt vanaf de volgende uitspraak
                 try:
                     code = language_code(str(msg.get("code", "")))

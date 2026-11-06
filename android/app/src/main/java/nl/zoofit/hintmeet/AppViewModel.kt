@@ -15,6 +15,7 @@ class AppViewModel : ViewModel() {
     val error = Session.error
     val alarms = Session.alarmsNow
     val liveness = Session.liveness
+    val sayState = Session.sayState
 
     fun pair(uri: String?): String? = Session.pair(uri)
     fun offerPairing(uri: String?) = Session.offerPairing(uri)
@@ -23,6 +24,7 @@ class AppViewModel : ViewModel() {
     fun start(projects: List<String>, language: String, info: String) = Session.start(projects, language, info)
     fun stop() = Session.stop()
     fun feedback(id: Int, rating: Int) = Session.feedback(id, rating)
-    fun say(text: String): Boolean = Session.say(text)
+    fun say(text: String) = Session.say(text)
+    fun clearSayError() = Session.clearSayError()
     fun dismissMeeting() = Session.dismissMeeting()
 }

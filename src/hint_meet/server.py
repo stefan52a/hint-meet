@@ -17,7 +17,8 @@ Overlay → server:
   {"type": "sensitivity", "hints": 0..1, "confirm": 0..1}   (schuifjes; 0,5 = gate.yaml)
   {"type": "language", "code": "nl" | "en" | … | "multi"}    (gesprekstaal, vanaf de volgende uitspraak)
   {"type": "rename", "from": "Speaker 1", "to": "Jan", "remember": false}   (spreker hernoemen)
-  {"type": "say", "text": ..}   (getypt in het transcript, alsof jij het zei: zelfde verwerking als een uitspraak)
+  {"type": "say", "text": .., "say_id": ..}   (getypt in het transcript, alsof jij het zei: zelfde verwerking als een uitspraak;
+                                              met say_id antwoordt de server {"type": "said", "say_id": .., "ok": true|false})
 Server → overlay ook: {"type": "renamed", "from": .., "to": ..}
 """
 from __future__ import annotations
@@ -132,8 +133,8 @@ class Hub:
         with self.lock:
             if msg.get("type") == "hello":
                 self.hello, self._backlog = data, {}
-            elif msg.get("type") == "search_results":
-                pass   # antwoord op een zoekvraag: niet opnieuw afspelen bij een nieuwe verbinding
+            elif msg.get("type") in ("search_results", "said"):
+                pass   # antwoord op één vraag: niet opnieuw afspelen bij een nieuwe verbinding
             else:
                 kind = msg.get("type")
                 self._count += 1

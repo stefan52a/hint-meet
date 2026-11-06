@@ -64,6 +64,15 @@ def test_hello_resets_backlog_and_carries_session():
     assert [json.loads(b)["text"] for b in hub.backlog] == ["nieuw"]
 
 
+def test_said_is_not_replayed():
+    """Het antwoord op getypte tekst hoort bij één vraag: een nieuwe verbinding krijgt het niet opnieuw."""
+    hub = Hub(port=free_port(), token="t" * 40)
+    hub.send(type="hello", project="acme")
+    hub.send(type="said", say_id="abc", ok=True)
+    hub.send(type="utterance", id=0, text="hallo")
+    assert [json.loads(b)["type"] for b in hub.backlog] == ["utterance"]
+
+
 def test_token_file_is_private(tmp_path):
     import os
     import stat
