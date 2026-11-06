@@ -24,7 +24,7 @@ class AppViewModel : ViewModel() {
     fun start(projects: List<String>, language: String, info: String) = Session.start(projects, language, info)
     fun stop() = Session.stop()
     fun feedback(id: Int, rating: Int) = Session.feedback(id, rating)
-    fun say(text: String) = Session.say(text)
+    fun say(text: String): String? = Session.say(text)
     fun clearSayError() = Session.clearSayError()
     fun dismissMeeting() = Session.dismissMeeting()
 }

@@ -593,6 +593,7 @@ def live_cmd(a) -> int:
     sources_by_ref = {}
     loaded = {}   # "kb" zodra de kennisbank geladen is (voor zoekvragen uit de app)
     pipeline_ref = {}   # "reranker" van de pijplijn, ook voor zoekvragen uit de app
+    said_ids: dict[str, bool] = {}   # say_id → ok: een herhaalde poging (antwoord kwijt) komt er niet twee keer in
     stop_requested = threading.Event()   # 'stop' kan al komen terwijl de KB nog geladen wordt
     if a.ui:  # de overlay eerst: dan ziet die de voortgang van het laden
         from . import survive
@@ -624,12 +625,19 @@ def live_cmd(a) -> int:
                           " (stem niet onthouden)" if msg.get("remember") else ""), file=sys.stderr)
             elif msg.get("type") == "say" and msg.get("session") in (None, hub.session):   # getypt alsof gezegd
                 live = pipeline_ref.get("session")
-                ok = live is not None and live.say(msg["text"] if isinstance(msg.get("text"), str) else "",
-                                                   a.me or "Stefan") is not None
-                if not ok:
-                    print("Getypte tekst genegeerd (meeting nog niet of niet meer bezig)", file=sys.stderr)
-                if isinstance(msg.get("say_id"), str):   # de telefoon wacht op dit antwoord voor hij de tekst wist
-                    hub.send(type="said", say_id=msg["say_id"][:64], ok=ok)
+                say_id = msg["say_id"][:64] if isinstance(msg.get("say_id"), str) else None
+                if say_id is not None and said_ids.get(say_id):
+                    ok = True   # al in het transcript; alleen het antwoord was zoek
+                else:
+                    ok = live is not None and live.say(msg["text"] if isinstance(msg.get("text"), str) else "",
+                                                       a.me or "Stefan") is not None
+                    if not ok:
+                        print("Getypte tekst genegeerd (meeting nog niet of niet meer bezig)", file=sys.stderr)
+                if say_id is not None:   # de telefoon wacht op dit antwoord voor hij de tekst wist
+                    said_ids[say_id] = ok
+                    while len(said_ids) > 200:
+                        del said_ids[next(iter(said_ids))]
+                    hub.send(type="said", say_id=say_id, ok=ok)
             elif msg.get("type") == "language":   # taalmenu in de app: geldt vanaf de volgende uitspraak
                 try:
                     code = language_code(str(msg.get("code", "")))

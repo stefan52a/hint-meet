@@ -52,7 +52,7 @@ object Session {
 
     val pairing = MutableStateFlow<Pairing?>(null)
     /** Getypte tekst onderweg naar de Mac, of waarom hij niet aankwam. */
-    val sayState = MutableStateFlow<SayState>(SayState.Idle)
+    val sayState = MutableStateFlow<SayState>(SayState.Idle())
     private var sayTimeout: Job? = null
     private const val SAY_TIMEOUT_MS = 8_000L
     val connected = MutableStateFlow(false)
@@ -315,41 +315,58 @@ object Session {
     }
 
     /** Getypt alsof je het zei: de Mac verwerkt het als een uitspraak van jou (zoals het invoerveld op de Mac).
-     *  Pas als de Mac antwoordt (`said`) is het binnen; zonder antwoord binnen 8 s blijft de tekst staan met een melding. */
-    fun say(text: String) {
+     *  Pas als de Mac antwoordt (`said`) is het binnen; zonder antwoord binnen 8 s blijft de tekst staan met een melding.
+     *  Dezelfde tekst opnieuw sturen gebruikt hetzelfde say_id: kwam hij toch al aan, dan zet de Mac hem er niet
+     *  nog eens in. Geeft het say_id terug, of null als er niets verstuurd is. */
+    fun say(text: String): String? {
         val t = text.trim()
-        if (t.isEmpty() || sayState.value is SayState.Sending) return
-        if (meeting.value.phase != Phase.RUNNING) { sayState.value = SayState.Failed(t, "The meeting isn't listening."); return }
-        val id = UUID.randomUUID().toString()
+        if (t.isEmpty() || sayState.value is SayState.Sending) return null
+        val prev = sayState.value
+        val id = when {
+            prev is SayState.Failed && prev.text == t -> prev.id
+            prev is SayState.Idle && prev.retryText == t && prev.retryId != null -> prev.retryId
+            else -> UUID.randomUUID().toString()
+        }
+        if (meeting.value.phase != Phase.RUNNING) { sayState.value = SayState.Failed(id, t, "The meeting isn't listening."); return null }
         sayState.value = SayState.Sending(id, t)
         val msg = buildJsonObject { put("type", "say"); put("text", t); put("say_id", id) }
         if (client?.sendText(msg.toString()) != true) {
-            sayState.value = SayState.Failed(t, "The Mac isn't reachable. Try again.")
-            return
+            sayState.value = SayState.Failed(id, t, "The Mac isn't reachable. Try again.")
+            return id
         }
         sayTimeout?.cancel()
         sayTimeout = scope.launch {
             delay(SAY_TIMEOUT_MS)
             val s = sayState.value
             if (s is SayState.Sending && s.id == id) {
-                sayState.value = SayState.Failed(t, "The Mac didn't confirm it. Try again.")
+                sayState.value = SayState.Failed(id, t, "The Mac didn't confirm it. Try again.")
             }
         }
+        return id
     }
 
+    /** Je past de tekst aan na een melding: de melding weg (opnieuw sturen van dezelfde tekst houdt het say_id). */
     fun clearSayError() {
-        if (sayState.value is SayState.Failed) sayState.value = SayState.Idle
+        val s = sayState.value
+        if (s is SayState.Failed) sayState.value = SayState.Idle(retryId = s.id, retryText = s.text)
     }
 
     private fun onSaid(msg: ServerMessage.Said) {
-        val s = sayState.value
-        if (s !is SayState.Sending || s.id != msg.sayId) return   // al verlopen of van een eerdere poging
+        // ook een laat antwoord op de laatste poging telt (na de 8 s): dan is de tekst toch binnen
+        val (id, text) = when (val s = sayState.value) {
+            is SayState.Sending -> s.id to s.text
+            is SayState.Failed -> s.id to s.text
+            is SayState.Idle -> s.retryId to (s.retryText ?: "")
+            is SayState.Sent -> return
+        }
+        if (id != msg.sayId) return
         sayTimeout?.cancel()
-        sayState.value = if (msg.ok) SayState.Idle
-                         else SayState.Failed(s.text, "The Mac didn't take it: the meeting isn't listening.")
+        sayState.value = if (msg.ok) SayState.Sent(msg.sayId)
+                         else SayState.Failed(msg.sayId, text, "The Mac didn't take it: the meeting isn't listening.")
     }
 
     fun dismissMeeting() {
+        sayState.value = SayState.Idle()
         meeting.value = MeetingUi()
     }
 
@@ -397,9 +414,11 @@ object Session {
     }
 }
 
-/** Getypte tekst: niets onderweg, wacht op de Mac, of niet aangekomen (de tekst blijft dan staan). */
+/** Getypte tekst: niets onderweg, wacht op de Mac, bevestigd, of niet aangekomen (de tekst blijft dan staan). */
 sealed interface SayState {
-    data object Idle : SayState
+    /** retryId/retryText: na een melding die je wegtypte, zodat dezelfde tekst opnieuw hetzelfde say_id krijgt. */
+    data class Idle(val retryId: String? = null, val retryText: String? = null) : SayState
     data class Sending(val id: String, val text: String) : SayState
-    data class Failed(val text: String, val reason: String) : SayState
+    data class Sent(val id: String) : SayState
+    data class Failed(val id: String, val text: String, val reason: String) : SayState
 }

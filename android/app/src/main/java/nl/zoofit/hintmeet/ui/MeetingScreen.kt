@@ -71,7 +71,7 @@ fun MeetingScreen(
     alarms: Set<Alarm>,
     feedback: (Int, Int) -> Unit,
     sayState: SayState,
-    say: (String) -> Unit,
+    say: (String) -> String?,
     clearSayError: () -> Unit,
     stop: () -> Unit,
 ) {
@@ -117,19 +117,20 @@ fun MeetingScreen(
 /** Typen alsof je het zei, zoals onderaan het transcript op de Mac: de Mac verwerkt het als een uitspraak van jou.
  *  De tekst gaat pas weg als de Mac hem bevestigt; anders blijft hij staan met de reden eronder. */
 @Composable
-private fun SayField(enabled: Boolean, state: SayState, say: (String) -> Unit, clearError: () -> Unit,
+private fun SayField(enabled: Boolean, state: SayState, say: (String) -> String?, clearError: () -> Unit,
                      modifier: Modifier = Modifier) {
     var text by rememberSaveable { mutableStateOf("") }
-    var waiting by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state) {
-        when (state) {
-            is SayState.Idle -> if (waiting) { text = ""; waiting = false }   // bevestigd door de Mac
-            is SayState.Failed -> waiting = false
-            is SayState.Sending -> Unit
+    var waitingFor by rememberSaveable { mutableStateOf<String?>(null) }   // say_id van de verstuurde tekst
+    var sentText by rememberSaveable { mutableStateOf("") }
+    // alleen de bevestiging van precies deze tekst wist het veld, en niet als je intussen iets anders typte
+    LaunchedEffect(state, waitingFor) {
+        if (state is SayState.Sent && state.id == waitingFor) {
+            if (text.trim() == sentText) text = ""
+            waitingFor = null
         }
     }
     val sending = state is SayState.Sending
-    val send = { if (text.isNotBlank() && !sending) { waiting = true; say(text) } }
+    val send = { if (text.isNotBlank() && !sending) say(text)?.let { waitingFor = it; sentText = text.trim() } }
     OutlinedTextField(
         value = text,
         onValueChange = { text = it; clearError() },
@@ -141,7 +142,7 @@ private fun SayField(enabled: Boolean, state: SayState, say: (String) -> Unit, c
         supportingText = when (state) {
             is SayState.Sending -> ({ Text("Sending to the Mac…") })
             is SayState.Failed -> ({ Text(state.reason) })
-            is SayState.Idle -> null
+            is SayState.Idle, is SayState.Sent -> null
         },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { send() }),
