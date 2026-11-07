@@ -71,6 +71,9 @@ object Session {
     val folders = MutableStateFlow(FolderUi())
     /** Wat de Mac aan het omzetten of laden is (Add Folder, Preload KB); null: niets bekend. */
     val kbTask = MutableStateFlow<ServerMessage.KbTask?>(null)
+    /** Project dat de Mac nu verwijdert (wacht op project_removed). */
+    val removing = MutableStateFlow<String?>(null)
+    private var removeId: String? = null
     /** Een document dat van de Mac komt (tik op een bron of zoekresultaat). */
     val doc = MutableStateFlow<DocUi?>(null)
     /** Bron → pad op de Mac, uit de hints en Backed van de meeting. */
@@ -195,6 +198,7 @@ object Session {
             is ServerMessage.Dirs -> { onDirs(msg); return }
             is ServerMessage.FolderAdded -> { onFolderAdded(msg); return }
             is ServerMessage.KbTask -> { kbTask.value = msg; return }
+            is ServerMessage.ProjectRemoved -> { onProjectRemoved(msg); return }
             is ServerMessage.Doc -> { onDoc(msg); return }
             is ServerMessage.Hint -> docPaths.putAll(msg.paths)
             is ServerMessage.Confirm -> docPaths.putAll(msg.paths)
@@ -482,6 +486,32 @@ object Session {
     }
 
     fun closeFolders() { folders.value = FolderUi() }
+
+    // ---------- project verwijderen ----------
+
+    /** Na bevestiging op de telefoon: de Mac zet de kennisbank van `project` in de Prullenmand. */
+    fun removeProject(project: String) {
+        val id = "rm-" + UUID.randomUUID().toString()
+        val msg = buildJsonObject { put("type", "remove_project"); put("id", id); put("project", project) }
+        if (client?.sendText(msg.toString()) != true) { error.value = "The Mac isn't reachable. Try again."; return }
+        removeId = id
+        removing.value = project
+        scope.launch {
+            delay(15_000)
+            if (removeId == id) { removeId = null; removing.value = null; error.value = "No answer from the Mac. Check the project list." }
+        }
+    }
+
+    private fun onProjectRemoved(msg: ServerMessage.ProjectRemoved) {
+        if (msg.id != removeId) return
+        removeId = null
+        removing.value = null
+        if (!msg.ok) error.value = when (msg.error) {
+            "busy" -> "The Mac is busy (a meeting, or a folder or KB is loading). Remove “${msg.project}” when it's done."
+            "not_found" -> "“${msg.project}” isn't on the Mac anymore."
+            else -> "Removing “${msg.project}” failed on the Mac: ${msg.error}"
+        }
+    }
 
     // ---------- documenten van de Mac ----------
 

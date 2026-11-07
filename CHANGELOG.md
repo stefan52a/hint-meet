@@ -4,7 +4,13 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ## 2026-11-07
 
+### App
+
+- **Remove a project:** *Knowledge Base → Remove Project* (and *Remove Project* in the project menu of the panel) asks first, then moves the project's knowledge base folder in `KB_md` to the Trash: the converted documents, the index and embeddings, and the meeting reports in it. Your original documents stay where they are, and you can put the folder back from the Trash. Not possible while a meeting, Preload KB or converting runs.
+
 ### Android companion app
+
+- **Remove a project from the phone:** each project on the start screen has *Remove*; after you confirm, the Mac moves its knowledge base to the Trash, as above. Needs the updated Mac app.
 
 - **Select and copy text:** press and hold on a hint, a line in *Backed* or the *Transcript*, a found passage (once you tapped it open) or the report to select text and copy it. A hint also has a *Copy* button that copies the whole hint with its sources.
 - **Open the document behind a hint:** the sources under a hint and under each *Backed* line are buttons, and an opened Find result has *Open document*. The phone gets the file from the Mac: Markdown and text show in the app (select and copy works there too), a PDF, Word file etc. opens in an app on the phone that can show it. The Mac only sends files from your knowledge bases and their source folders, up to 12 MB. Needs the updated Mac app.

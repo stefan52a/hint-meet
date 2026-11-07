@@ -209,5 +209,24 @@ section("documents for the phone") {
     check(DocAccess.allowed(kb + "/acme/nope.md", roots: roots) == nil, "bestaat niet")
 }
 
+section("remove a project") {
+    check(PhoneRequest.parse(#"{"type":"remove_project","id":"r1","project":"acme"}"#) == .removeProject(id: "r1", project: "acme"))
+    check(PhoneRequest.parse(#"{"type":"remove_project","id":"r1"}"#) == .invalid)
+    check(PhoneRequest.parse(#"{"type":"remove_project","id":"r1","project":""}"#) == .invalid)
+    let fm = FileManager.default
+    let kb = fm.temporaryDirectory.appendingPathComponent("hm-remove-\(UUID().uuidString)").resolvingSymlinksInPath().path
+    defer { try? fm.removeItem(atPath: kb) }
+    try? fm.createDirectory(atPath: kb + "/acme", withIntermediateDirectories: true)
+    try? fm.createDirectory(atPath: kb + "/other", withIntermediateDirectories: true)
+    check(ProjectRemoval.folder("acme", kbRoot: kb, projects: ["acme"])?.path == kb + "/acme")
+    check(ProjectRemoval.folder("other", kbRoot: kb, projects: ["acme"]) == nil, "geen project")
+    check(ProjectRemoval.folder("..", kbRoot: kb, projects: [".."]) == nil)
+    check(ProjectRemoval.folder("a/b", kbRoot: kb, projects: ["a/b"]) == nil)
+    check(ProjectRemoval.folder("", kbRoot: kb, projects: [""]) == nil)
+    check(ProjectRemoval.folder("gone", kbRoot: kb, projects: ["gone"]) == nil, "bestaat niet")
+    check(ProjectRemoval.deselect("acme", from: "Finance,acme, x") == "Finance,x")
+    check(ProjectRemoval.deselect("acme", from: "acme") == "")
+}
+
 print(failures == 0 ? "\nAlle controles geslaagd" : "\n\(failures) controle(s) mislukt")
 exit(failures == 0 ? 0 : 1)

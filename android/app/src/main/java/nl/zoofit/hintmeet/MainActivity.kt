@@ -77,6 +77,7 @@ fun App(vm: AppViewModel) {
     val folders by vm.folders.collectAsStateWithLifecycle()
     val kbTask by vm.kbTask.collectAsStateWithLifecycle()
     val doc by vm.doc.collectAsStateWithLifecycle()
+    val removing by vm.removing.collectAsStateWithLifecycle()
     var folderOpen by rememberSaveable { mutableStateOf(false) }   // Add Folder vanaf het startscherm
     var findProjects by rememberSaveable { mutableStateOf<List<String>?>(null) }   // Find vanaf het startscherm
     // een meeting neemt het scherm over: daarna terug naar het startscherm, niet naar een oud Find-scherm
@@ -106,7 +107,8 @@ fun App(vm: AppViewModel) {
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         findProjects != null -> FindScreen(find, findProjects!!, connected, { vm.search(it, findProjects!!) }) { findProjects = null }
         folderOpen -> FolderScreen(folders, connected, vm::listDirs, vm::addFolder) { folderOpen = false }
-        else -> StartScreen(connected, gateway, projects, meeting, kbTask, folders.added, vm::start,
-                            { vm.openFind(it); findProjects = it }, { vm.closeFolders(); folderOpen = true }, vm::unpair)
+        else -> StartScreen(connected, gateway, projects, meeting, kbTask, folders.added, removing, vm::start,
+                            { vm.openFind(it); findProjects = it }, { vm.closeFolders(); folderOpen = true },
+                            vm::removeProject, vm::unpair)
     } }
 }

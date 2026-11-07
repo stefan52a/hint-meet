@@ -22,6 +22,7 @@ struct OverlayView: View {
     let stopMeeting: () -> Void
     let openSettings: () -> Void
     let addFolder: () -> Void
+    let removeProject: (String) -> Void
     let find: () -> Void
     let restart: () -> Void
     @State private var tick = Date()
@@ -114,7 +115,7 @@ struct OverlayView: View {
             ForEach(pendingReports.items) { pendingReportRow($0) }   // meetings die zonder verslag eindigden
             step(1, "Knowledge base") {
                 HStack(spacing: 10) {
-                    ProjectMenu(settings: settings, addFolder: addFolder).disabled(kbBusy)
+                    ProjectMenu(settings: settings, addFolder: addFolder, removeProject: removeProject).disabled(kbBusy)
                     kbBadge
                     Spacer()
                     if !settings.project.isEmpty && !kbBusy && kbStatus.needsLoad {

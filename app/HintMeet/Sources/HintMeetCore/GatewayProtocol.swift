@@ -73,6 +73,8 @@ public enum PhoneRequest: Equatable {
     case addFolder(id: String, path: String)
     /// Een document (bron van een hint, Backed of Find) naar de telefoon halen.
     case getDoc(id: String, path: String)
+    /// Een project met zijn kennisbank verwijderen (naar de Prullenmand op de Mac).
+    case removeProject(id: String, project: String)
     case invalid
 
     public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say"]
@@ -98,6 +100,9 @@ public enum PhoneRequest: Equatable {
         case "add_folder":
             guard let id = requestID(obj), let path = obj["path"] as? String, path.hasPrefix("/") else { return .invalid }
             return .addFolder(id: id, path: path)
+        case "remove_project":
+            guard let id = requestID(obj), let project = obj["project"] as? String, !project.isEmpty else { return .invalid }
+            return .removeProject(id: id, project: project)
         case "get_doc":
             guard let id = requestID(obj), let path = obj["path"] as? String, path.hasPrefix("/") else { return .invalid }
             return .getDoc(id: id, path: path)
@@ -357,5 +362,26 @@ public enum DocAccess {
                let root = json["source_root"] as? String { out.append(root) }
         }
         return out
+    }
+}
+
+/// Een project verwijderen = zijn map in KB_ROOT naar de Prullenmand (omgezette documenten, index, embeddings,
+/// verslagen). Alleen een bestaand project, en nooit iets buiten KB_ROOT.
+public enum ProjectRemoval {
+    /// De map om weg te gooien, of nil als `name` geen project is of buiten KB_ROOT uitkomt.
+    public static func folder(_ name: String, kbRoot: String, projects: [String]) -> URL? {
+        guard projects.contains(name), !name.isEmpty, !name.hasPrefix("."), !name.contains("/") else { return nil }
+        let root = URL(fileURLWithPath: kbRoot).resolvingSymlinksInPath().standardizedFileURL
+        let dir = root.appendingPathComponent(name)
+        guard dir.deletingLastPathComponent().path == root.path else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { return nil }
+        return dir
+    }
+
+    /// `project` ("a,b,c") zonder `name`.
+    public static func deselect(_ name: String, from project: String) -> String {
+        project.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != name }.joined(separator: ",")
     }
 }

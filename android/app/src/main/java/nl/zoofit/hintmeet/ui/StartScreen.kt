@@ -64,9 +64,12 @@ fun StartScreen(
     kbTask: ServerMessage.KbTask?,
     /** Project waarin de Mac een vanaf de telefoon toegevoegde map omzet (om het meteen aan te vinken). */
     added: String?,
+    /** Project dat de Mac nu verwijdert. */
+    removing: String?,
     start: (List<String>, String, String) -> Unit,
     openFind: (List<String>) -> Unit,
     addFolder: () -> Unit,
+    removeProject: (String) -> Unit,
     unpair: () -> Unit,
 ) {
     var chosen by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
@@ -75,6 +78,7 @@ fun StartScreen(
     var languageMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var micRefused by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf<String?>(null) }
     // microfoon (en meldingen voor de opname) pas vragen bij Start: dan is duidelijk waarvoor
     val askPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         // meldingen weigeren mag; alleen de microfoon is nodig (die kan al eerder gegeven zijn)
@@ -85,6 +89,9 @@ fun StartScreen(
     }
     LaunchedEffect(projects) {   // eerste keer: wat op de Mac gekozen is
         if (chosen.isEmpty() && projects != null) chosen = projects.selected.filter { it in projects.items }
+    }
+    LaunchedEffect(projects) {   // verwijderd (hier of op de Mac): niet meer gekozen
+        if (projects != null) chosen = chosen.filter { it in projects.items }
     }
     LaunchedEffect(added, projects) {   // toegevoegde map: aanvinken zodra hij als project bestaat
         if (added != null && projects != null && added in projects.items && added !in chosen) chosen = chosen + added
@@ -103,7 +110,11 @@ fun StartScreen(
         projects?.items?.forEach { name ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = name in chosen, onCheckedChange = { on -> chosen = if (on) chosen + name else chosen - name })
-                Text(name)
+                Text(name, Modifier.weight(1f))
+                TextButton(onClick = { confirmRemove = name },
+                           enabled = connected && !busy && !starting && removing == null && kbTask?.state != "running") {
+                    Text(if (removing == name) "Removing…" else "Remove")
+                }
             }
         }
 
@@ -150,6 +161,17 @@ fun StartScreen(
         if (micRefused) Text("HintMeet needs the microphone to record the meeting (Android settings → Apps → HintMeet).",
                              color = MaterialTheme.colorScheme.error)
 
+        confirmRemove?.let { name ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmRemove = null },
+                title = { Text("Remove “$name”?") },
+                text = { Text("Its knowledge base on the Mac moves to the Trash there: the converted documents, the index "
+                              + "and the meeting reports in it. Your original documents stay where they are. You can put "
+                              + "it back from the Trash on the Mac.") },
+                confirmButton = { TextButton(onClick = { confirmRemove = null; removeProject(name) }) { Text("Move to Trash") } },
+                dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Cancel") } },
+            )
+        }
         Spacer(Modifier.size(24.dp))
         TextButton(onClick = unpair) { Text("Unpair this phone") }
     }

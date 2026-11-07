@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import HintMeetCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -217,6 +218,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard self.settings.backendReady else { return (nil, "failed") }
             self.ingest(folder: url)
             return (self.settings.project, nil)
+        } removeProject: { [weak self] name in   // de telefoon heeft zelf al om bevestiging gevraagd
+            guard let self else { return "failed" }
+            return self.removeProject(name)   // nil = gelukt (niet `self?.… ?? "failed"`: dat maakt van gelukt een fout)
         }
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,
@@ -228,6 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                stopMeeting: { [weak self] in self?.stopMeeting() },
                                openSettings: { [weak self] in self?.showSettings() },
                                addFolder: { [weak self] in self?.addKBFolder() },
+                               removeProject: { [weak self] name in self?.askRemoveProject(name) },
                                find: { [weak self] in self?.showFind() },
                                restart: { [weak self] in self?.restartApp() })
         hosting = ClickThroughHostingView(rootView: view)
@@ -414,7 +419,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         find.isEnabled = !settings.project.isEmpty && settings.backendReady
         let add = item("Add Folder as Knowledge Base…", #selector(addKBFolder), "")
         add.isEnabled = !kbPrep.isRunning && !preparer.isRunning && settings.backendReady
-        return [projectItem, load, find, add, prep]
+        let removeItem = NSMenuItem(title: "Remove Project", action: nil, keyEquivalent: "")
+        let removeSub = NSMenu()
+        for name in settings.projects {
+            let it = item(name + "…", #selector(confirmRemoveProject(_:)), "")
+            it.representedObject = name
+            it.isEnabled = canRemoveProjects
+            removeSub.addItem(it)
+        }
+        if removeSub.items.isEmpty { removeSub.addItem(NSMenuItem(title: "No projects", action: nil, keyEquivalent: "")) }
+        removeItem.submenu = removeSub
+        return [projectItem, load, find, add, prep, .separator(), removeItem]
     }
 
     private func overlayItems() -> [NSMenuItem] {
@@ -655,6 +670,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         backend.start(recording: url.path)
         self.panel.orderFrontRegardless()
         watchBackend()
+    }
+
+    /// Verwijderen kan niet terwijl een meeting, het laden of het omzetten loopt (die gebruiken de kennisbank).
+    var canRemoveProjects: Bool { !backend.isRunning && !preparer.isRunning && !kbPrep.isRunning }
+
+    @objc func confirmRemoveProject(_ sender: NSMenuItem) {
+        if let name = sender.representedObject as? String { askRemoveProject(name) }
+    }
+
+    /// Vraagt eerst; daarna naar de Prullenmand.
+    func askRemoveProject(_ name: String) {
+        let source = sourceRoot(of: name).flatMap { $0.isEmpty ? nil : $0 }
+        let alert = NSAlert()
+        alert.messageText = "Remove “\(name)”?"
+        alert.informativeText = "Its knowledge base folder \(settings.kbRoot)/\(name) moves to the Trash: the converted "
+            + "documents, the index and embeddings, and the meeting reports in it. "
+            + (source.map { "Your original documents in \($0) stay where they are." } ?? "")
+            + " You can put it back from the Trash."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if let error = removeProject(name) {
+            let fail = NSAlert()
+            fail.messageText = "Couldn't remove “\(name)”"
+            fail.informativeText = error == "busy" ? "Wait until the meeting, loading or converting has finished." : error
+            fail.runModal()
+        }
+    }
+
+    /// Project weg: map naar de Prullenmand, uit de keuze, zoekprocessen die hem kunnen gebruiken gestopt.
+    /// nil = gelukt; anders "busy", "not_found" of een foutmelding.
+    func removeProject(_ name: String) -> String? {
+        guard canRemoveProjects else { return "busy" }
+        guard let dir = ProjectRemoval.folder(name, kbRoot: settings.kbRoot, projects: settings.projects) else {
+            return "not_found"
+        }
+        searchService.stop()   // Find Documents kan dit project geladen hebben
+        do {
+            try FileManager.default.trashItem(at: dir, resultingItemURL: nil)
+        } catch {
+            return error.localizedDescription
+        }
+        settings.objectWillChange.send()   // de lijst projecten komt van schijf: menu's opnieuw laten tekenen
+        settings.project = ProjectRemoval.deselect(name, from: settings.project)
+        for key in ["prepareDurations." + name, "kbprepDurations." + name] { UserDefaults.standard.removeObject(forKey: key) }
+        gateway?.projectsChanged()
+        return nil
     }
 
     @objc func chooseProject(_ sender: NSMenuItem) {

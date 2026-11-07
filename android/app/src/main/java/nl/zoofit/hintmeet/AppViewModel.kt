@@ -20,6 +20,7 @@ class AppViewModel : ViewModel() {
     val folders = Session.folders
     val kbTask = Session.kbTask
     val doc = Session.doc
+    val removing = Session.removing
 
     fun pair(uri: String?): String? = Session.pair(uri)
     fun offerPairing(uri: String?) = Session.offerPairing(uri)
@@ -38,4 +39,5 @@ class AppViewModel : ViewModel() {
     fun closeFolders() = Session.closeFolders()
     fun openDoc(ref: String, path: String?) = Session.openDoc(ref, path)
     fun closeDoc() = Session.closeDoc()
+    fun removeProject(project: String) = Session.removeProject(project)
 }

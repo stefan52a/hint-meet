@@ -171,6 +171,8 @@ class MeetingReducerTest {
                      parse("""{"type":"kb_task","title":"Adding acme","step":"Embeddings","fraction":0.5,"state":"running"}"""))
         assertEquals(ServerMessage.Doc("g", "b.pdf", "application/pdf", "AAEC", null),
                      parse("""{"type":"doc","id":"g","name":"b.pdf","mime":"application/pdf","data":"AAEC"}"""))
+        assertEquals(ServerMessage.ProjectRemoved("r", "acme", false, "busy"),
+                     parse("""{"type":"project_removed","id":"r","project":"acme","ok":false,"error":"busy"}"""))
         assertEquals("too_large", (parse("""{"type":"doc","id":"g","error":"too_large"}""") as ServerMessage.Doc).error)
         val m = nl.zoofit.hintmeet.protocol.MeetingUi()
         assertEquals(m, reduce(m, parse("""{"type":"kb_task","state":"idle"}""")!!))

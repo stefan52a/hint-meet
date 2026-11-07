@@ -5,6 +5,8 @@ struct ProjectMenu: View {
     @ObservedObject var settings: Settings
     /// "Add Folder…": een map kiezen die met kb_prep een nieuwe kennisbank wordt (nil: niet tonen)
     var addFolder: (() -> Void)? = nil
+    /// "Remove Project": vraagt eerst, dan gaat de kennisbank naar de Prullenmand (nil: niet tonen)
+    var removeProject: ((String) -> Void)? = nil
 
     var body: some View {
         Menu(settings.project.isEmpty ? "— choose one or more projects —" : settings.projectLabel) {
@@ -16,6 +18,11 @@ struct ProjectMenu: View {
             if let addFolder {
                 Divider()
                 Button("Add Folder…", action: addFolder)
+            }
+            if let removeProject, !settings.projects.isEmpty {
+                Menu("Remove Project") {
+                    ForEach(settings.projects, id: \.self) { name in Button(name + "…") { removeProject(name) } }
+                }
             }
         }
         .fixedSize()

@@ -136,6 +136,8 @@ final class Gateway: ObservableObject {
     /// "Add Folder" vanaf de telefoon: de app zet de map om (zoals Add Folder… op de Mac). Geeft het project, of
     /// een fout ("busy" als er al iets wordt omgezet of geladen).
     private var addFolder: ((URL) -> (project: String?, error: String?))?
+    /// Project verwijderen (de app vraagt niets meer: de telefoon heeft al bevestigd). nil = gelukt, anders de fout.
+    private var removeProject: ((String) -> String?)?
     private var preparer: ProgressTask?
     private var preparerWatch: [AnyCancellable] = []
     private var lastTaskSent = Date.distantPast
@@ -366,9 +368,11 @@ final class Gateway: ObservableObject {
     }
 
     /// Door de app na het starten: Add Folder vanaf de telefoon, en de voortgang van omzetten/laden naar de telefoon.
-    func attach(preparer: ProgressTask, addFolder: @escaping (URL) -> (project: String?, error: String?)) {
+    func attach(preparer: ProgressTask, addFolder: @escaping (URL) -> (project: String?, error: String?),
+                removeProject: @escaping (String) -> String?) {
         self.preparer = preparer
         self.addFolder = addFolder
+        self.removeProject = removeProject
         preparerWatch = [
             preparer.$state.removeDuplicates().sink { [weak self] _ in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.pushTask(force: true) } }
@@ -400,6 +404,9 @@ final class Gateway: ObservableObject {
         broadcast(json)
         if force, let p = preparer, !p.isRunning { broadcast(projectsJSON()) }
     }
+
+    /// De lijst projecten is veranderd (toegevoegd of verwijderd, ook op de Mac): naar alle telefoons.
+    func projectsChanged() { broadcast(projectsJSON()) }
 
     private func projectsJSON() -> String {
         Self.json(["type": "projects", "items": settings.projects, "selected": settings.selectedProjects])
@@ -469,6 +476,13 @@ final class Gateway: ObservableObject {
             listDirs(id: id, path: path, to: link)
         case let .addFolder(id, path):
             addFolder(id: id, path: path, to: link)
+        case let .removeProject(id, project):
+            phoneSearch.stop()   // een zoekproces van de telefoon kan dit project geladen hebben
+            let error: String? = removeProject.map { $0(project) } ?? "failed"   // nil = gelukt
+            Gateway.log("phone: remove project \(project) → \(error ?? "ok")")
+            link.send(Self.json(["type": "project_removed", "id": id, "project": project, "ok": error == nil,
+                                 "error": error ?? NSNull()]))
+            projectsChanged()
         case let .getDoc(id, path):
             sendDoc(id: id, path: path, to: link)
         case .state:

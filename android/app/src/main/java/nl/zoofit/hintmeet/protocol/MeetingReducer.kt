@@ -76,7 +76,8 @@ fun reduce(ui: MeetingUi, msg: ServerMessage): MeetingUi = when (msg) {
     }
     is ServerMessage.AudioReady, is ServerMessage.AudioAck,
     is ServerMessage.AudioReject, is ServerMessage.Projects, is ServerMessage.Said, is ServerMessage.SearchResults, is ServerMessage.SearchStatus,
-    is ServerMessage.Dirs, is ServerMessage.FolderAdded, is ServerMessage.KbTask, is ServerMessage.Doc -> ui
+    is ServerMessage.Dirs, is ServerMessage.FolderAdded, is ServerMessage.KbTask, is ServerMessage.Doc,
+    is ServerMessage.ProjectRemoved -> ui
 }
 
 private fun reduceState(current: MeetingUi, s: ServerMessage.State): MeetingUi {

@@ -44,6 +44,8 @@ sealed interface ServerMessage {
     data class Dirs(val id: String, val path: String?, val parent: String?, val dirs: List<String>, val error: String?) : ServerMessage
     /** Antwoord op add_folder: de Mac zet de map om tot kennisbank `project`. error: busy, not_allowed, failed. */
     data class FolderAdded(val id: String, val ok: Boolean, val project: String?, val error: String?) : ServerMessage
+    /** Antwoord op remove_project. error: busy, not_found, of een melding van de Mac. */
+    data class ProjectRemoved(val id: String, val project: String, val ok: Boolean, val error: String?) : ServerMessage
     /** Wat de Mac aan het omzetten of laden is. state: idle, running, done, failed. */
     data class KbTask(val title: String, val step: String, val fraction: Double?, val state: String,
                       val message: String?) : ServerMessage
@@ -137,6 +139,8 @@ fun parseServer(text: String): ServerMessage? {
         "dirs" -> ServerMessage.Dirs(o.str("id") ?: return null, o.str("path"), o.str("parent"), o.strings("dirs"), o.str("error"))
         "folder_added" -> ServerMessage.FolderAdded(o.str("id") ?: return null, o.bool("ok") ?: false, o.str("project"),
                                                     o.str("error"))
+        "project_removed" -> ServerMessage.ProjectRemoved(o.str("id") ?: return null, o.str("project") ?: "",
+                                                          o.bool("ok") ?: false, o.str("error"))
         "kb_task" -> ServerMessage.KbTask(o.str("title") ?: "", o.str("step") ?: "", o.double("fraction"),
                                           o.str("state") ?: "idle", o.str("message"))
         "doc" -> ServerMessage.Doc(o.str("id") ?: return null, o.str("name"), o.str("mime"), o.str("data"), o.str("error"))
