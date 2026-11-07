@@ -22,7 +22,28 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Hearing
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.automirrored.outlined.Subject
+import androidx.compose.material.icons.outlined.Verified
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -87,11 +108,20 @@ fun MeetingScreen(
     Column(Modifier.fillMaxSize()) {
         StatusBar(connected, startedAtMs, meeting.status, stopping = meeting.phase == Phase.STOPPING,
                   liveness = liveness, alarms = alarms)
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Hints") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Backed") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Transcript") })
-            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Find") })
+        TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
+            val count = { n: Int -> if (n > 0) " $n" else "" }
+            Tab(selected = tab == 0, onClick = { tab = 0 }, selectedContentColor = MaterialTheme.colorScheme.primary,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant, text = { Text("Hints" + count(meeting.hints.size), maxLines = 1) },
+                icon = { Icon(Icons.Outlined.Lightbulb, null) })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, selectedContentColor = MaterialTheme.colorScheme.primary,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant, text = { Text("Backed", maxLines = 1) },
+                icon = { Icon(Icons.Outlined.Verified, null) })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, selectedContentColor = MaterialTheme.colorScheme.primary,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant, text = { Text("Transcript", maxLines = 1) },
+                icon = { Icon(Icons.AutoMirrored.Outlined.Subject, null) })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, selectedContentColor = MaterialTheme.colorScheme.primary,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant, text = { Text("Find", maxLines = 1) },
+                icon = { Icon(Icons.Outlined.Search, null) })
         }
         Box(Modifier.weight(1f)) {
             when (tab) {
@@ -107,7 +137,10 @@ fun MeetingScreen(
             SayField(meeting.phase == Phase.RUNNING, sayState, say, clearSayError, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             Button(onClick = { confirmStop = true }, enabled = meeting.phase == Phase.RUNNING,
+                   modifier = Modifier.padding(bottom = if (sayState is SayState.Failed || sayState is SayState.Sending) 20.dp else 0.dp),
                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White)) {
+                Icon(Icons.Filled.Stop, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(if (meeting.phase == Phase.STOPPING) "Stopping…" else "Stop")
             }
         }
@@ -115,6 +148,7 @@ fun MeetingScreen(
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
+            icon = { Icon(Icons.Filled.Stop, null) },
             title = { Text("Stop the meeting?") },
             text = { Text("HintMeet stops listening and writes the report.") },
             confirmButton = { TextButton(onClick = { confirmStop = false; stop() }) { Text("Stop") } },
@@ -145,6 +179,7 @@ private fun SayField(enabled: Boolean, state: SayState, say: (String) -> String?
         onValueChange = { text = it; clearError() },
         enabled = enabled && !sending,
         modifier = modifier,
+        shape = MaterialTheme.shapes.large,
         placeholder = { Text(if (enabled) "Type as if you said it…" else "Typing works while the meeting is listening") },
         singleLine = true,
         isError = state is SayState.Failed,
@@ -156,9 +191,10 @@ private fun SayField(enabled: Boolean, state: SayState, say: (String) -> String?
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { send() }),
         trailingIcon = {
-            TextButton(onClick = send, enabled = enabled && !sending && text.isNotBlank(),
-                       modifier = Modifier.semantics { contentDescription = "Add to the transcript as if you said it" }) {
-                Text("↑", style = MaterialTheme.typography.titleLarge)
+            IconButton(onClick = send, enabled = enabled && !sending && text.isNotBlank()) {
+                Icon(Icons.AutoMirrored.Filled.Send, "Add to the transcript as if you said it",
+                     tint = if (enabled && text.isNotBlank()) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
     )
@@ -168,9 +204,8 @@ private fun SayField(enabled: Boolean, state: SayState, say: (String) -> String?
 private fun Hints(meeting: MeetingUi, feedback: (Int, Int) -> Unit) {
     val hints = meeting.hints
     if (hints.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text(if (meeting.phase == Phase.STARTING) "Starting…" else "Listening… hints appear here.",
-                 style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(Icons.Outlined.Hearing, if (meeting.phase == Phase.STARTING) "Starting…" else "Listening… hints appear here.")
         }
         return
     }
@@ -187,14 +222,12 @@ private fun Hints(meeting: MeetingUi, feedback: (Int, Int) -> Unit) {
             HintCard(hints[page], meeting.ratings[hints[page].id] ?: 0, feedback)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
-                       enabled = pager.currentPage > 0,
-                       modifier = Modifier.semantics { contentDescription = "Previous hint" }) { Text("◀") }
+            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
+                       enabled = pager.currentPage > 0) { Icon(Icons.Filled.ChevronLeft, "Previous hint") }
             Text("${pager.currentPage + 1} / ${hints.size}", Modifier.weight(1f),
                  style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            TextButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
-                       enabled = pager.currentPage < hints.size - 1,
-                       modifier = Modifier.semantics { contentDescription = "Next hint" }) { Text("▶") }
+            IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
+                       enabled = pager.currentPage < hints.size - 1) { Icon(Icons.Filled.ChevronRight, "Next hint") }
         }
     }
 }
@@ -229,9 +262,8 @@ private fun FollowNewest(list: androidx.compose.foundation.lazy.LazyListState, s
 @Composable
 private fun Backed(meeting: MeetingUi) {
     if (meeting.backed.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text("What was said and matches your documents appears here.", style = MaterialTheme.typography.titleMedium,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(Icons.Outlined.Verified, "What was said and matches your documents appears here.")
         }
         return
     }
@@ -239,15 +271,23 @@ private fun Backed(meeting: MeetingUi) {
     FollowNewest(list, meeting.backed.size)
     val times = meeting.transcript.associate { it.id to it.time }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        items(meeting.backed, key = { "${it.id}-${it.text.hashCode()}" }) { b ->
-            Column { SelectionContainer { Column(Modifier.padding(vertical = 8.dp)) {   // lang drukken: selecteren en kopiëren
-                Text((if (b.confirms) "✓  " else "📄  ") + b.text, style = MaterialTheme.typography.bodyLarge)
-                times[b.id]?.let { Text(it, style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            } }
-            SourceLinks(b.sources, Modifier.padding(bottom = 4.dp))   // tik: het document van de Mac
+        items(meeting.backed, key = { "${it.id}-${it.text.hashCode()}" }) { b -> Column {
+            Row(Modifier.padding(vertical = 10.dp)) {
+                // ✓ klopt met het dossier, 📄 wat het dossier erover zegt
+                Icon(if (b.confirms) Icons.Filled.CheckCircle else Icons.Outlined.Description, null,
+                     Modifier.padding(top = 3.dp, end = 12.dp).size(20.dp),
+                     tint = if (b.confirms) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SelectionContainer {   // lang drukken: selecteren en kopiëren
+                        Text(b.text, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    times[b.id]?.let { Text(it, style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    SourceLinks(b.sources)   // tik: het document van de Mac
+                }
             }
-        }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        } }
     }
 }
 
@@ -258,10 +298,20 @@ private fun Transcript(meeting: MeetingUi) {
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         items(meeting.transcript, key = { it.id }) { line ->
             SelectionContainer { Column(Modifier.padding(vertical = 6.dp)) {
-                Text("${line.time}  ${line.speaker}", style = MaterialTheme.typography.labelMedium,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).background(speakerColor(line.speaker), CircleShape))
+                    Text("  ${line.speaker}", style = MaterialTheme.typography.labelLarge, color = speakerColor(line.speaker))
+                    Text("  ${line.time}", style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Text(line.text, style = MaterialTheme.typography.bodyLarge)
             } }
         }
     }
 }
+
+/** Vaste kleur per spreker, zodat je in het transcript snel ziet wie wat zei. */
+private val speakerColors = listOf(Color(0xFFFFC94D), Color(0xFF8FB8FF), Color(0xFF7FD99A), Color(0xFFF4A7C4),
+                                   Color(0xFFB5A3FF), Color(0xFFFFAB76))
+
+private fun speakerColor(name: String): Color = speakerColors[Math.floorMod(name.hashCode(), speakerColors.size)]

@@ -40,14 +40,21 @@ fun StatusBar(connected: Boolean, startedAtMs: Long?, status: String?, stopping:
     }
     Row(modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text((if (stopping) "■ Stopping " else "● REC ") + (startedAtMs?.let { elapsed(now - it) } ?: "--:--"),
-             color = if (stopping) Color(0xFF9E9E9E) else Color(0xFFE53935), style = MaterialTheme.typography.titleMedium)
+        val rec = if (stopping) Color(0xFF9E9E9E) else Color(0xFFE53935)
+        Row(Modifier.background(rec.copy(alpha = 0.16f), CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).background(rec, if (stopping) RoundedCornerShape(2.dp) else CircleShape))
+            Text((if (stopping) "  Stopping  " else "  REC  ") + (startedAtMs?.let { elapsed(now - it) } ?: "--:--"),
+                 color = rec, style = MaterialTheme.typography.titleMedium)
+        }
         ConnectionDot(connected)
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1,
-                           color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    status?.let {   // wat de Mac doet: eigen regel, zodat hij niet wordt afgekapt naast de tijd
+        Text(it, Modifier.fillMaxWidth().padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall,
+             maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     liveness?.let { l ->   // drie stippen: neemt op · Mac ontvangt · Mac verwerkt
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Dot("Recording", l.capturedAgoS, okWithin = 3)
             Dot("Mac received", l.ackedAgoS, okWithin = 5)
             Dot("Transcribed", l.processedAgoS, okWithin = 90)

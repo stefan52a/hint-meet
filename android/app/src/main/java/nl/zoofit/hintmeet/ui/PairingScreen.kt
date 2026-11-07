@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,14 +32,27 @@ fun PairingScreen(pair: (String?) -> String?) {
         if (result.contents != null) error = pair(result.contents)
     }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 24.dp))
+        Text("💡", style = MaterialTheme.typography.displayMedium)
         Text("HintMeet", style = MaterialTheme.typography.headlineLarge)
-        Text("Pair this phone with HintMeet on your Mac. On the Mac: Settings → Phone → Allow phone companion, "
-             + "then scan the code. Both devices need Tailscale.", style = MaterialTheme.typography.bodyLarge)
+        Section("Pair with your Mac", androidx.compose.material.icons.Icons.Filled.QrCodeScanner) {
+            listOf("Install Tailscale on this phone and on the Mac, signed in to the same account.",
+                   "On the Mac: HintMeet → Settings → Phone → Allow phone companion.",
+                   "Scan the code that appears there.").forEachIndexed { i, step ->
+                androidx.compose.foundation.layout.Row {
+                    Text("${i + 1}.  ", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(step, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
         Button(onClick = {
             scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                 .setPrompt("Scan the code in HintMeet → Settings → Phone").setBeepEnabled(false)
                 .setOrientationLocked(false))
-        }, modifier = Modifier.fillMaxWidth()) { Text("Scan QR code") }
+        }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.QrCodeScanner, null)
+            Text("  Scan QR code", style = MaterialTheme.typography.titleMedium)
+        }
         OutlinedTextField(value = pasted, onValueChange = { pasted = it }, label = { Text("Or paste the hintmeet:// link") },
                           singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedButton(onClick = { error = pair(pasted) }, enabled = pasted.isNotBlank(),

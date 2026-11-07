@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -39,7 +42,9 @@ fun ReportScreen(meeting: MeetingUi, done: () -> Unit) {
         }, style = MaterialTheme.typography.titleLarge,
              color = if (meeting.stoppedBy == StoppedBy.UNEXPECTED) MaterialTheme.colorScheme.error
                      else MaterialTheme.colorScheme.onBackground)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        androidx.compose.material3.Card(Modifier.weight(1f).fillMaxWidth(),
+            colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             val report = meeting.report
             when {
                 report != null -> AndroidView(
@@ -52,17 +57,27 @@ fun ReportScreen(meeting: MeetingUi, done: () -> Unit) {
                 meeting.pipelineDone -> Text("No report for this meeting (turned off on the Mac, too short, or "
                                              + "writing it failed). The transcript is on the Mac in logs/.",
                                              style = MaterialTheme.typography.bodyLarge)
-                else -> Text("Writing the report…", style = MaterialTheme.typography.bodyLarge)
+                else -> Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.padding(end = 12.dp).size(20.dp), strokeWidth = 2.dp)
+                    Text("Writing the report…", style = MaterialTheme.typography.bodyLarge)
+                }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             meeting.report?.let { md ->
                 OutlinedButton(onClick = {
                     val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, md)
                     context.startActivity(Intent.createChooser(share, "Share report"))
-                }) { Text("Share") }
+                }, modifier = Modifier.weight(1f)) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Share, null)
+                    Text("  Share")
+                }
             }
-            Button(onClick = done) { Text("Done") }
+            Button(onClick = done, modifier = Modifier.weight(1f)) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Done, null)
+                Text("  Done")
+            }
         }
     }
 }

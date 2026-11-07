@@ -10,6 +10,8 @@ What changes for the user, newest first. Technical details are in `git log`.
 
 ### Android companion app
 
+- **A cleaner look:** the phone app got a new design. The start screen is split into a *Knowledge bases* card (tick them, *Find*, *Add folder*, progress of a conversion on the Mac) and a *Meeting* card (with whom, language). *Start Meeting* stays at the bottom of the screen, also with a long list of knowledge bases. The trash buttons only show after *Edit*, so you can't remove a project by accident. *Unpair this phone* moved to the ⋮ menu. During the meeting the tabs have icons and the hint count, a hint is a card with its sources as buttons and 👍/👎 as icons, *Backed* shows ✓ or 📄 per line, and each speaker in the transcript has their own colour. Find shows each result as a card with its relevance, and the folder browser, the report and pairing got the same look.
+- **Ticks stay put:** going back from *Find* or *Add folder* to the start screen no longer clears the knowledge bases you ticked, the language or *With whom*.
 - **Remove a project from the phone:** each project on the start screen has *Remove*; after you confirm, the Mac moves its knowledge base to the Trash, as above. Needs the updated Mac app.
 
 - **Select and copy text:** press and hold on a hint, a line in *Backed* or the *Transcript*, a found passage (once you tapped it open) or the report to select text and copy it. A hint also has a *Copy* button that copies the whole hint with its sources.

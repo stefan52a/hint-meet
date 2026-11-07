@@ -1,5 +1,25 @@
 package nl.zoofit.hintmeet.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.outlined.ManageSearch
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -34,11 +54,7 @@ import nl.zoofit.hintmeet.session.FindUi
 fun FindScreen(find: FindUi, projects: List<String>, connected: Boolean, search: (String) -> Unit, back: () -> Unit) {
     BackHandler(onBack = back)
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = back) { Text("‹ Back") }
-            Text("Find in " + projects.joinToString(" + "), style = MaterialTheme.typography.titleMedium, maxLines = 1,
-                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        }
+        ScreenHeader("Find in " + projects.joinToString(" + "), back)
         Find(find, enabled = connected, search = search,
              intro = "Find a document by what it says. The first search loads the knowledge base on the Mac, "
                      + "which can take a little while; after that answers come quickly.")
@@ -53,12 +69,17 @@ fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit, intro: String
         OutlinedTextField(
             value = query, onValueChange = { query = it }, enabled = enabled, singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            placeholder = { Text("Search the documents…") },
+            shape = MaterialTheme.shapes.large,
+            placeholder = { Text("Search the documents…", maxLines = 1) },
+            leadingIcon = { Icon(Icons.Outlined.Search, null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { if (!find.searching) search(query) }),
+            keyboardActions = KeyboardActions(onSearch = { if (!find.searching && query.isNotBlank()) search(query) }),
             trailingIcon = {
-                TextButton(onClick = { search(query) }, enabled = enabled && query.isNotBlank() && !find.searching) {
-                    Text("Find")
+                if (find.searching) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                else IconButton(onClick = { search(query) }, enabled = enabled && query.isNotBlank()) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, "Find",
+                         tint = if (enabled && query.isNotBlank()) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             supportingText = when {
@@ -68,16 +89,19 @@ fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit, intro: String
             },
         )
         when {
-            find.results.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
-                items(find.results, key = { it.ref }) { DocRow(it) }
+            find.results.isNotEmpty() -> {
+                Text("${find.results.size} ${if (find.reranked) "relevant " else ""}documents, best match first",
+                     Modifier.padding(vertical = 4.dp), style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(find.results, key = { it.ref }) { DocRow(it) }
+                    item { Spacer(Modifier.size(8.dp)) }
+                }
             }
-            find.searched && !find.searching -> Text(
-                if (find.reranked) "Nothing relevant found." else "Nothing found.",
-                Modifier.padding(top = 24.dp), style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            !find.searching -> Text(intro,
-                Modifier.padding(top = 24.dp), style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            find.searched && !find.searching ->
+                EmptyState(Icons.Outlined.SearchOff, if (find.reranked) "Nothing relevant found." else "Nothing found.",
+                           Modifier.fillMaxWidth())
+            !find.searching -> EmptyState(Icons.AutoMirrored.Outlined.ManageSearch, intro, Modifier.fillMaxWidth())
         }
     }
 }
@@ -85,24 +109,38 @@ fun Find(find: FindUi, enabled: Boolean, search: (String) -> Unit, intro: String
 @Composable
 private fun DocRow(hit: DocHit) {
     var open by remember(hit.ref) { mutableStateOf(false) }   // tik: het hele stukje
-    Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 10.dp)) {
-        Text(hit.name + (if (hit.heading.isNotEmpty()) "  ›  ${hit.heading}" else ""),
-             style = MaterialTheme.typography.titleMedium, maxLines = 2)
-        val meta = listOfNotNull(
-            hit.ref.substringBeforeLast('/', "").ifEmpty { null },
-            hit.relevance?.let { "${(it * 100).toInt()}% relevant" },
-            if (hit.injection) "⚠ contains instructions to an AI" else null,
-        ).joinToString("  ·  ")
-        if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium,
-                                    color = if (hit.injection) MaterialTheme.colorScheme.error
-                                            else MaterialTheme.colorScheme.onSurfaceVariant)
-        // open: lang drukken selecteert en kopieert; dicht: tikken klapt open
-        if (open) {
-            SelectionContainer { Text(hit.snippet, style = MaterialTheme.typography.bodyMedium) }
-            val openDoc = LocalOpenDoc.current
-            TextButton(onClick = { openDoc(hit.ref, hit.path) }, enabled = hit.path != null) { Text("Open document") }
+    val openDoc = LocalOpenDoc.current
+    Card(onClick = { open = !open }, modifier = Modifier.fillMaxWidth(),
+         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Description, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.secondary)
+                Text("  " + hit.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                     overflow = TextOverflow.Ellipsis)
+                hit.relevance?.let {
+                    Text("${(it * 100).toInt()}%", Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        .padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            val meta = listOfNotNull(hit.ref.substringBeforeLast('/', "").ifEmpty { null },
+                                     hit.heading.ifEmpty { null }).joinToString("  ›  ")
+            if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hit.injection) Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.WarningAmber, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                Text("  Contains instructions to an AI", style = MaterialTheme.typography.labelMedium,
+                     color = MaterialTheme.colorScheme.error)
+            }
+            // open: lang drukken selecteert en kopieert; dicht: tikken klapt open
+            if (open) {
+                SelectionContainer { Text(hit.snippet, style = MaterialTheme.typography.bodyMedium) }
+                FilledTonalButton(onClick = { openDoc(hit.ref, hit.path) }, enabled = hit.path != null) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(18.dp))
+                    Text("  Open document")
+                }
+            } else Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        else Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = 3,
-                  overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -32,18 +34,23 @@ import nl.zoofit.hintmeet.session.DocUi
 /** Document van de Mac openen: (ref, pad op de Mac of null = opzoeken in de bronnen van de meeting). */
 val LocalOpenDoc = staticCompositionLocalOf<(String, String?) -> Unit> { { _, _ -> } }
 
-/** Bronnen onder een hint of Backed-regel: tik = het document van de Mac halen. */
+/** Bronnen onder een hint of Backed-regel als chips: tik = het document van de Mac halen. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SourceLinks(sources: List<String>, modifier: Modifier = Modifier) {
     if (sources.isEmpty()) return
     val open = LocalOpenDoc.current
-    Column(modifier) {
+    androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         sources.forEach { ref ->
-            TextButton(onClick = { open(ref, null) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                horizontal = 0.dp, vertical = 0.dp)) {
-                Text("📄 " + ref.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall, maxLines = 1,
-                     overflow = TextOverflow.Ellipsis)
-            }
+            androidx.compose.material3.AssistChip(
+                onClick = { open(ref, null) },
+                label = { Text(ref.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Description, null,
+                                                                androidx.compose.ui.Modifier.size(18.dp)) },
+                colors = androidx.compose.material3.AssistChipDefaults.assistChipColors(
+                    labelColor = MaterialTheme.colorScheme.secondary,
+                    leadingIconContentColor = MaterialTheme.colorScheme.secondary),
+            )
         }
     }
 }
