@@ -35,6 +35,14 @@
                 <data android:scheme="hintmeet" android:host="pair" />
             </intent-filter>
         </activity>
+        <!-- documenten van de Mac openen met een andere app (pdf, Word …), alleen-lezen en per keer -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.docs"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/doc_paths" />
+        </provider>
         <service
             android:name=".audio.RecordingService"
             android:exported="false"

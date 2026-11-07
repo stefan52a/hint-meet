@@ -2,6 +2,14 @@
 
 What changes for the user, newest first. Technical details are in `git log`.
 
+## 2026-11-07
+
+### Android companion app
+
+- **Select and copy text:** press and hold on a hint, a line in *Backed* or the *Transcript*, a found passage (once you tapped it open) or the report to select text and copy it. A hint also has a *Copy* button that copies the whole hint with its sources.
+- **Open the document behind a hint:** the sources under a hint and under each *Backed* line are buttons, and an opened Find result has *Open document*. The phone gets the file from the Mac: Markdown and text show in the app (select and copy works there too), a PDF, Word file etc. opens in an app on the phone that can show it. The Mac only sends files from your knowledge bases and their source folders, up to 12 MB. Needs the updated Mac app.
+- **Add a folder on the Mac from the phone:** *Add Folder on the Mac…* on the start screen lets you browse the folders on the Mac, starting in `~/projects` (only folders in your home folder; no hidden ones, no file names). *Add* does the same as *Add Folder…* on the Mac: it converts the folder into a knowledge base, which the first time can take a long time. The start screen shows how far it is, and when it's done the new project is in the list and ticked. Needs the updated Mac app.
+
 ## 2026-11-06
 
 ### Android companion app

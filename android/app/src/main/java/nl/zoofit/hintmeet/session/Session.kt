@@ -67,6 +67,16 @@ object Session {
     val error = MutableStateFlow<String?>(null)
     val alarmsNow = MutableStateFlow<Set<Alarm>>(emptySet())
     val liveness = MutableStateFlow(Liveness(null, null, null))
+    /** Add Folder: mappen op de Mac bekijken en er een als kennisbank toevoegen. */
+    val folders = MutableStateFlow(FolderUi())
+    /** Wat de Mac aan het omzetten of laden is (Add Folder, Preload KB); null: niets bekend. */
+    val kbTask = MutableStateFlow<ServerMessage.KbTask?>(null)
+    /** Een document dat van de Mac komt (tik op een bron of zoekresultaat). */
+    val doc = MutableStateFlow<DocUi?>(null)
+    /** Bron → pad op de Mac, uit de hints en Backed van de meeting. */
+    private val docPaths = mutableMapOf<String, String>()
+    private var docTimeout: Job? = null
+    private const val DOC_TIMEOUT_MS = 60_000L
 
     private var client: GatewayClient? = null
     private var jobs = mutableListOf<Job>()
@@ -182,6 +192,12 @@ object Session {
             is ServerMessage.Said -> { onSaid(msg); return }   // geen meetingstand
             is ServerMessage.SearchResults -> { onSearchResults(msg); return }
             is ServerMessage.SearchStatus -> { onSearchStatus(msg); return }
+            is ServerMessage.Dirs -> { onDirs(msg); return }
+            is ServerMessage.FolderAdded -> { onFolderAdded(msg); return }
+            is ServerMessage.KbTask -> { kbTask.value = msg; return }
+            is ServerMessage.Doc -> { onDoc(msg); return }
+            is ServerMessage.Hint -> docPaths.putAll(msg.paths)
+            is ServerMessage.Confirm -> docPaths.putAll(msg.paths)
             is ServerMessage.AudioReady -> onAudioReady(msg)
             is ServerMessage.AudioAck -> if (msg.meeting == recordingMeeting) {
                 streamer?.onAck(msg.offset)
@@ -281,6 +297,7 @@ object Session {
 
     fun start(projects: List<String>, language: String, info: String) {
         find.value = FindUi()
+        docPaths.clear()
         meeting.value = startingFresh()
         val msg = buildJsonObject {
             put("type", "start")
@@ -424,7 +441,103 @@ object Session {
         }
     }
 
+    // ---------- mappen op de Mac (Add Folder) ----------
+
+    /** path null: de standaardmap op de Mac (~/projects). */
+    fun listDirs(path: String?) {
+        val id = "dirs-" + UUID.randomUUID().toString()
+        val msg = buildJsonObject { put("type", "list_dirs"); put("id", id); if (path != null) put("path", path) }
+        if (client?.sendText(msg.toString()) != true) {
+            folders.update { it.copy(loading = false, note = "The Mac isn't reachable. Try again.") }; return
+        }
+        folders.update { it.copy(requestId = id, loading = true, note = null) }
+    }
+
+    private fun onDirs(msg: ServerMessage.Dirs) {
+        val f = folders.value
+        if (msg.id != f.requestId) return
+        folders.value = if (msg.error != null || msg.path == null)
+            f.copy(loading = false, note = "HintMeet can only show folders in your home folder on the Mac.")
+        else f.copy(loading = false, path = msg.path, parent = msg.parent, dirs = msg.dirs, note = null)
+    }
+
+    fun addFolder(path: String) {
+        val id = "add-" + UUID.randomUUID().toString()
+        val msg = buildJsonObject { put("type", "add_folder"); put("id", id); put("path", path) }
+        if (client?.sendText(msg.toString()) != true) {
+            folders.update { it.copy(note = "The Mac isn't reachable. Try again.") }; return
+        }
+        folders.update { it.copy(addId = id, adding = true, note = null) }
+    }
+
+    private fun onFolderAdded(msg: ServerMessage.FolderAdded) {
+        val f = folders.value
+        if (msg.id != f.addId) return
+        folders.value = if (msg.ok) f.copy(adding = false, added = msg.project ?: f.path.substringAfterLast('/'))
+        else f.copy(adding = false, note = when (msg.error) {
+            "busy" -> "The Mac is busy (a meeting, or another folder or KB is loading). Try again when it's done."
+            "not_allowed" -> "HintMeet can only add folders in your home folder on the Mac."
+            else -> "Adding the folder failed on the Mac."
+        })
+    }
+
+    fun closeFolders() { folders.value = FolderUi() }
+
+    // ---------- documenten van de Mac ----------
+
+    /** Pad van een bron uit de meeting (hint of Backed), als de Mac het meestuurde. */
+    fun docPath(ref: String): String? = docPaths[ref]
+
+    fun openDoc(ref: String, path: String?) {
+        val p = path ?: docPaths[ref]
+        val name = ref.substringAfterLast('/')
+        if (p == null) { doc.value = DocUi(name = name, error = "The Mac didn't say where this document is."); return }
+        val id = "doc-" + UUID.randomUUID().toString()
+        val msg = buildJsonObject { put("type", "get_doc"); put("id", id); put("path", p) }
+        if (client?.sendText(msg.toString()) != true) {
+            doc.value = DocUi(name = name, error = "The Mac isn't reachable. Try again."); return
+        }
+        doc.value = DocUi(requestId = id, name = name, loading = true)
+        docTimeout?.cancel()
+        docTimeout = scope.launch {
+            delay(DOC_TIMEOUT_MS)
+            val d = doc.value
+            if (d?.requestId == id && d.loading) doc.value = d.copy(loading = false, error = "No answer from the Mac. Try again.")
+        }
+    }
+
+    fun closeDoc() { docTimeout?.cancel(); doc.value = null }
+
+    private fun onDoc(msg: ServerMessage.Doc) {
+        val d = doc.value ?: return
+        if (msg.id != d.requestId) return
+        docTimeout?.cancel()
+        if (msg.error != null || msg.data == null) {
+            doc.value = d.copy(loading = false, error = when (msg.error) {
+                "too_large" -> "This document is too large to send to the phone (over 12 MB)."
+                "not_found" -> "The document isn't on the Mac anymore."
+                else -> "HintMeet only sends documents from your knowledge bases."
+            })
+            return
+        }
+        scope.launch {
+            val opened = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { DocFiles.save(app, msg.name ?: d.name, msg.data) }.getOrNull()
+            }
+            if (doc.value?.requestId != msg.id) return@launch   // intussen gesloten of een ander document
+            if (opened == null) { doc.value = d.copy(loading = false, error = "Couldn't save the document on the phone."); return@launch }
+            val mime = msg.mime ?: "application/octet-stream"
+            doc.value = if (DocFiles.isText(mime, opened.name)) {
+                val text = kotlinx.coroutines.withContext(Dispatchers.IO) { opened.readText() }
+                d.copy(loading = false, name = opened.name, text = text)
+            } else if (DocFiles.view(app, opened, mime)) null
+            else d.copy(loading = false, name = opened.name,
+                        error = "No app on this phone opens this kind of document ($mime).")
+        }
+    }
+
     fun dismissMeeting() {
+        docPaths.clear()
         find.value = FindUi()
         sayState.value = SayState.Idle()
         meeting.value = MeetingUi()
@@ -494,4 +607,27 @@ data class FindUi(
     val note: String? = null,
     /** Voor welke projecten (Find vanaf het startscherm); leeg tijdens een meeting. */
     val projects: List<String> = emptyList(),
+)
+
+/** Add Folder: de map die nu getoond wordt, zijn submappen, en of er een toegevoegd is. */
+data class FolderUi(
+    val requestId: String? = null,
+    val loading: Boolean = false,
+    val path: String = "",
+    val parent: String? = null,
+    val dirs: List<String> = emptyList(),
+    val addId: String? = null,
+    val adding: Boolean = false,
+    /** Project waarin de Mac de toegevoegde map omzet. */
+    val added: String? = null,
+    val note: String? = null,
+)
+
+/** Document van de Mac: aan het ophalen, als tekst in de app, of een melding. Andere soorten opent Android zelf. */
+data class DocUi(
+    val requestId: String? = null,
+    val name: String = "",
+    val loading: Boolean = false,
+    val text: String? = null,
+    val error: String? = null,
 )

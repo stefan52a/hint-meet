@@ -43,7 +43,7 @@ fun ReportScreen(meeting: MeetingUi, done: () -> Unit) {
             val report = meeting.report
             when {
                 report != null -> AndroidView(
-                    factory = { TextView(it).apply { setTextColor(textColor); textSize = 17f } },
+                    factory = { TextView(it).apply { setTextColor(textColor); textSize = 17f; setTextIsSelectable(true) } },
                     update = { markwon.setMarkdown(it, report) },
                     modifier = Modifier.fillMaxWidth())
                 meeting.stoppedBy == StoppedBy.UNEXPECTED ->

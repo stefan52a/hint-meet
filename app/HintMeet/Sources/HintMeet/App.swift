@@ -211,6 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.showPhone() }
         }
         preparer = ProgressTask(logName: "prepare")
+        gateway?.attach(preparer: preparer) { [weak self] url in   // Add Folder vanaf de telefoon
+            guard let self else { return (nil, "failed") }
+            guard !self.kbPrep.isRunning, !self.preparer.isRunning, !self.backend.isRunning else { return (nil, "busy") }
+            guard self.settings.backendReady else { return (nil, "failed") }
+            self.ingest(folder: url)
+            return (self.settings.project, nil)
+        }
 
         let view = OverlayView(store: store, backend: backend, preparer: preparer, kbPrep: kbPrep, kbStatus: kbStatus,
                                settings: settings, layout: layout, dock: dock,

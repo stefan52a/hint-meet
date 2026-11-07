@@ -147,6 +147,35 @@ class MeetingReducerTest {
         assertEquals(ServerMessage.SearchStatus("p", "Loading acme…"), parse("""{"type":"search_status","id":"p","text":"Loading acme…"}"""))
     }
 
+    @Test fun sourcePathsAndDocHitPath() {
+        val h = parse("""{"type":"hint","id":1,"state":"final","text":"x","sources":[{"ref":"a/b.md","path":"/Users/s/KB/a/b.pdf"},"c.md"]}""")
+            as ServerMessage.Hint
+        assertEquals(listOf("a/b.md", "c.md"), h.sources)
+        assertEquals(mapOf("a/b.md" to "/Users/s/KB/a/b.pdf"), h.paths)
+        val c = parse("""{"type":"confirm","id":2,"text":"y","sources":[{"ref":"r","path":"/p"}]}""") as ServerMessage.Confirm
+        assertEquals(mapOf("r" to "/p"), c.paths)
+        val r = parse("""{"type":"search_results","id":"p","results":[{"ref":"x.md","heading":"","snippet":"s","path":"/k/x.pdf"}]}""")
+            as ServerMessage.SearchResults
+        assertEquals("/k/x.pdf", r.results[0].path)
+    }
+
+    @Test fun folderAndDocMessagesParse() {
+        assertEquals(ServerMessage.Dirs("d", "/Users/s/projects", "/Users/s", listOf("a", "b"), null),
+                     parse("""{"type":"dirs","id":"d","path":"/Users/s/projects","parent":"/Users/s","dirs":["a","b"],"home":"/Users/s"}"""))
+        assertEquals(ServerMessage.Dirs("d", "/Users/s", null, emptyList(), null),
+                     parse("""{"type":"dirs","id":"d","path":"/Users/s","parent":null,"dirs":[]}"""))
+        assertEquals("not_allowed", (parse("""{"type":"dirs","id":"d","error":"not_allowed"}""") as ServerMessage.Dirs).error)
+        assertEquals(ServerMessage.FolderAdded("a", true, "acme", null),
+                     parse("""{"type":"folder_added","id":"a","ok":true,"project":"acme","error":null}"""))
+        assertEquals(ServerMessage.KbTask("Adding acme", "Embeddings", 0.5, "running", null),
+                     parse("""{"type":"kb_task","title":"Adding acme","step":"Embeddings","fraction":0.5,"state":"running"}"""))
+        assertEquals(ServerMessage.Doc("g", "b.pdf", "application/pdf", "AAEC", null),
+                     parse("""{"type":"doc","id":"g","name":"b.pdf","mime":"application/pdf","data":"AAEC"}"""))
+        assertEquals("too_large", (parse("""{"type":"doc","id":"g","error":"too_large"}""") as ServerMessage.Doc).error)
+        val m = nl.zoofit.hintmeet.protocol.MeetingUi()
+        assertEquals(m, reduce(m, parse("""{"type":"kb_task","state":"idle"}""")!!))
+    }
+
     @Test fun unknownMessageIsIgnored() {
         assertNull(parseServer("""{"type":"future_thing"}"""))
         assertNull(parseServer("not json"))

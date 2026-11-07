@@ -151,5 +151,63 @@ section("search --serve progress lines") {
     check(SearchServe.progressText("@plan [[\"a\",\"b\"]]") == nil)
 }
 
+section("folders from the phone") {
+    check(PhoneRequest.parse(#"{"type":"list_dirs","id":"d1"}"#) == .listDirs(id: "d1", path: nil))
+    check(PhoneRequest.parse(#"{"type":"list_dirs","id":"d1","path":null}"#) == .listDirs(id: "d1", path: nil))
+    check(PhoneRequest.parse(#"{"type":"list_dirs","id":"d1","path":"/Users/x"}"#) == .listDirs(id: "d1", path: "/Users/x"))
+    check(PhoneRequest.parse(#"{"type":"list_dirs","id":"d1","path":"projects"}"#) == .invalid, "relatief pad")
+    check(PhoneRequest.parse(#"{"type":"list_dirs","id":"d1","path":3}"#) == .invalid)
+    check(PhoneRequest.parse(#"{"type":"list_dirs"}"#) == .invalid, "zonder id")
+    check(PhoneRequest.parse(#"{"type":"add_folder","id":"a1","path":"/Users/x/p"}"#) == .addFolder(id: "a1", path: "/Users/x/p"))
+    check(PhoneRequest.parse(#"{"type":"add_folder","id":"a1"}"#) == .invalid)
+    check(PhoneRequest.parse(#"{"type":"add_folder","id":"a\nb","path":"/x"}"#) == .invalid)
+
+    let fm = FileManager.default
+    let home = fm.temporaryDirectory.appendingPathComponent("hm-folders-\(UUID().uuidString)").resolvingSymlinksInPath().path
+    defer { try? fm.removeItem(atPath: home) }
+    for d in ["projects/b", "projects/A", "projects/.hidden", "projects/Tool.app", "other"] {
+        try? fm.createDirectory(atPath: home + "/" + d, withIntermediateDirectories: true)
+    }
+    fm.createFile(atPath: home + "/projects/file.txt", contents: Data())
+    try? fm.createSymbolicLink(atPath: home + "/projects/out", withDestinationPath: "/tmp")
+    check(FolderBrowser.defaultPath(home: home) == home + "/projects")
+    check(FolderBrowser.defaultPath(home: home + "/other") == home + "/other", "zonder projects: thuismap")
+    let l = FolderBrowser.list(home + "/projects", home: home)
+    check(l?.dirs == ["A", "b"], "alleen gewone mappen, gesorteerd: \(l?.dirs ?? [])")
+    check(l?.parent == home)
+    check(FolderBrowser.list(home, home: home)?.parent == nil, "niet boven de thuismap")
+    check(FolderBrowser.list("/tmp", home: home) == nil, "buiten de thuismap")
+    check(FolderBrowser.list(home + "/projects/out", home: home) == nil, "symlink naar buiten")
+    check(FolderBrowser.list(home + "/projects/../..", home: home) == nil, "..")
+    check(FolderBrowser.list(home + "/projects/file.txt", home: home) == nil, "bestand")
+    check(FolderBrowser.resolve(home + "/projects/A/", home: home) == home + "/projects/A")
+}
+
+section("documents for the phone") {
+    check(PhoneRequest.parse(#"{"type":"get_doc","id":"g1","path":"/a/b.pdf"}"#) == .getDoc(id: "g1", path: "/a/b.pdf"))
+    check(PhoneRequest.parse(#"{"type":"get_doc","id":"g1","path":"b.pdf"}"#) == .invalid)
+    check(PhoneRequest.parse(#"{"type":"get_doc","id":"g1"}"#) == .invalid)
+    let fm = FileManager.default
+    let base = fm.temporaryDirectory.appendingPathComponent("hm-docs-\(UUID().uuidString)").resolvingSymlinksInPath().path
+    defer { try? fm.removeItem(atPath: base) }
+    let kb = base + "/KB_md", src = base + "/sources/Acme", other = base + "/private"
+    for d in [kb + "/acme", src + "/sub", other] { try? fm.createDirectory(atPath: d, withIntermediateDirectories: true) }
+    let manifest = try! JSONSerialization.data(withJSONObject: ["source_root": src])
+    fm.createFile(atPath: kb + "/acme/_manifest.json", contents: manifest)
+    fm.createFile(atPath: kb + "/acme/note.md", contents: Data("x".utf8))
+    fm.createFile(atPath: src + "/sub/offer.pdf", contents: Data("x".utf8))
+    fm.createFile(atPath: other + "/secret.txt", contents: Data("x".utf8))
+    try? fm.createSymbolicLink(atPath: src + "/link.txt", withDestinationPath: other + "/secret.txt")
+    let roots = DocAccess.roots(kbRoot: kb)
+    check(roots.contains(src), "bronmap uit het manifest")
+    check(DocAccess.allowed(kb + "/acme/note.md", roots: roots) == kb + "/acme/note.md")
+    check(DocAccess.allowed(src + "/sub/offer.pdf", roots: roots) == src + "/sub/offer.pdf")
+    check(DocAccess.allowed(other + "/secret.txt", roots: roots) == nil, "buiten de kennisbanken")
+    check(DocAccess.allowed(src + "/link.txt", roots: roots) == nil, "symlink naar buiten")
+    check(DocAccess.allowed(src + "/sub/../../../private/secret.txt", roots: roots) == nil, "..")
+    check(DocAccess.allowed(src + "/sub", roots: roots) == nil, "map")
+    check(DocAccess.allowed(kb + "/acme/nope.md", roots: roots) == nil, "bestaat niet")
+}
+
 print(failures == 0 ? "\nAlle controles geslaagd" : "\n\(failures) controle(s) mislukt")
 exit(failures == 0 ? 0 : 1)

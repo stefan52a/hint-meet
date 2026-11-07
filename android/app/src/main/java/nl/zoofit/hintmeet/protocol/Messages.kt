@@ -15,10 +15,12 @@ enum class HintState { STREAMING, FINAL, RETRACTED }
 sealed interface ServerMessage {
     data class Hello(val project: String) : ServerMessage
     data class Utterance(val id: Int, val time: String, val speaker: String, val text: String) : ServerMessage
+    /** paths: bron → pad op de Mac, om het document op te halen (get_doc). */
     data class Hint(val id: Int, val state: HintState, val text: String, val sources: List<String>,
-                    val reason: String?) : ServerMessage
+                    val reason: String?, val paths: Map<String, String> = emptyMap()) : ServerMessage
     /** Linkerkolom op de Mac, "Backed by the knowledge base": kind "confirms" (✓) of "about" (📄). */
-    data class Confirm(val id: Int, val text: String, val kind: String, val sources: List<String>) : ServerMessage
+    data class Confirm(val id: Int, val text: String, val kind: String, val sources: List<String>,
+                       val paths: Map<String, String> = emptyMap()) : ServerMessage
     data class Status(val text: String) : ServerMessage
     data class Progress(val heardS: Double, val processedS: Double) : ServerMessage
     data class Summary(val markdown: String) : ServerMessage
@@ -38,10 +40,22 @@ sealed interface ServerMessage {
     /** Voortgang terwijl de Mac de kennisbank voor een zoekvraag laadt (buiten een meeting). */
     data class SearchStatus(val id: String, val text: String) : ServerMessage
     data class SearchResults(val id: String, val results: List<DocHit>, val reranked: Boolean, val error: String?) : ServerMessage
+    /** Mappen op de Mac (Add Folder): path de map zelf, parent nil in de thuismap. error "not_allowed". */
+    data class Dirs(val id: String, val path: String?, val parent: String?, val dirs: List<String>, val error: String?) : ServerMessage
+    /** Antwoord op add_folder: de Mac zet de map om tot kennisbank `project`. error: busy, not_allowed, failed. */
+    data class FolderAdded(val id: String, val ok: Boolean, val project: String?, val error: String?) : ServerMessage
+    /** Wat de Mac aan het omzetten of laden is. state: idle, running, done, failed. */
+    data class KbTask(val title: String, val step: String, val fraction: Double?, val state: String,
+                      val message: String?) : ServerMessage
+    /** Een document van de Mac (base64), of error: not_allowed, not_found, too_large. */
+    data class Doc(val id: String, val name: String?, val mime: String?, val data: String?, val error: String?) : ServerMessage {
+        override fun toString() = "Doc(id=$id, name=$name, mime=$mime, ${data?.length ?: 0} chars, error=$error)"
+    }
 }
 
 /** Eén gevonden document. relevance (0…1) als Jev meebeoordeelde; injection: lijkt instructies aan een AI te bevatten. */
-data class DocHit(val ref: String, val heading: String, val snippet: String, val relevance: Double?, val injection: Boolean) {
+data class DocHit(val ref: String, val heading: String, val snippet: String, val relevance: Double?, val injection: Boolean,
+                  val path: String? = null) {
     val name: String get() = ref.substringAfterLast('/')
 }
 
@@ -61,6 +75,12 @@ private fun sourceRef(e: JsonElement): String? = when (e) {
     is JsonObject -> e.str("ref")
     else -> null
 }
+
+/** ref → path van bronnen die als {"ref":…, "path":…} komen. */
+private fun sourcePaths(o: JsonObject): Map<String, String> =
+    (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { e ->
+        (e as? JsonObject)?.let { s -> s.str("ref")?.let { r -> s.str("path")?.let { r to it } } }
+    }?.toMap() ?: emptyMap()
 
 /** Eén bericht van de Mac, of null voor iets onbekends of kapots (dan negeren, nooit crashen). */
 fun parseServer(text: String): ServerMessage? {
@@ -82,10 +102,11 @@ fun parseServer(text: String): ServerMessage? {
             },
             o.str("text") ?: "",
             (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull(::sourceRef) ?: emptyList(),
-            o.str("reason"))
+            o.str("reason"), sourcePaths(o))
         "confirm" -> ServerMessage.Confirm(
             o.int("id") ?: return null, o.str("text") ?: "", o.str("kind") ?: "confirms",
-            (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull(::sourceRef) ?: emptyList())
+            (o["sources"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull(::sourceRef) ?: emptyList(),
+            sourcePaths(o))
         "status" -> ServerMessage.Status(o.str("text") ?: "")
         "progress" -> ServerMessage.Progress(o.double("heard_s") ?: 0.0, o.double("processed_s") ?: 0.0)
         "summary" -> ServerMessage.Summary(o.str("markdown") ?: "")
@@ -107,12 +128,18 @@ fun parseServer(text: String): ServerMessage? {
             (o["results"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { e ->
                 (e as? JsonObject)?.let {
                     DocHit(it.str("ref") ?: return@let null, it.str("heading") ?: "", it.str("snippet") ?: "",
-                           it.double("relevance"), it.bool("injection") ?: false)
+                           it.double("relevance"), it.bool("injection") ?: false, it.str("path"))
                 }
             } ?: emptyList(),
             o.bool("reranked") ?: false, o.str("error"))
         "search_status" -> ServerMessage.SearchStatus(o.str("id") ?: return null, o.str("text") ?: "")
         "said" -> ServerMessage.Said(o.str("say_id") ?: return null, o.bool("ok") ?: false)
+        "dirs" -> ServerMessage.Dirs(o.str("id") ?: return null, o.str("path"), o.str("parent"), o.strings("dirs"), o.str("error"))
+        "folder_added" -> ServerMessage.FolderAdded(o.str("id") ?: return null, o.bool("ok") ?: false, o.str("project"),
+                                                    o.str("error"))
+        "kb_task" -> ServerMessage.KbTask(o.str("title") ?: "", o.str("step") ?: "", o.double("fraction"),
+                                          o.str("state") ?: "idle", o.str("message"))
+        "doc" -> ServerMessage.Doc(o.str("id") ?: return null, o.str("name"), o.str("mime"), o.str("data"), o.str("error"))
         else -> null
     }
 }

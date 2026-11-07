@@ -21,6 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import nl.zoofit.hintmeet.ui.FindScreen
+import nl.zoofit.hintmeet.ui.DocViewer
+import nl.zoofit.hintmeet.ui.FolderScreen
+import nl.zoofit.hintmeet.ui.LocalOpenDoc
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,9 +74,16 @@ fun App(vm: AppViewModel) {
     val liveness by vm.liveness.collectAsStateWithLifecycle()
     val sayState by vm.sayState.collectAsStateWithLifecycle()
     val find by vm.find.collectAsStateWithLifecycle()
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val kbTask by vm.kbTask.collectAsStateWithLifecycle()
+    val doc by vm.doc.collectAsStateWithLifecycle()
+    var folderOpen by rememberSaveable { mutableStateOf(false) }   // Add Folder vanaf het startscherm
     var findProjects by rememberSaveable { mutableStateOf<List<String>?>(null) }   // Find vanaf het startscherm
     // een meeting neemt het scherm over: daarna terug naar het startscherm, niet naar een oud Find-scherm
-    androidx.compose.runtime.LaunchedEffect(meeting.phase) { if (meeting.phase != Phase.IDLE) findProjects = null }
+    androidx.compose.runtime.LaunchedEffect(meeting.phase) {
+        if (meeting.phase != Phase.IDLE) { findProjects = null; folderOpen = false }
+    }
+    DocViewer(doc, vm::closeDoc)
     pending?.let { p ->
         AlertDialog(
             onDismissRequest = { vm.confirmPairing(p, false) },
@@ -88,13 +98,15 @@ fun App(vm: AppViewModel) {
         AlertDialog(onDismissRequest = { vm.error.value = null }, text = { Text(e) },
                     confirmButton = { TextButton(onClick = { vm.error.value = null }) { Text("OK") } })
     }
-    when {
+    androidx.compose.runtime.CompositionLocalProvider(LocalOpenDoc provides vm::openDoc) { when {
         pairing == null -> PairingScreen(vm::pair)
         meeting.phase == Phase.RUNNING || meeting.phase == Phase.STOPPING ->
             MeetingScreen(meeting, connected, gateway?.startedAtMs, liveness, alarms, vm::feedback, sayState, vm::say, vm::clearSayError,
                           find, vm::search) { vm.stop() }
         meeting.phase == Phase.ENDED -> ReportScreen(meeting, vm::dismissMeeting)
         findProjects != null -> FindScreen(find, findProjects!!, connected, { vm.search(it, findProjects!!) }) { findProjects = null }
-        else -> StartScreen(connected, gateway, projects, meeting, vm::start, { vm.openFind(it); findProjects = it }, vm::unpair)
-    }
+        folderOpen -> FolderScreen(folders, connected, vm::listDirs, vm::addFolder) { folderOpen = false }
+        else -> StartScreen(connected, gateway, projects, meeting, kbTask, folders.added, vm::start,
+                            { vm.openFind(it); findProjects = it }, { vm.closeFolders(); folderOpen = true }, vm::unpair)
+    } }
 }

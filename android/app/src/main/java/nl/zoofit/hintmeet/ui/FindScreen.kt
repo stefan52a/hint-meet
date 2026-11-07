@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -95,7 +96,13 @@ private fun DocRow(hit: DocHit) {
         if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium,
                                     color = if (hit.injection) MaterialTheme.colorScheme.error
                                             else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = if (open) Int.MAX_VALUE else 3,
-             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        // open: lang drukken selecteert en kopieert; dicht: tikken klapt open
+        if (open) {
+            SelectionContainer { Text(hit.snippet, style = MaterialTheme.typography.bodyMedium) }
+            val openDoc = LocalOpenDoc.current
+            TextButton(onClick = { openDoc(hit.ref, hit.path) }, enabled = hit.path != null) { Text("Open document") }
+        }
+        else Text(hit.snippet, style = MaterialTheme.typography.bodyMedium, maxLines = 3,
+                  overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }

@@ -17,6 +17,9 @@ class AppViewModel : ViewModel() {
     val liveness = Session.liveness
     val sayState = Session.sayState
     val find = Session.find
+    val folders = Session.folders
+    val kbTask = Session.kbTask
+    val doc = Session.doc
 
     fun pair(uri: String?): String? = Session.pair(uri)
     fun offerPairing(uri: String?) = Session.offerPairing(uri)
@@ -30,4 +33,9 @@ class AppViewModel : ViewModel() {
     fun search(query: String, projects: List<String> = emptyList()) = Session.search(query, projects)
     fun openFind(projects: List<String>) = Session.openFind(projects)
     fun dismissMeeting() = Session.dismissMeeting()
+    fun listDirs(path: String?) = Session.listDirs(path)
+    fun addFolder(path: String) = Session.addFolder(path)
+    fun closeFolders() = Session.closeFolders()
+    fun openDoc(ref: String, path: String?) = Session.openDoc(ref, path)
+    fun closeDoc() = Session.closeDoc()
 }

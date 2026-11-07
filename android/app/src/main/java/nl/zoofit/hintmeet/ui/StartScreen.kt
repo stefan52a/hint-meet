@@ -61,8 +61,12 @@ fun StartScreen(
     gateway: ServerMessage.State?,
     projects: ServerMessage.Projects?,
     meeting: MeetingUi,
+    kbTask: ServerMessage.KbTask?,
+    /** Project waarin de Mac een vanaf de telefoon toegevoegde map omzet (om het meteen aan te vinken). */
+    added: String?,
     start: (List<String>, String, String) -> Unit,
     openFind: (List<String>) -> Unit,
+    addFolder: () -> Unit,
     unpair: () -> Unit,
 ) {
     var chosen by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
@@ -81,6 +85,9 @@ fun StartScreen(
     }
     LaunchedEffect(projects) {   // eerste keer: wat op de Mac gekozen is
         if (chosen.isEmpty() && projects != null) chosen = projects.selected.filter { it in projects.items }
+    }
+    LaunchedEffect(added, projects) {   // toegevoegde map: aanvinken zodra hij als project bestaat
+        if (added != null && projects != null && added in projects.items && added !in chosen) chosen = chosen + added
     }
     val busy = gateway?.busyElsewhere == true || (gateway != null && gateway.phase != "idle" && meeting.phase == Phase.IDLE)
     val starting = meeting.phase == Phase.STARTING
@@ -129,6 +136,17 @@ fun StartScreen(
         if (starting) Text(meeting.status ?: "Starting the pipeline on the Mac…", style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(onClick = { openFind(chosen) }, enabled = connected && chosen.isNotEmpty() && !busy && !starting,
                        modifier = Modifier.fillMaxWidth()) { Text("Find in Documents…") }
+        OutlinedButton(onClick = addFolder, enabled = connected && !busy && !starting && kbTask?.state != "running",
+                       modifier = Modifier.fillMaxWidth()) { Text("Add Folder on the Mac…") }
+        kbTask?.takeIf { it.state != "idle" }?.let { t ->
+            val pct = t.fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""
+            Text(when (t.state) {
+                "running" -> "${t.title}: ${t.step}$pct"
+                "failed" -> t.message ?: "${t.title} failed"
+                else -> "${t.title}: ${t.message ?: "done"}"
+            }, style = MaterialTheme.typography.bodyMedium,
+                 color = if (t.state == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (micRefused) Text("HintMeet needs the microphone to record the meeting (Android settings → Apps → HintMeet).",
                              color = MaterialTheme.colorScheme.error)
 

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Documenten van de Mac (DocFiles): alleen de map cache/docs is te delen met een andere app. -->
+<paths>
+    <cache-path name="docs" path="docs/" />
+</paths>

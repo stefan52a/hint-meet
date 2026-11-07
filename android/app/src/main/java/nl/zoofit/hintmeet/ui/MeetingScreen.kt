@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -239,11 +240,12 @@ private fun Backed(meeting: MeetingUi) {
     val times = meeting.transcript.associate { it.id to it.time }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         items(meeting.backed, key = { "${it.id}-${it.text.hashCode()}" }) { b ->
-            Column(Modifier.padding(vertical = 8.dp)) {
+            Column { SelectionContainer { Column(Modifier.padding(vertical = 8.dp)) {   // lang drukken: selecteren en kopiëren
                 Text((if (b.confirms) "✓  " else "📄  ") + b.text, style = MaterialTheme.typography.bodyLarge)
-                val meta = listOfNotNull(times[b.id], b.sources.joinToString(" · ").ifEmpty { null }).joinToString("  ·  ")
-                if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                times[b.id]?.let { Text(it, style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            } }
+            SourceLinks(b.sources, Modifier.padding(bottom = 4.dp))   // tik: het document van de Mac
             }
         }
     }
@@ -255,11 +257,11 @@ private fun Transcript(meeting: MeetingUi) {
     FollowNewest(list, meeting.transcript.size)
     LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         items(meeting.transcript, key = { it.id }) { line ->
-            Column(Modifier.padding(vertical = 6.dp)) {
+            SelectionContainer { Column(Modifier.padding(vertical = 6.dp)) {
                 Text("${line.time}  ${line.speaker}", style = MaterialTheme.typography.labelMedium,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(line.text, style = MaterialTheme.typography.bodyLarge)
-            }
+            } }
         }
     }
 }

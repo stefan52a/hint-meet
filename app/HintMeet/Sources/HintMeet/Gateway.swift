@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import HintMeetCore
 import Network
+import UniformTypeIdentifiers
 
 /// WebSocket naar de pijplijn op 127.0.0.1 (de hub of de audiobron), voor de gateway. Probeert elke seconde
 /// opnieuw tot hij er is; `reconnect()` begint een nieuwe verbinding (dan speelt de hub zijn backlog opnieuw af
@@ -132,6 +133,12 @@ final class Gateway: ObservableObject {
 
     /// Alleen voor tests op deze Mac zonder Tailscale (zie GatewayTestMode).
     private let testHost = GatewayTestMode.host
+    /// "Add Folder" vanaf de telefoon: de app zet de map om (zoals Add Folder… op de Mac). Geeft het project, of
+    /// een fout ("busy" als er al iets wordt omgezet of geladen).
+    private var addFolder: ((URL) -> (project: String?, error: String?))?
+    private var preparer: ProgressTask?
+    private var preparerWatch: [AnyCancellable] = []
+    private var lastTaskSent = Date.distantPast
 
     init(settings: Settings, backend: Backend) {
         self.settings = settings
@@ -358,11 +365,112 @@ final class Gateway: ObservableObject {
         }
     }
 
+    /// Door de app na het starten: Add Folder vanaf de telefoon, en de voortgang van omzetten/laden naar de telefoon.
+    func attach(preparer: ProgressTask, addFolder: @escaping (URL) -> (project: String?, error: String?)) {
+        self.preparer = preparer
+        self.addFolder = addFolder
+        preparerWatch = [
+            preparer.$state.removeDuplicates().sink { [weak self] _ in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.pushTask(force: true) } }
+            },
+            preparer.$step.combineLatest(preparer.$fraction).sink { [weak self] _ in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.pushTask(force: false) } }
+            },
+        ]
+    }
+
+    /// `kb_task`: wat de Mac aan het omzetten of laden is (Add Folder, Preload KB). Voortgang hooguit elke 2 s;
+    /// klaar of mislukt meteen, met daarna de nieuwe lijst projecten.
+    private func taskJSON() -> String? {
+        guard let p = preparer else { return nil }
+        var msg: [String: Any] = ["type": "kb_task", "title": p.title, "step": p.step]
+        if let f = p.fraction { msg["fraction"] = f }
+        switch p.state {
+        case .idle: msg["state"] = "idle"
+        case .running: msg["state"] = "running"
+        case .done(let text): msg["state"] = "done"; msg["message"] = text
+        case .failed(let text): msg["state"] = "failed"; msg["message"] = text
+        }
+        return Self.json(msg)
+    }
+
+    private func pushTask(force: Bool) {
+        guard force || Date().timeIntervalSince(lastTaskSent) >= 2, let json = taskJSON() else { return }
+        lastTaskSent = Date()
+        broadcast(json)
+        if force, let p = preparer, !p.isRunning { broadcast(projectsJSON()) }
+    }
+
+    private func projectsJSON() -> String {
+        Self.json(["type": "projects", "items": settings.projects, "selected": settings.selectedProjects])
+    }
+
+    nonisolated private static func json(_ obj: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: obj) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func listDirs(id: String, path: String?, to link: PhoneLink) {
+        let home = NSHomeDirectory()
+        guard let l = FolderBrowser.list(path ?? FolderBrowser.defaultPath(home: home), home: home) else {
+            link.send(Self.json(["type": "dirs", "id": id, "error": "not_allowed"]))
+            return
+        }
+        link.send(Self.json(["type": "dirs", "id": id, "path": l.path, "parent": l.parent ?? NSNull(), "dirs": l.dirs,
+                             "home": home]))
+    }
+
+    private func addFolder(id: String, path: String, to link: PhoneLink) {
+        let reply = { (ok: Bool, project: String?, error: String?) in
+            link.send(Self.json(["type": "folder_added", "id": id, "ok": ok, "project": project ?? NSNull(),
+                                 "error": error ?? NSNull()]))
+        }
+        guard !backend.isRunning else { return reply(false, nil, "busy") }
+        guard let real = FolderBrowser.resolve(path, home: NSHomeDirectory()), let addFolder else {
+            return reply(false, nil, "not_allowed")
+        }
+        let result = addFolder(URL(fileURLWithPath: real))
+        Gateway.log("phone: add folder \(real) → \(result.project ?? result.error ?? "?")")
+        reply(result.error == nil, result.project, result.error)
+        pushTask(force: true)
+    }
+
+    /// Een document naar deze telefoon (base64 in JSON); alleen uit de kennisbanken, hooguit 12 MB.
+    private func sendDoc(id: String, path: String, to link: PhoneLink) {
+        let kbRoot = settings.kbRoot
+        DispatchQueue.global(qos: .userInitiated).async {
+            let msg: [String: Any]
+            if let real = DocAccess.allowed(path, roots: DocAccess.roots(kbRoot: kbRoot)) {
+                let size = (try? FileManager.default.attributesOfItem(atPath: real)[.size] as? Int) ?? 0
+                if size > DocAccess.maxBytes {
+                    msg = ["type": "doc", "id": id, "error": "too_large"]
+                } else if let data = FileManager.default.contents(atPath: real) {
+                    let url = URL(fileURLWithPath: real)
+                    let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                    msg = ["type": "doc", "id": id, "name": url.lastPathComponent, "mime": mime,
+                           "data": data.base64EncodedString()]
+                } else {
+                    msg = ["type": "doc", "id": id, "error": "not_found"]
+                }
+            } else {
+                msg = ["type": "doc", "id": id, "error": "not_allowed"]
+            }
+            let json = Self.json(msg)
+            DispatchQueue.main.async { MainActor.assumeIsolated { link.send(json) } }
+        }
+    }
+
     private func handle(_ text: String, from link: PhoneLink) {
         switch PhoneRequest.parse(text) {
         case .projects:
-            let msg: [String: Any] = ["type": "projects", "items": settings.projects, "selected": settings.selectedProjects]
-            if let data = try? JSONSerialization.data(withJSONObject: msg) { link.send(String(decoding: data, as: UTF8.self)) }
+            link.send(projectsJSON())
+            if let json = taskJSON(), preparer?.state != .idle { link.send(json) }
+        case let .listDirs(id, path):
+            listDirs(id: id, path: path, to: link)
+        case let .addFolder(id, path):
+            addFolder(id: id, path: path, to: link)
+        case let .getDoc(id, path):
+            sendDoc(id: id, path: path, to: link)
         case .state:
             link.send(state().json())
         case let .start(requestID, projects, language, info):

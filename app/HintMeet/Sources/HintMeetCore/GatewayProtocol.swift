@@ -68,6 +68,11 @@ public enum PhoneRequest: Equatable {
     case toHub(String)
     /// projects nil: uit de Find-tab van een meeting (zoekt in de KB van de meeting); anders het startscherm.
     case search(raw: String, id: String, query: String, projects: [String]?)
+    /// Mappen op de Mac bekijken (path nil: de standaardmap) en er een als kennisbank toevoegen.
+    case listDirs(id: String, path: String?)
+    case addFolder(id: String, path: String)
+    /// Een document (bron van een hint, Backed of Find) naar de telefoon halen.
+    case getDoc(id: String, path: String)
     case invalid
 
     public static let hubTypes: Set<String> = ["stop", "feedback", "language", "say"]
@@ -83,9 +88,21 @@ public enum PhoneRequest: Equatable {
                   let projects = obj["projects"] as? [String], !projects.isEmpty else { return .invalid }
             return .start(requestID: id, projects: projects,
                           language: obj["language"] as? String ?? "nl", info: obj["info"] as? String ?? "")
+        case "list_dirs":
+            guard let id = requestID(obj) else { return .invalid }
+            if let value = obj["path"], !(value is NSNull) {
+                guard let path = value as? String, path.hasPrefix("/") else { return .invalid }
+                return .listDirs(id: id, path: path)
+            }
+            return .listDirs(id: id, path: nil)
+        case "add_folder":
+            guard let id = requestID(obj), let path = obj["path"] as? String, path.hasPrefix("/") else { return .invalid }
+            return .addFolder(id: id, path: path)
+        case "get_doc":
+            guard let id = requestID(obj), let path = obj["path"] as? String, path.hasPrefix("/") else { return .invalid }
+            return .getDoc(id: id, path: path)
         case "search":
-            guard let id = obj["id"] as? String, !id.isEmpty, id.count <= 80,
-                  id.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
+            guard let id = requestID(obj),
                   let query = (obj["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else { return .invalid }
             let projects: [String]?
@@ -97,6 +114,13 @@ public enum PhoneRequest: Equatable {
         default:
             return hubTypes.contains(type) ? .toHub(text) : .invalid
         }
+    }
+
+    /// Id van een verzoek van de telefoon: tekst, hooguit 80 tekens, zonder stuurtekens.
+    private static func requestID(_ obj: [String: Any]) -> String? {
+        guard let id = obj["id"] as? String, !id.isEmpty, id.count <= 80,
+              id.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        return id
     }
 }
 
@@ -257,5 +281,81 @@ public enum SearchServe {
         guard parts.count == fields else { return nil }
         let text = parts[fields - 1].trimmingCharacters(in: .whitespaces)
         return text.isEmpty ? nil : text
+    }
+}
+
+/// Mappen op deze Mac kiezen vanaf de telefoon ("Add Folder"): alleen mappen, alleen binnen de thuismap, geen
+/// verborgen mappen of pakketten (.app e.d.). Bestandsnamen gaan nooit naar de telefoon.
+public enum FolderBrowser {
+    public struct Listing: Equatable {
+        public var path: String
+        public var parent: String?
+        public var dirs: [String]
+    }
+
+    /// Standaard: ~/projects als die bestaat, anders de thuismap.
+    public static func defaultPath(home: String) -> String {
+        var isDir: ObjCBool = false
+        let projects = home + "/projects"
+        return FileManager.default.fileExists(atPath: projects, isDirectory: &isDir) && isDir.boolValue ? projects : home
+    }
+
+    /// Het pad zoals het echt is (symlinks opgelost), of nil als het geen map binnen `home` is.
+    public static func resolve(_ path: String, home: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        let root = URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path
+        let real = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        guard real == root || real.hasPrefix(root + "/") else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: real, isDirectory: &isDir), isDir.boolValue else { return nil }
+        return real
+    }
+
+    public static func list(_ path: String, home: String) -> Listing? {
+        guard let real = resolve(path, home: home) else { return nil }
+        let root = URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path
+        let url = URL(fileURLWithPath: real)
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isHiddenKey]
+        let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys,
+                                                                  options: [.skipsHiddenFiles])) ?? []
+        let dirs = items.compactMap { item -> String? in
+            guard let v = try? item.resourceValues(forKeys: Set(keys)), v.isDirectory == true,
+                  v.isPackage != true, v.isHidden != true else { return nil }
+            return item.lastPathComponent
+        }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let parent = real == root ? nil : url.deletingLastPathComponent().path
+        return Listing(path: real, parent: parent, dirs: dirs)
+    }
+}
+
+/// Welke documenten de telefoon mag ophalen: alleen bestanden in de kennisbankmap of in een bronmap van een
+/// kennisbank (source_root uit kb_prep's manifest). Nooit iets anders op de Mac.
+public enum DocAccess {
+    public static let maxBytes = 12 * 1024 * 1024
+
+    /// Het echte pad (symlinks opgelost) als het een bestand binnen een van de `roots` is, anders nil.
+    public static func allowed(_ path: String, roots: [String]) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        let real = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: real, isDirectory: &isDir), !isDir.boolValue else { return nil }
+        for root in roots where !root.isEmpty {
+            let r = URL(fileURLWithPath: root).resolvingSymlinksInPath().standardizedFileURL.path
+            if r != "/" && real.hasPrefix(r + "/") { return real }
+        }
+        return nil
+    }
+
+    /// kbRoot plus de source_root van elk project met een manifest.
+    public static func roots(kbRoot: String) -> [String] {
+        var out = [kbRoot]
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: kbRoot)) ?? []
+        for name in names where !name.hasPrefix(".") {
+            let manifest = URL(fileURLWithPath: kbRoot).appendingPathComponent(name).appendingPathComponent("_manifest.json")
+            if let data = try? Data(contentsOf: manifest),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let root = json["source_root"] as? String { out.append(root) }
+        }
+        return out
     }
 }
