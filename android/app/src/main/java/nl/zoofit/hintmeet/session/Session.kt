@@ -137,6 +137,7 @@ object Session {
     }
 
     fun unpair() {
+        removeId = null; removing.value = null
         disconnect()
         store.clear()
         pairing.value = null
@@ -491,6 +492,7 @@ object Session {
 
     /** Na bevestiging op de telefoon: de Mac zet de kennisbank van `project` in de Prullenmand. */
     fun removeProject(project: String) {
+        if (removing.value != null) return   // één tegelijk (de knoppen staan dan ook uit)
         val id = "rm-" + UUID.randomUUID().toString()
         val msg = buildJsonObject { put("type", "remove_project"); put("id", id); put("project", project) }
         if (client?.sendText(msg.toString()) != true) { error.value = "The Mac isn't reachable. Try again."; return }

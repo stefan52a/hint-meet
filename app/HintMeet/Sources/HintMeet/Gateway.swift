@@ -408,6 +408,13 @@ final class Gateway: ObservableObject {
     /// De lijst projecten is veranderd (toegevoegd of verwijderd, ook op de Mac): naar alle telefoons.
     func projectsChanged() { broadcast(projectsJSON()) }
 
+    /// Een project is verwijderd (op de Mac of vanaf de telefoon): een zoekproces van de telefoon kan het geladen
+    /// hebben, dus stoppen; daarna de nieuwe lijst naar de telefoons.
+    func projectRemoved() {
+        phoneSearch.stop()
+        projectsChanged()
+    }
+
     private func projectsJSON() -> String {
         Self.json(["type": "projects", "items": settings.projects, "selected": settings.selectedProjects])
     }
@@ -477,12 +484,10 @@ final class Gateway: ObservableObject {
         case let .addFolder(id, path):
             addFolder(id: id, path: path, to: link)
         case let .removeProject(id, project):
-            phoneSearch.stop()   // een zoekproces van de telefoon kan dit project geladen hebben
             let error: String? = removeProject.map { $0(project) } ?? "failed"   // nil = gelukt
             Gateway.log("phone: remove project \(project) → \(error ?? "ok")")
             link.send(Self.json(["type": "project_removed", "id": id, "project": project, "ok": error == nil,
                                  "error": error ?? NSNull()]))
-            projectsChanged()
         case let .getDoc(id, path):
             sendDoc(id: id, path: path, to: link)
         case .state:

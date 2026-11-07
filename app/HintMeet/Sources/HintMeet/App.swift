@@ -717,7 +717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.objectWillChange.send()   // de lijst projecten komt van schijf: menu's opnieuw laten tekenen
         settings.project = ProjectRemoval.deselect(name, from: settings.project)
         for key in ["prepareDurations." + name, "kbprepDurations." + name] { UserDefaults.standard.removeObject(forKey: key) }
-        gateway?.projectsChanged()
+        gateway?.projectRemoved()   // ook het zoekproces van de telefoon
         return nil
     }
 
